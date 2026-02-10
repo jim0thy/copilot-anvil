@@ -1,313 +1,225 @@
-# Copilot SDK TUI Harness Requirements
+# Copilot SDK TUI Harness
 
-## Summary
+## Project Overview
 
-Build a terminal UI (TUI) in **TypeScript** using **Ink** that wraps the **GitHub Copilot SDK** (`@github/copilot-sdk`). The app provides an interactive chat experience with **streaming assistant output**, structured logs, cancellable runs, and a foundation for future enhancements: **task management & memory**, **git support with diffs**, **GitHub PR workflows**, and a **file browser**.
-
-The design must follow **Option A**: the Copilot SDK **session** is the source of truth for conversational context, while the app maintains its own UI transcript and additional state (tasks/memory/resources).
+A terminal UI (TUI) for interacting with GitHub Copilot, built with TypeScript, Ink, and the `@github/copilot-sdk`. See [`docs/REQUIREMENTS.md`](./docs/REQUIREMENTS.md) for full specifications.
 
 ---
 
-## Goals
-
-1. Provide a usable Ink-based TUI for interacting with a Copilot SDK session.
-2. Support streaming output (token/delta streaming).
-3. Support cancellation/interrupt of an in-flight run.
-4. Emit and consume a stable internal event protocol (`HarnessEvent`) to decouple UI from Copilot SDK specifics.
-5. Provide plugin-ready architecture (registries for panes/tools/state slices/commands), even if only minimally used in v0.
-6. Keep codebase clean, typed, and extendable for planned enhancements.
-
----
-
-## Non-Goals (v0)
-
-* Implement full task management UI/logic beyond scaffolding.
-* Implement persistent memory / embeddings / vector DB.
-* Implement full git tooling, diff rendering, PR creation flows.
-* Implement a file browser pane (beyond scaffolding).
-* Perfect scrollback / advanced terminal UX (keep MVP simple).
-
----
-
-## Target Stack
-
-* Node.js 18+
-* TypeScript + `tsx` runner
-* `ink` + `react`
-* `@github/copilot-sdk`
-
----
-
-## High-Level Architecture
-
-### Components
-
-1. **Copilot Session Adapter**
-
-    * Responsible for starting/stopping `CopilotClient`
-    * Creating/resuming a `CopilotSession`
-    * Subscribing to SDK events and relaying them to the harness
-    * Must not contain UI code
-
-2. **Harness (Orchestrator)**
-
-    * Owns internal event bus and run lifecycle
-    * Stores UI transcript (user/assistant messages) for display only
-    * Converts Copilot SDK events → internal `HarnessEvent`s
-    * Provides `dispatch(UIAction)` interface for UI → harness commands
-    * Supports plugin registry scaffolding (panes/tools/commands/state slices)
-
-3. **Ink UI**
-
-    * Renders based on local state updated via harness events
-    * Contains panes: Chat + Side pane (Logs) in v0
-    * Uses input box to submit prompts
-    * Provides keybinds: Escape quit, Ctrl+C cancel
-
----
-
-## Data Contracts
-
-### Internal Event Protocol (`HarnessEvent`)
-
-Implement at minimum:
-
-* `run.started { runId, createdAt }`
-* `assistant.delta { runId, text }`
-* `assistant.message { runId, message }`
-* `log { runId, level, message, data? }`
-* `run.cancelled { runId, createdAt }`
-* `run.finished { runId, createdAt }`
-
-Include scaffolding types now for future features (even if unused in v0):
-
-* `resource.created { resource }`
-* `permission.requested { requestId, prompt }`
-* `state.updated { slice, patch }` (optional in v0, reserved for later)
-
-### Transcript Model
-
-* `ChatMessage { id, role: "user"|"assistant"|"tool"|"system", content, createdAt }`
-* Transcript is for UI and persistence later; Copilot session remains the real conversational memory.
-
-### UIAction Protocol
-
-Implement:
-
-* `submit.prompt { text }`
-* `cancel`
-  Reserve for later:
-* `select.resource { uri }`
-* `permission.respond { requestId, allow }`
-* `approve.patch { patchId }`
-
----
-
-## Functional Requirements (v0)
-
-### FR1 — App Boot / Runtime
-
-* `npm run dev` starts the Ink app using `tsx`.
-* App loads without needing any existing code or config beyond what’s in repo.
-
-### FR2 — Copilot SDK Session Lifecycle
-
-* On startup or first prompt, initialize Copilot SDK:
-
-    * start `CopilotClient`
-    * create a session with `streaming: true`
-* Session should be reused across prompts in the same app run.
-
-### FR3 — Prompt Submission
-
-* User can type in an input box and submit prompt.
-* Submitting triggers:
-
-    * `run.started`
-    * transcript append: user message
-    * SDK `session.sendAndWait({ prompt })` (or equivalent “send then wait idle” strategy)
-    * streaming deltas shown in UI as they arrive
-    * final assistant message appended to transcript
-    * `run.finished`
-
-### FR4 — Streaming Output
-
-* UI must display assistant output incrementally as it streams.
-* Streaming must feel responsive (sub-100ms updates).
-* When run completes, streaming buffer is committed as final assistant message.
-
-### FR5 — Cancellation
-
-* Ctrl+C while a run is active should cancel the run.
-* Cancellation should:
-
-    * stop streaming updates
-    * emit `run.cancelled`
-    * return UI to idle state
-* If the SDK doesn’t support aborting a single request cleanly, app should implement “best-effort cancel”:
-
-    * ignore subsequent deltas
-    * optionally tear down and recreate the session if necessary (document behavior).
-
-### FR6 — Logs Pane
-
-* Side pane shows recent log lines (capped).
-* Log important lifecycle events:
-
-    * run started/finished/cancelled
-    * SDK init failures
-    * unexpected errors
-
-### FR7 — Error Handling
-
-* Errors should not crash the TUI.
-* Errors should emit `log level=error` and end the run (`run.finished`).
-* Provide actionable error messages (e.g., Copilot CLI not installed/authenticated).
-
----
-
-## UX Requirements
-
-### Layout
-
-* Top bar: status (IDLE/RUNNING) + key hints (Esc quit, Ctrl+C cancel)
-* Main area split:
-
-    * Left: Chat transcript + streaming assistant draft
-    * Right: Logs
-* Bottom: input box
-
-### Keybinds
-
-* `Esc` quits.
-* `Ctrl+C` cancels active run (when idle, can optionally quit—choose one behavior and document it; preferred: cancel if running, quit if idle).
-
-### Message Rendering
-
-* Minimal plain text rendering (no need for markdown parsing in v0).
-* Prefix each message with role label.
-
----
-
-## Extensibility Requirements (must be built into v0)
-
-### ER1 — Plugin Registry Scaffolding
-
-Even if only used lightly, implement:
-
-* A `HarnessPlugin` interface (`register(ctx)`, `onEvent?`)
-* A way to `harness.use(plugin)`
-* `PluginContext` exposing:
-
-    * `emit(evt)` (required)
-    * placeholders/registries for future:
-
-        * tools registry (stub)
-        * panes registry (stub)
-        * state slice registry (stub)
-        * commands registry (stub)
-
-### ER2 — Resource Model
-
-Define a `Resource` type (URI-based) now, used later by:
-
-* git diffs: `git://diff?...`
-* file browser: `file:///...`
-* PRs: `github://pull/123`
-
-No UI needed in v0, but the type should exist and be plumbable via events.
-
-### ER3 — No UI↔SDK Coupling
-
-UI must not import `@github/copilot-sdk` directly.
-All Copilot SDK interaction goes through adapter + harness.
-
----
-
-## Implementation Notes (guidance to agent)
-
-### Suggested Project Structure
-
-```
-src/
-  index.tsx
-  copilot/CopilotSessionAdapter.ts
-  harness/events.ts
-  harness/Harness.ts
-  harness/plugins.ts
-  ui/App.tsx
-  ui/panes/ChatPane.tsx
-  ui/panes/LogsPane.tsx
-  ui/panes/InputBar.tsx
+## Quick Start
+
+```bash
+# Prerequisites: Node.js 18+, GitHub Copilot CLI authenticated
+npm install
+npm run dev
 ```
 
-### SDK Event Mapping
+---
 
-* Subscribe to session events and translate them into `assistant.delta`, `log`, etc.
-* Use streaming event (commonly `assistant.message_delta`) as delta source when `streaming: true`.
+## For AI Agents / Copilots
 
-### Session Option A
+This section helps AI coding assistants understand and work with this codebase effectively.
 
-* Only send **prompt text** to Copilot session.
-* Do not attempt to “replay” full message history; the session holds it.
+### Architecture Summary
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        UI Layer (Ink/React)                 │
+│  src/ui/App.tsx, panes/ChatPane.tsx, LogsPane.tsx, etc.     │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HarnessEvent / UIAction
+┌──────────────────────────▼──────────────────────────────────┐
+│                     Harness (Orchestrator)                  │
+│  src/harness/Harness.ts - state, events, plugins            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ Internal callbacks
+┌──────────────────────────▼──────────────────────────────────┐
+│                  Copilot Session Adapter                    │
+│  src/copilot/CopilotSessionAdapter.ts - SDK wrapper         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                    @github/copilot-sdk
+```
+
+### Key Principle: UI ↔ SDK Decoupling
+
+**The UI never imports `@github/copilot-sdk` directly.** All SDK interaction flows through:
+
+1. `CopilotSessionAdapter` — translates SDK events to `HarnessEvent`s
+2. `Harness` — manages state, emits events, handles `UIAction`s
+3. UI — subscribes to events, dispatches actions
+
+### Directory Map
+
+| Path | Purpose |
+|------|---------|
+| `src/index.tsx` | Entry point |
+| `src/copilot/` | SDK adapter (only place that imports `@github/copilot-sdk`) |
+| `src/harness/` | Event bus, state management, plugin system |
+| `src/harness/events.ts` | `HarnessEvent` and `UIAction` type definitions |
+| `src/harness/plugins.ts` | Plugin interface and registries |
+| `src/ui/` | Ink/React components |
+| `src/ui/panes/` | Chat, Logs, Input panes |
+| `docs/REQUIREMENTS.md` | Full requirements document |
+
+### Event Flow
+
+```
+User types prompt → InputBar dispatches UIAction("submit.prompt")
+                              ↓
+                    Harness.dispatch()
+                              ↓
+                    CopilotSessionAdapter.sendPrompt()
+                              ↓
+                    SDK streams response
+                              ↓
+                    Adapter emits HarnessEvent("assistant.delta")
+                              ↓
+                    Harness updates state, notifies UI
+                              ↓
+                    ChatPane re-renders with streaming text
+```
+
+### Event Types
+
+**Core events** (see `src/harness/events.ts`):
+
+| Event | When |
+|-------|------|
+| `run.started` | Prompt submitted, SDK processing begins |
+| `assistant.delta` | Streaming token received |
+| `assistant.message` | Full response complete |
+| `run.finished` | Run completed successfully |
+| `run.cancelled` | User cancelled with Ctrl+C |
+| `log` | Internal logging (info/warn/error) |
+
+**Actions** (UI → Harness):
+
+| Action | Effect |
+|--------|--------|
+| `submit.prompt` | Send prompt to Copilot |
+| `cancel` | Abort current run |
+
+### Plugin System
+
+Plugins can extend functionality without modifying core code:
+
+```typescript
+import { HarnessPlugin } from "./harness/plugins.js";
+
+const myPlugin: HarnessPlugin = {
+  name: "my-plugin",
+  register(ctx) {
+    // Register tools the assistant can call
+    ctx.tools.register("myTool", async (args) => {
+      return "tool result";
+    });
+    
+    // Register commands
+    ctx.commands.register("myCommand", (args) => {
+      console.log("command executed");
+    });
+  },
+  onEvent(event) {
+    // React to events
+    if (event.type === "run.started") {
+      console.log("Run started:", event.runId);
+    }
+  },
+};
+
+harness.use(myPlugin);
+```
+
+### Common Tasks
+
+#### Adding a new pane
+
+1. Create component in `src/ui/panes/NewPane.tsx`
+2. Add to layout in `src/ui/App.tsx`
+3. (Future) Register via `ctx.panes.register()` for plugin support
+
+#### Adding a new tool
+
+1. Create a plugin (or extend existing)
+2. Use `ctx.tools.register("toolName", handler)`
+3. Tool becomes available to the assistant
+
+#### Adding a new event type
+
+1. Extend `HarnessEvent` union in `src/harness/events.ts`
+2. Emit from adapter or harness
+3. Handle in UI or plugins
+
+#### Modifying SDK behavior
+
+Only touch `src/copilot/CopilotSessionAdapter.ts`. Never import SDK elsewhere.
 
 ---
 
-## Deliverables
+## Development Conventions
 
-1. A working repo with:
+### TypeScript
 
-    * package.json scripts (`dev`)
-    * TypeScript config
-    * Ink app + harness + adapter
-2. A short `README.md` covering:
+- Strict mode enabled
+- ESM imports (`import/export`)
+- No `any` types without explicit justification
+- Prefer interfaces over type shapes for object types
 
-    * prerequisites (node, copilot CLI auth)
-    * install/run steps
-    * keybinds
-    * known limitations (cancel behavior if best-effort)
+### React/Ink
 
----
+- Functional components with hooks
+- Keep components small and focused
+- State lives in Harness, UI is a projection
 
-## Acceptance Criteria
+### Testing
 
-* ✅ `npm run dev` opens a TUI with Chat + Logs + Input.
-* ✅ Sending a prompt displays streaming output and then commits to transcript.
-* ✅ Multiple prompts in a row work in the same session.
-* ✅ Ctrl+C cancels an in-flight run and returns to idle without crashing.
-* ✅ Errors are shown in logs, and app remains usable.
-* ✅ Code is strongly typed, modular, and UI does not import Copilot SDK.
+```bash
+npm test
+```
 
----
+### Linting
 
-## Future Enhancements (out of scope, but architecture must support)
-
-1. **Tasks**
-
-    * tasks state slice + tools (`task.create/update/list/complete`)
-    * tasks pane
-
-2. **Memory**
-
-    * memory provider interface (local JSON → later embeddings)
-    * context injection before prompt
-
-3. **Git & Diffs**
-
-    * tools (`git.status`, `git.diff`, `git.commit`)
-    * diff resources, approval gating
-
-4. **GitHub PR**
-
-    * tools (`github.createPR`, `github.updatePR`, `github.comment`)
-    * PR resource + pane
-
-5. **File Browser**
-
-    * pane to browse directories, preview files, set “selected files”
-    * selection influences prompt context
+```bash
+npm run lint
+```
 
 ---
 
-make sure you follow the guidance from  https://github.com/github/awesome-copilot/blob/main/instructions/copilot-sdk-nodejs.instructions.m
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Start TUI in development mode |
+| `npm run build` | Compile TypeScript |
+| `npm test` | Run tests |
+| `npm run lint` | Check code style |
+
+---
+
+## Troubleshooting
+
+### "Copilot not authenticated"
+
+```bash
+npm install -g @github/copilot-cli
+copilot auth login
+```
+
+### Streaming feels slow
+
+Check network latency. The SDK streams tokens as they arrive from the API.
+
+### Ctrl+C doesn't cancel cleanly
+
+The SDK may not support true abort. Current behavior: stops processing deltas, resets state to idle. Session remains valid for next prompt.
+
+---
+
+## Contributing
+
+1. Read [`docs/REQUIREMENTS.md`](./docs/REQUIREMENTS.md) for context
+2. Follow existing patterns (event-driven, decoupled)
+3. Add tests for new functionality
+4. Keep UI ↔ SDK separation strict
 
