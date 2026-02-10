@@ -3,12 +3,14 @@ import { Box, Text } from "ink";
 import Markdown from "ink-markdown-es";
 import type { ChatMessage } from "../../harness/events.js";
 import type { ReactNode } from "react";
+import type { Theme } from "../theme.js";
 
 interface ChatPaneProps {
   messages: ChatMessage[];
   streamingContent: string;
   streamingReasoning: string;
   height: number;
+  theme: Theme;
 }
 
 function formatRole(role: ChatMessage["role"]): string {
@@ -51,7 +53,7 @@ const markdownStyles = {
   },
 };
 
-export function ChatPane({ messages, streamingContent, streamingReasoning, height }: ChatPaneProps) {
+export function ChatPane({ messages, streamingContent, streamingReasoning, height, theme }: ChatPaneProps) {
   const visibleMessages = useMemo(() => {
     let estimatedLines = 0;
     const availableLines = height - 2;
@@ -74,7 +76,7 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, heigh
       paddingX={1}
     >
       {visibleMessages.length === 0 && !streamingContent && !streamingReasoning && (
-        <Text color="gray">No messages yet. Type a prompt below.</Text>
+        <Text color={theme.colors.muted}>No messages yet. Type a prompt below.</Text>
       )}
 
       {visibleMessages.map((msg) => (
@@ -84,7 +86,7 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, heigh
               <Text color="magenta" bold dimColor>
                 [Thinking]
               </Text>
-              <Text color="gray" dimColor wrap="wrap">
+              <Text color={theme.colors.muted} dimColor wrap="wrap">
                 {msg.reasoning}
               </Text>
             </Box>
@@ -105,9 +107,9 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, heigh
       {streamingReasoning && (
         <Box flexDirection="column" marginBottom={1}>
           <Text color="magenta" bold dimColor>
-            [Thinking] <Text color="gray">▌</Text>
+            [Thinking] <Text color={theme.colors.muted}>▌</Text>
           </Text>
-          <Text color="gray" dimColor wrap="wrap">
+          <Text color={theme.colors.muted} dimColor wrap="wrap">
             {streamingReasoning}
           </Text>
         </Box>
@@ -116,7 +118,7 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, heigh
       {streamingContent && (
         <Box flexDirection="column" marginBottom={1}>
           <Text color="green" bold>
-            [Assistant] <Text color="gray">▌</Text>
+            [Assistant] <Text color={theme.colors.muted}>▌</Text>
           </Text>
           <Markdown renderers={markdownRenderers} styles={markdownStyles}>
             {streamingContent}

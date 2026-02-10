@@ -5,6 +5,7 @@ import TextInput from "ink-text-input";
 interface InputBarProps {
   onSubmit: (text: string) => void;
   disabled?: boolean;
+  theme: Theme;
 }
 
 export const InputBar = React.memo(function InputBar({ onSubmit, disabled = false }: InputBarProps) {
