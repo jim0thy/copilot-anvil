@@ -107,6 +107,18 @@ export interface ModelChangedEvent {
   model: string | null;
 }
 
+export interface UsageInfoEvent {
+  type: "usage.info";
+  tokenLimit: number;
+  currentTokens: number;
+  messagesLength: number;
+}
+
+export interface QuotaInfoEvent {
+  type: "quota.info";
+  remainingPremiumRequests: number | null;
+}
+
 export type HarnessEvent =
   | RunStartedEvent
   | AssistantDeltaEvent
@@ -119,7 +131,9 @@ export type HarnessEvent =
   | ResourceCreatedEvent
   | PermissionRequestedEvent
   | StateUpdatedEvent
-  | ModelChangedEvent;
+  | ModelChangedEvent
+  | UsageInfoEvent
+  | QuotaInfoEvent;
 
 // ============================================================
 // UI Actions (dispatched from UI to harness)
