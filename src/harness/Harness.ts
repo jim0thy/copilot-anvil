@@ -25,6 +25,12 @@ export interface HarnessState {
   streamingReasoning: string;
   currentModel: string | null;
   availableModels: ModelDescription[];
+  contextInfo: {
+    currentTokens: number;
+    tokenLimit: number;
+    conversationLength: number;
+    remainingPremiumRequests: number | null;
+  };
 }
 
 const MAX_LOGS = 100;
@@ -39,6 +45,12 @@ export class Harness {
     streamingReasoning: "",
     currentModel: null,
     availableModels: [],
+    contextInfo: {
+      currentTokens: 0,
+      tokenLimit: 0,
+      conversationLength: 0,
+      remainingPremiumRequests: null,
+    },
   };
 
   private eventHandlers: Set<HarnessEventHandler> = new Set();
@@ -154,6 +166,28 @@ export class Harness {
         this.state = {
           ...this.state,
           currentModel: event.model,
+        };
+        break;
+
+      case "usage.info":
+        this.state = {
+          ...this.state,
+          contextInfo: {
+            ...this.state.contextInfo,
+            currentTokens: event.currentTokens,
+            tokenLimit: event.tokenLimit,
+            conversationLength: event.messagesLength,
+          },
+        };
+        break;
+
+      case "quota.info":
+        this.state = {
+          ...this.state,
+          contextInfo: {
+            ...this.state.contextInfo,
+            remainingPremiumRequests: event.remainingPremiumRequests,
+          },
         };
         break;
     }

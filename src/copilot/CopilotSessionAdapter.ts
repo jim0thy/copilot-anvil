@@ -233,6 +233,35 @@ export class CopilotSessionAdapter {
           });
           break;
         }
+
+        case "session.usage_info": {
+          this.emit({
+            type: "usage.info",
+            tokenLimit: event.data?.tokenLimit ?? 0,
+            currentTokens: event.data?.currentTokens ?? 0,
+            messagesLength: event.data?.messagesLength ?? 0,
+          });
+          break;
+        }
+
+        case "assistant.usage": {
+          // Extract remaining premium requests from quota snapshots
+          const quotaSnapshots = event.data?.quotaSnapshots;
+          if (quotaSnapshots) {
+            // Look for premium model quota snapshot (usually keyed by model name)
+            for (const [, quota] of Object.entries(quotaSnapshots)) {
+              if (!quota.isUnlimitedEntitlement) {
+                const remaining = quota.entitlementRequests - quota.usedRequests;
+                this.emit({
+                  type: "quota.info",
+                  remainingPremiumRequests: remaining,
+                });
+                break;
+              }
+            }
+          }
+          break;
+        }
       }
     });
   }
