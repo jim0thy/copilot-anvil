@@ -2,8 +2,10 @@ import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import React, { useCallback, useEffect, useState } from 'react'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
+import { ContextPane } from './panes/ContextPane.js'
 import { InputBar } from './panes/InputBar.js'
 import { LogsPane } from './panes/LogsPane.js'
+import { getTheme } from './theme.js'
 
 interface AppProps {
   harness: Harness;
@@ -88,43 +90,61 @@ export function App({ harness }: AppProps) {
     ? state.currentModel.split("/").pop() || state.currentModel
     : "loading...";
 
+  const theme = getTheme();
+
   const contentHeight = Math.max(1, dimensions.height - STATUS_BAR_HEIGHT);
   const chatHeight = Math.max(1, contentHeight - INPUT_BAR_HEIGHT);
 
   return (
-    <Box flexDirection="column" width={dimensions.width} height={dimensions.height}>
+    <Box flexDirection="column" width={dimensions.width} height={dimensions.height - 1}>
       <Box
         height={STATUS_BAR_HEIGHT}
         borderStyle="single"
-        borderColor="gray"
+        borderColor={theme.colors.border}
         paddingX={1}
         justifyContent="space-between"
       >
         <Text>
           <Text bold>Copilot Anvil</Text>
-          <Text color="gray"> | </Text>
+          <Text color={theme.colors.muted}> | </Text>
           <Text color={statusColor}>{statusText}</Text>
-          <Text color="gray"> | </Text>
+          <Text color={theme.colors.muted}> | </Text>
           <Text color="cyan">{modelDisplay}</Text>
         </Text>
-        <Text color="gray">Tab: model | Esc: quit | Ctrl+C: cancel</Text>
+        <Text color={theme.colors.muted}>Tab: model | Esc: quit | Ctrl+C: cancel</Text>
       </Box>
 
       <Box height={contentHeight} flexDirection="row">
-        <Box flexDirection="column" flexGrow={1} borderStyle="single" borderColor="gray">
+        <Box flexDirection="column" flexGrow={1} borderStyle="single" borderColor={theme.colors.border}>
           <Box height={chatHeight} overflow="hidden">
             <ChatPane
               messages={state.transcript}
               streamingContent={state.streamingContent}
               streamingReasoning={state.streamingReasoning}
               height={chatHeight}
+              theme={theme}
             />
           </Box>
           <Box borderStyle="single" borderColor="cyan" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false}>
-            <InputBar onSubmit={handleSubmit} disabled={state.status === "running"} />
+            <InputBar
+              onSubmit={handleSubmit}
+              disabled={state.status === "running"}
+              theme={theme}
+            />
           </Box>
         </Box>
-        <LogsPane logs={state.logs} height={contentHeight} />
+        <Box flexDirection="column" width="40%">
+          <ContextPane 
+            contextInfo={state.contextInfo} 
+            width="100%" 
+            theme={theme} 
+          />
+          <LogsPane 
+            logs={state.logs} 
+            height={contentHeight - 10} 
+            theme={theme} 
+          />
+        </Box>
       </Box>
     </Box>
   );
