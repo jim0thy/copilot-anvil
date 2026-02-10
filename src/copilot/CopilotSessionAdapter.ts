@@ -182,7 +182,8 @@ export class CopilotSessionAdapter {
 
           if (this.currentRunId) {
             const runId = this.currentRunId;
-            const content = this.streamingBuffer;
+            // Prefer finalContent (complete formatted message) over streamingBuffer
+            const content = this.finalContent || this.streamingBuffer;
 
             if (content) {
               const message = createAssistantMessage(content);

@@ -12,7 +12,7 @@ interface AppProps {
 }
 
 const STATUS_BAR_HEIGHT = 3;
-const INPUT_BAR_HEIGHT = 3;
+const INPUT_BAR_HEIGHT = 2;
 
 export function App({ harness }: AppProps) {
   const { exit } = useApp();

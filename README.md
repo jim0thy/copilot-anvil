@@ -65,6 +65,7 @@ The UI never imports the Copilot SDK directly—all interaction goes through the
 - **Cancellation**: Uses SDK's `session.abort()`. If the SDK doesn't support clean abort, the cancellation is best-effort (ignores subsequent deltas and resets state).
 - **Scrollback**: Limited to what fits in the terminal. No scroll history in v0.
 - **Markdown**: Responses are displayed as plain text (no markdown rendering).
+- **Theme detection**: Adapts neutral colors based on `COLORFGBG` with a dark fallback.
 
 ## Plugin System (Scaffolding)
 
