@@ -32,7 +32,7 @@ export const ContextPane = memo(function ContextPane({
     ? theme.colors.warning 
     : theme.colors.success;
 
-  const barWidth = 20;
+  const barWidth = 30;
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
 
@@ -45,45 +45,41 @@ export const ContextPane = memo(function ContextPane({
       paddingLeft={1}
       paddingRight={1}
     >
-      <box marginBottom={1}>
+      {/* Header row with title and counters */}
+      <box flexDirection="row" justifyContent="space-between" alignItems="center">
         <text fg={theme.colors.primary}>
           <b>Context</b>
         </text>
-      </box>
-
-      <box flexDirection="column">
-        <box>
-          <text>
-            <span fg={theme.colors.muted}>Tokens: </span>
-            <span fg={theme.colors.info}>
-              {currentTokens.toLocaleString()}<span fg={theme.colors.muted}>/</span>{tokenLimit.toLocaleString()}
-            </span>
-          </text>
-        </box>
-
-        <box flexDirection="column" marginBottom={1}>
-          <box>
-            <text>
-              <span fg={percentColor}>{progressBar}</span>
-              <span fg={theme.colors.muted}> {contextPercent}%</span>
-            </text>
-          </box>
-        </box>
-
-        <box>
+        <box flexDirection="row" gap={2}>
           <text>
             <span fg={theme.colors.muted}>Requests: </span>
-            <span fg={theme.colors.info}>{consumedRequests}</span>
+            <span fg={theme.colors.info}><b>{consumedRequests}</b></span>
           </text>
-        </box>
-
-        <box>
+          <text fg={theme.colors.muted}>│</text>
           <text>
             <span fg={theme.colors.muted}>Remaining: </span>
             <span fg={theme.colors.accent}>
-              {remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}
+              <b>{remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}</b>
             </span>
           </text>
+        </box>
+      </box>
+
+      {/* Token usage display */}
+      <box flexDirection="column" gap={1} marginTop={1}>
+        <box flexDirection="row" justifyContent="space-between" alignItems="center">
+          <text>
+            <span fg={theme.colors.info}><b>{currentTokens.toLocaleString()}</b></span>
+            <span fg={theme.colors.muted}> / </span>
+            <span fg={theme.colors.muted}>{tokenLimit.toLocaleString()}</span>
+            <span fg={theme.colors.muted}> tokens</span>
+          </text>
+          <text fg={percentColor}><b>{contextPercent}%</b></text>
+        </box>
+
+        {/* Progress bar */}
+        <box>
+          <text fg={percentColor}>{progressBar}</text>
         </box>
       </box>
     </box>
