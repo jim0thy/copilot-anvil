@@ -2,7 +2,17 @@ export type ThemeMode = "light" | "dark";
 
 export interface ThemeColors {
   border: string;
+  borderActive: string;
+  borderDim: string;
   muted: string;
+  primary: string;
+  secondary: string;
+  success: string;
+  warning: string;
+  error: string;
+  info: string;
+  accent: string;
+  statusBarBg: string;
 }
 
 export interface Theme {
@@ -11,13 +21,33 @@ export interface Theme {
 }
 
 const DARK_COLORS: ThemeColors = {
-  border: "gray",
-  muted: "gray",
+  border: "#4a5568",
+  borderActive: "#7c8cff",
+  borderDim: "#2d3748",
+  muted: "#718096",
+  primary: "#818cf8",
+  secondary: "#5eead4",
+  success: "#6ee7b7",
+  warning: "#fbbf24",
+  error: "#fb7185",
+  info: "#60a5fa",
+  accent: "#c084fc",
+  statusBarBg: "#2d3748",
 };
 
 const LIGHT_COLORS: ThemeColors = {
-  border: "black",
-  muted: "blackBright",
+  border: "#cbd5e0",
+  borderActive: "#5a67d8",
+  borderDim: "#e2e8f0",
+  muted: "#a0aec0",
+  primary: "#5a67d8",
+  secondary: "#38a169",
+  success: "#38a169",
+  warning: "#dd6b20",
+  error: "#e53e3e",
+  info: "#3182ce",
+  accent: "#805ad5",
+  statusBarBg: "#e2e8f0",
 };
 
 let cachedTheme: Theme | null = null;
