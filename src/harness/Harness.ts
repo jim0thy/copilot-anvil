@@ -235,6 +235,7 @@ export class Harness {
           ...this.state,
           status: "idle",
           currentRunId: null,
+          currentIntent: null,
           contextInfo: {
             ...this.state.contextInfo,
             consumedRequests: this.state.contextInfo.consumedRequests + 1,
