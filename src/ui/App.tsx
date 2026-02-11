@@ -42,7 +42,7 @@ export function App({ harness }: AppProps) {
 
   useEffect(() => {
     return harness.subscribe(() => {
-      setState({ ...harness.getState() });
+      setState(harness.getState());
     });
   }, [harness]);
 
