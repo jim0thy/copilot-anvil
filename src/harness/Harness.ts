@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   HarnessEvent,
   LogEvent,
+  TranscriptItem,
   UIAction,
 } from "./events.js";
 import {
@@ -19,6 +20,11 @@ export type HarnessEventHandler = (event: HarnessEvent) => void;
 export interface ActiveTool {
   toolCallId: string;
   toolName: string;
+  progress: string[];
+  startedAt: Date;
+  status: "running" | "completed" | "failed";
+  completedAt?: Date;
+  error?: string;
 }
 
 export interface Task {
@@ -30,28 +36,54 @@ export interface Task {
   error?: string;
 }
 
+export interface Subagent {
+  toolCallId: string;
+  agentName: string;
+  agentDisplayName: string;
+  agentDescription: string;
+  status: "running" | "completed" | "failed";
+  startedAt: Date;
+  completedAt?: Date;
+  error?: string;
+}
+
+export interface Skill {
+  name: string;
+  path: string;
+  invokedAt: Date;
+  invokeCount: number;
+}
+
 export interface HarnessState {
   status: HarnessStatus;
-  transcript: ChatMessage[];
+  transcript: TranscriptItem[];
   logs: LogEvent[];
   currentRunId: string | null;
   streamingContent: string;
   streamingReasoning: string;
   activeTools: ActiveTool[];
   tasks: Task[];
+  subagents: Subagent[];
+  skills: Skill[];
   currentModel: string | null;
   availableModels: ModelDescription[];
   messageQueue: string[];
+  currentTodo: string | null;
+  currentPlan: string | null;
+  currentIntent: string | null;
   contextInfo: {
     currentTokens: number;
     tokenLimit: number;
     conversationLength: number;
     remainingPremiumRequests: number | null;
+    consumedRequests: number;
   };
 }
 
 const MAX_LOGS = 100;
 const MAX_TASKS = 50;
+const MAX_SUBAGENTS = 50;
+const MAX_SKILLS = 50;
 
 export class Harness {
   private state: HarnessState = {
@@ -63,14 +95,20 @@ export class Harness {
     streamingReasoning: "",
     activeTools: [],
     tasks: [],
+    subagents: [],
+    skills: [],
     currentModel: null,
     availableModels: [],
     messageQueue: [],
+    currentTodo: null,
+    currentPlan: null,
+    currentIntent: null,
     contextInfo: {
       currentTokens: 0,
       tokenLimit: 0,
       conversationLength: 0,
       remainingPremiumRequests: null,
+      consumedRequests: 0,
     },
   };
 
@@ -124,7 +162,6 @@ export class Harness {
           currentRunId: event.runId,
           streamingContent: "",
           streamingReasoning: "",
-          activeTools: [],
         };
         break;
 
@@ -146,8 +183,9 @@ export class Harness {
         break;
 
       case "assistant.message": {
-        const messageWithReasoning = {
+        const messageWithReasoning: ChatMessage = {
           ...event.message,
+          kind: "message",
           reasoning: this.state.streamingReasoning || undefined,
         };
         this.state = {
@@ -173,7 +211,6 @@ export class Harness {
           currentRunId: null,
           streamingContent: "",
           streamingReasoning: "",
-          activeTools: [],
         };
         break;
 
@@ -182,9 +219,11 @@ export class Harness {
           ...this.state,
           status: "idle",
           currentRunId: null,
-          activeTools: [],
+          contextInfo: {
+            ...this.state.contextInfo,
+            consumedRequests: this.state.contextInfo.consumedRequests + 1,
+          },
         };
-        // Process next queued message if any
         this.processNextQueuedMessage();
         break;
 
@@ -195,18 +234,70 @@ export class Harness {
           status: "running",
           startedAt: new Date(),
         };
+        const toolItem: TranscriptItem = {
+          id: generateId(),
+          kind: "tool-call",
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          progress: [],
+          status: "running",
+          startedAt: new Date(),
+        };
         this.state = {
           ...this.state,
+          transcript: [...this.state.transcript, toolItem],
           activeTools: [
             ...this.state.activeTools,
-            { toolCallId: event.toolCallId, toolName: event.toolName },
+            { 
+              toolCallId: event.toolCallId, 
+              toolName: event.toolName, 
+              progress: [],
+              startedAt: new Date(),
+              status: "running",
+            },
           ],
           tasks: [...this.state.tasks.slice(-MAX_TASKS + 1), newTask],
         };
         break;
       }
 
+      case "tool.progress": {
+        const updatedTools = this.state.activeTools.map((tool) => {
+          if (tool.toolCallId === event.toolCallId) {
+            return {
+              ...tool,
+              progress: [...tool.progress, event.message],
+            };
+          }
+          return tool;
+        });
+        const updatedTranscript = this.state.transcript.map((item) => {
+          if (item.kind === "tool-call" && item.toolCallId === event.toolCallId) {
+            return { ...item, progress: [...item.progress, event.message] };
+          }
+          return item;
+        });
+        this.state = {
+          ...this.state,
+          activeTools: updatedTools,
+          transcript: updatedTranscript,
+        };
+        break;
+      }
+
       case "tool.completed": {
+        const updatedTools = this.state.activeTools.map((tool) => {
+          if (tool.toolCallId === event.toolCallId) {
+            return {
+              ...tool,
+              status: event.success ? ("completed" as const) : ("failed" as const),
+              completedAt: new Date(),
+              error: event.error,
+            };
+          }
+          return tool;
+        });
+        
         const updatedTasks = this.state.tasks.map((task) => {
           if (task.id === event.toolCallId) {
             return {
@@ -218,12 +309,24 @@ export class Harness {
           }
           return task;
         });
+
+        const updatedTranscript = this.state.transcript.map((item) => {
+          if (item.kind === "tool-call" && item.toolCallId === event.toolCallId) {
+            return {
+              ...item,
+              status: event.success ? ("completed" as const) : ("failed" as const),
+              completedAt: new Date(),
+              error: event.error,
+            };
+          }
+          return item;
+        });
+
         this.state = {
           ...this.state,
-          activeTools: this.state.activeTools.filter(
-            (t) => t.toolCallId !== event.toolCallId
-          ),
+          activeTools: updatedTools,
           tasks: updatedTasks,
+          transcript: updatedTranscript,
         };
         break;
       }
@@ -256,8 +359,118 @@ export class Harness {
           ...this.state,
           contextInfo: {
             ...this.state.contextInfo,
+            // Only update remaining premium requests from SDK
+            // consumedRequests is tracked locally via run.finished
             remainingPremiumRequests: event.remainingPremiumRequests,
           },
+        };
+        break;
+
+      case "subagent.started": {
+        const newSubagent: Subagent = {
+          toolCallId: event.toolCallId,
+          agentName: event.agentName,
+          agentDisplayName: event.agentDisplayName,
+          agentDescription: event.agentDescription,
+          status: "running",
+          startedAt: new Date(),
+        };
+        this.state = {
+          ...this.state,
+          subagents: [...this.state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        };
+        break;
+      }
+
+      case "subagent.completed": {
+        const updatedSubagents = this.state.subagents.map((agent) => {
+          if (agent.toolCallId === event.toolCallId) {
+            return {
+              ...agent,
+              status: "completed" as const,
+              completedAt: new Date(),
+            };
+          }
+          return agent;
+        });
+        this.state = {
+          ...this.state,
+          subagents: updatedSubagents,
+        };
+        break;
+      }
+
+      case "subagent.failed": {
+        const updatedSubagents = this.state.subagents.map((agent) => {
+          if (agent.toolCallId === event.toolCallId) {
+            return {
+              ...agent,
+              status: "failed" as const,
+              completedAt: new Date(),
+              error: event.error,
+            };
+          }
+          return agent;
+        });
+        this.state = {
+          ...this.state,
+          subagents: updatedSubagents,
+        };
+        break;
+      }
+
+      case "skill.invoked": {
+        const existingSkill = this.state.skills.find(s => s.name === event.name);
+        if (existingSkill) {
+          // Increment invoke count for existing skill
+          const updatedSkills = this.state.skills.map((skill) => {
+            if (skill.name === event.name) {
+              return {
+                ...skill,
+                invokedAt: new Date(),
+                invokeCount: skill.invokeCount + 1,
+              };
+            }
+            return skill;
+          });
+          this.state = {
+            ...this.state,
+            skills: updatedSkills,
+          };
+        } else {
+          // Add new skill
+          const newSkill: Skill = {
+            name: event.name,
+            path: event.path,
+            invokedAt: new Date(),
+            invokeCount: 1,
+          };
+          this.state = {
+            ...this.state,
+            skills: [...this.state.skills.slice(-MAX_SKILLS + 1), newSkill],
+          };
+        }
+        break;
+      }
+
+      case "intent.updated":
+        this.state = {
+          ...this.state,
+          currentIntent: event.intent,
+        };
+        break;
+
+      case "todo.updated":
+        this.state = {
+          ...this.state,
+          currentTodo: event.todos,
+        };
+        break;
+
+      case "plan.updated":
+        this.state = {
+          ...this.state,
+          currentPlan: event.content,
         };
         break;
     }
