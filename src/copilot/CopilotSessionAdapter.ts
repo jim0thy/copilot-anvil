@@ -343,8 +343,7 @@ export class CopilotSessionAdapter {
           const quotaSnapshots = event.data?.quotaSnapshots;
           if (quotaSnapshots) {
             for (const [, quota] of Object.entries(quotaSnapshots)) {
-              // Always show remaining requests, even for unlimited entitlements
-              const remaining = quota.entitlementRequests - quota.usedRequests;
+              const remaining = Math.max(0, quota.entitlementRequests - quota.usedRequests);
               this.emit({
                 type: "quota.info",
                 remainingPremiumRequests: remaining,
