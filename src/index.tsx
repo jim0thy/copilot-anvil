@@ -1,21 +1,19 @@
-import React from "react";
-import { render } from "ink";
+import { execSync } from "node:child_process";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot } from "@opentui/react";
 import { App } from "./ui/App.js";
 import { Harness } from "./harness/Harness.js";
 import { CopilotSessionAdapter } from "./copilot/CopilotSessionAdapter.js";
 
-const ENTER_ALT_SCREEN = "\x1b[?1049h";
-const EXIT_ALT_SCREEN = "\x1b[?1049l";
-const CLEAR_SCREEN = "\x1b[2J\x1b[H";
-const HIDE_CURSOR = "\x1b[?25l";
-const SHOW_CURSOR = "\x1b[?25h";
-
-function enterFullscreen(): void {
-  process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR);
-}
-
-function exitFullscreen(): void {
-  process.stdout.write(SHOW_CURSOR + EXIT_ALT_SCREEN);
+// The Copilot SDK spawns its CLI .js file using process.execPath.
+// Under Bun this points to the bun binary, but the CLI requires Node.js.
+if (process.execPath.includes("bun")) {
+  try {
+    const nodePath = execSync("which node", { encoding: "utf-8" }).trim();
+    (process as any).execPath = nodePath;
+  } catch {
+    // Fall through — if node isn't found the SDK will fail with a clear error
+  }
 }
 
 async function main() {
@@ -24,41 +22,32 @@ async function main() {
 
   harness.setAdapter(adapter);
 
-  enterFullscreen();
-
-  const cleanup = async () => {
-    await harness.shutdown();
-    exitFullscreen();
-  };
-
   try {
     await harness.initialize();
   } catch (error) {
-    await cleanup();
     console.error("Failed to initialize:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
 
-  const { waitUntilExit, unmount } = render(<App harness={harness} />, {
+  const renderer = await createCliRenderer({
     exitOnCtrlC: false,
-    patchConsole: false,
+    useAlternateScreen: true,
   });
 
+  const root = createRoot(renderer);
+  root.render(<App harness={harness} renderer={renderer} />);
+
   const handleExit = async () => {
-    unmount();
-    await cleanup();
+    await harness.shutdown();
+    renderer.destroy();
     process.exit(0);
   };
 
   process.on("SIGINT", handleExit);
   process.on("SIGTERM", handleExit);
-
-  await waitUntilExit();
-  await cleanup();
 }
 
 main().catch(async (error) => {
-  exitFullscreen();
   console.error("Fatal error:", error);
   process.exit(1);
 });
