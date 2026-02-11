@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput } from "ink";
 import type { Theme } from "../theme.js";
 
@@ -10,6 +10,7 @@ interface InputBarProps {
 
 export const InputBar = React.memo(function InputBar({ onSubmit, disabled = false, theme }: InputBarProps) {
   const [value, setValue] = useState("");
+  const [cursorVisible, setCursorVisible] = useState(true);
 
   const handleSubmit = useCallback((text: string) => {
     if (text.trim() && !disabled) {
@@ -17,6 +18,14 @@ export const InputBar = React.memo(function InputBar({ onSubmit, disabled = fals
       setValue("");
     }
   }, [onSubmit, disabled]);
+
+  useEffect(() => {
+    if (disabled) return;
+    const interval = setInterval(() => {
+      setCursorVisible((prev) => !prev);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [disabled]);
 
   useInput((input, key) => {
     if (key.upArrow || key.downArrow || key.tab || (key.shift && key.tab) || key.escape) {
@@ -38,15 +47,23 @@ export const InputBar = React.memo(function InputBar({ onSubmit, disabled = fals
     }
   }, { isActive: !disabled });
 
-  const placeholder = disabled ? "Processing..." : "Type your prompt and press Enter...";
+  const placeholder = disabled ? "Processing..." : "";
+  const promptColor = disabled ? theme.colors.muted : theme.colors.success;
+  const promptIcon = disabled ? "›" : "›";
 
   return (
-    <Box width="100%" paddingX={1} flexShrink={0} height={1}>
-      <Text bold color={disabled ? theme.colors.muted : "green"}>{">"} </Text>
+    <Box width="100%" paddingX={2} flexShrink={0} height={1}>
+      <Text bold color={promptColor}>{promptIcon} </Text>
       {value.length > 0 ? (
-        <Text>{value}<Text inverse>{" "}</Text></Text>
+        <Text color={theme.colors.info}>
+          {value}
+          {!disabled && cursorVisible && <Text inverse color={theme.colors.primary}> </Text>}
+        </Text>
       ) : (
-        <Text dimColor><Text inverse>{placeholder[0]}</Text>{placeholder.slice(1)}</Text>
+        <>
+          <Text color={theme.colors.muted}>{placeholder}</Text>
+          {!disabled && cursorVisible && <Text inverse color={theme.colors.primary}> </Text>}
+        </>
       )}
     </Box>
   );
