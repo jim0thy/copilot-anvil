@@ -389,6 +389,15 @@ export class CopilotSessionAdapter {
         this.emit(createLogEvent("warn", "Session expired, renewing...", runId));
         await this.renewSession();
         
+        // Bump generation to invalidate any stale events from the old session
+        this.expectedRunGeneration++;
+        this.currentRunGeneration = this.expectedRunGeneration;
+        this.streamingBuffer = "";
+        this.reasoningBuffer = "";
+        this.hasEmittedContentForTurn = false;
+
+        this.emit(createLogEvent("info", "Session renewed, retrying prompt...", runId));
+        
         // Retry the prompt with the new session
         await this.session!.send({ prompt });
       } else {
@@ -399,8 +408,11 @@ export class CopilotSessionAdapter {
   }
 
   async abort(): Promise<void> {
+    const runId = this.currentRunId;
+
     this.isCancelled = true;
     this.isProcessing = false;
+    this.expectedRunGeneration++;
     
     if (this.session) {
       try {
@@ -414,6 +426,14 @@ export class CopilotSessionAdapter {
     this.reasoningBuffer = "";
     this.currentReasoningId = null;
     this.currentRunId = null;
+
+    if (runId) {
+      this.emit({
+        type: "run.cancelled",
+        runId,
+        createdAt: new Date(),
+      });
+    }
   }
 
   private async renewSession(): Promise<void> {
