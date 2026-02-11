@@ -1,6 +1,6 @@
-import { Box, Text, useApp, useInput, useStdout } from 'ink'
-import Spinner from 'ink-spinner'
-import React, { useCallback, useEffect, useState } from 'react'
+import { useKeyboard, useTerminalDimensions } from '@opentui/react'
+import type { CliRenderer } from '@opentui/core'
+import { useCallback, useEffect, useState } from 'react'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
 import { ContextPane } from './panes/ContextPane.js'
@@ -19,26 +19,10 @@ const INPUT_BAR_HEIGHT = 2;
 export function App({ harness }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
+export function App({ harness, renderer }: AppProps) {
+  const { width, height } = useTerminalDimensions();
   const [state, setState] = useState<HarnessState>(harness.getState());
   const [hasStarted, setHasStarted] = useState(false);
-  const [dimensions, setDimensions] = useState({
-    width: stdout?.columns ?? 80,
-    height: stdout?.rows ?? 24,
-  });
-
-  useEffect(() => {
-    const handleResize = () => {
-      setDimensions({
-        width: stdout?.columns ?? 80,
-        height: stdout?.rows ?? 24,
-      });
-    };
-
-    stdout?.on('resize', handleResize);
-    return () => {
-      stdout?.off('resize', handleResize);
-    };
-  }, [stdout]);
 
   useEffect(() => {
     return harness.subscribe(() => {
@@ -77,14 +61,15 @@ export function App({ harness }: AppProps) {
     harness.dispatch({ type: "change.model", modelId: nextModel.id });
   }, [harness, state.status, state.currentModel, state.availableModels]);
 
-  useInput((input, key) => {
-    if (key.escape) {
-      exit();
+  useKeyboard((key) => {
+    if (key.name === "escape") {
+      renderer.destroy();
+      process.exit(0);
     }
-    if (key.ctrl && input === "c") {
+    if (key.ctrl && key.name === "c") {
       handleCancel();
     }
-    if (key.tab) {
+    if (key.name === "tab") {
       handleCycleModel();
     }
   });
@@ -98,15 +83,17 @@ export function App({ harness }: AppProps) {
     ? state.currentModel.split("/").pop() || state.currentModel
     : "loading...";
 
-  const contentHeight = Math.max(1, dimensions.height - STATUS_BAR_HEIGHT - 1);
-  const chatHeight = Math.max(1, contentHeight - INPUT_BAR_HEIGHT);
+  const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
+  // Account for rounded border (2 rows: top + bottom)
+  const innerHeight = Math.max(1, contentHeight - 2);
+  const chatHeight = Math.max(1, innerHeight - INPUT_BAR_HEIGHT);
 
   return (
-    <Box flexDirection="column" width={dimensions.width} height={dimensions.height - 1}>
+    <box flexDirection="column" width={width} height={height - 1}>
       {hasStarted ? (
-        <Box height={contentHeight} flexDirection="row">
-          <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={theme.colors.border}>
-            <Box height={chatHeight} overflow="hidden">
+        <box height={contentHeight} flexDirection="row">
+          <box flexDirection="column" flexGrow={1} borderStyle="rounded" borderColor={theme.colors.border}>
+            <box height={chatHeight} overflow="hidden">
               <ChatPane
                 messages={state.transcript}
                 streamingContent={state.streamingContent}
@@ -115,16 +102,16 @@ export function App({ harness }: AppProps) {
                 height={chatHeight}
                 theme={theme}
               />
-            </Box>
-            <Box borderStyle="single" borderColor={theme.colors.borderActive} borderTop={true} borderBottom={false} borderLeft={false} borderRight={false}>
+            </box>
+            <box borderStyle="single" borderColor={theme.colors.borderActive} border={["top"]} flexShrink={0} height={2}>
               <InputBar
                 onSubmit={handleSubmit}
                 disabled={state.status === "running"}
                 theme={theme}
               />
-            </Box>
-          </Box>
-          <Box flexDirection="column" width="40%">
+            </box>
+          </box>
+          <box flexDirection="column" width="40%">
             <ContextPane 
               contextInfo={state.contextInfo} 
               width="100%" 
@@ -135,44 +122,40 @@ export function App({ harness }: AppProps) {
               height={contentHeight - 10} 
               theme={theme} 
             />
-          </Box>
-        </Box>
+          </box>
+        </box>
       ) : (
-        <Box height={contentHeight} flexDirection="column" borderStyle="round" borderColor={theme.colors.border}>
+        <box height={contentHeight} flexDirection="column" borderStyle="rounded" borderColor={theme.colors.border}>
           <StartScreen
             onSubmit={handleSubmit}
             disabled={state.status === "running"}
             theme={theme}
-            height={contentHeight}
+            height={innerHeight}
           />
-        </Box>
+        </box>
       )}
 
-      <Box
+      <box
         height={STATUS_BAR_HEIGHT}
-        paddingX={1}
+        paddingLeft={1}
+        paddingRight={1}
         backgroundColor={theme.colors.statusBarBg}
-        justifyContent="space-between"
       >
-        <Text>
+        <text>
           {state.status === "running" && (
-            <>
-              <Spinner type="dots" />
-              <Text>  </Text>
-            </>
+            <span>{spinner}  </span>
           )}
-          <Text color={statusColor}>{statusText}</Text>
-          <Text>  </Text>
-          <Text color={theme.colors.primary} bold>Copilot Anvil</Text>
-          <Text>  </Text>
-          <Text color={theme.colors.info}>{modelDisplay}</Text>
-        </Text>
-        <Text>
-          <Text color={theme.colors.muted}>esc</Text><Text> quit  </Text>
-          <Text color={theme.colors.muted}>tab</Text><Text> model  </Text>
-          <Text color={theme.colors.muted}>^C</Text><Text> cancel</Text>
-        </Text>
-      </Box>
-    </Box>
+          <span fg={statusColor}>{statusText}</span>
+          <span>  </span>
+          <span fg={theme.colors.primary}><b>Copilot Anvil</b></span>
+          <span>  </span>
+          <span fg={theme.colors.info}>{modelDisplay}</span>
+          <span>{"  ·  "}</span>
+          <span fg={theme.colors.muted}>esc</span><span> quit  </span>
+          <span fg={theme.colors.muted}>tab</span><span> model  </span>
+          <span fg={theme.colors.muted}>^C</span><span> cancel</span>
+        </text>
+      </box>
+    </box>
   );
 }

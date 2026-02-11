@@ -1,5 +1,4 @@
-import React from "react";
-import { Box, Text } from "ink";
+import { memo } from "react";
 import type { Theme } from "../theme.js";
 
 export interface ContextInfo {
@@ -11,11 +10,11 @@ export interface ContextInfo {
 
 interface ContextPaneProps {
   contextInfo: ContextInfo;
-  width: string | number;
+  width: number | `${number}%` | "auto";
   theme: Theme;
 }
 
-export const ContextPane = React.memo(function ContextPane({ 
+export const ContextPane = memo(function ContextPane({ 
   contextInfo, 
   width, 
   theme 
@@ -32,53 +31,60 @@ export const ContextPane = React.memo(function ContextPane({
     ? theme.colors.warning 
     : theme.colors.success;
 
-  // Simple progress bar
   const barWidth = 20;
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
 
   return (
-    <Box
+    <box
       flexDirection="column"
       width={width}
-      borderStyle="round"
+      borderStyle="rounded"
       borderColor={theme.colors.border}
-      paddingX={1}
-      paddingY={0}
+      paddingLeft={1}
+      paddingRight={1}
     >
-      <Box marginTop={0} marginBottom={1}>
-        <Text bold color={theme.colors.primary}>
-          Context
-        </Text>
-      </Box>
+      <box marginBottom={1}>
+        <text fg={theme.colors.primary}>
+          <b>Context</b>
+        </text>
+      </box>
 
-      <Box flexDirection="column">
-        <Box marginBottom={0}>
-          <Text color={theme.colors.muted}>Tokens: </Text>
-          <Text color={theme.colors.info}>
-            {currentTokens.toLocaleString()}<Text color={theme.colors.muted}>/</Text>{tokenLimit.toLocaleString()}
-          </Text>
-        </Box>
+      <box flexDirection="column">
+        <box>
+          <text>
+            <span fg={theme.colors.muted}>Tokens: </span>
+            <span fg={theme.colors.info}>
+              {currentTokens.toLocaleString()}<span fg={theme.colors.muted}>/</span>{tokenLimit.toLocaleString()}
+            </span>
+          </text>
+        </box>
 
-        <Box flexDirection="column" marginBottom={1}>
-          <Box>
-            <Text color={percentColor}>{progressBar}</Text>
-            <Text color={theme.colors.muted}> {contextPercent}%</Text>
-          </Box>
-        </Box>
+        <box flexDirection="column" marginBottom={1}>
+          <box>
+            <text>
+              <span fg={percentColor}>{progressBar}</span>
+              <span fg={theme.colors.muted}> {contextPercent}%</span>
+            </text>
+          </box>
+        </box>
 
-        <Box>
-          <Text color={theme.colors.muted}>Messages: </Text>
-          <Text color={theme.colors.info}>{conversationLength}</Text>
-        </Box>
+        <box>
+          <text>
+            <span fg={theme.colors.muted}>Messages: </span>
+            <span fg={theme.colors.info}>{conversationLength}</span>
+          </text>
+        </box>
 
-        <Box marginTop={0}>
-          <Text color={theme.colors.muted}>Remaining: </Text>
-          <Text color={theme.colors.accent}>
-            {remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}
-          </Text>
-        </Box>
-      </Box>
-    </Box>
+        <box>
+          <text>
+            <span fg={theme.colors.muted}>Remaining: </span>
+            <span fg={theme.colors.accent}>
+              {remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}
+            </span>
+          </text>
+        </box>
+      </box>
+    </box>
   );
 });

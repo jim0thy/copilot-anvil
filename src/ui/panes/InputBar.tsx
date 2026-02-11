@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { Box, Text, useInput } from "ink";
+import { useKeyboard } from "@opentui/react";
+import { memo, useState, useCallback } from "react";
 import type { Theme } from "../theme.js";
 
 interface InputBarProps {
@@ -8,63 +8,49 @@ interface InputBarProps {
   theme: Theme;
 }
 
-export const InputBar = React.memo(function InputBar({ onSubmit, disabled = false, theme }: InputBarProps) {
+// Custom keyboard-driven input (OpenTUI's <input> doesn't work in child components)
+export const InputBar = memo(function InputBar({ onSubmit, disabled = false, theme }: InputBarProps) {
   const [value, setValue] = useState("");
-  const [cursorVisible, setCursorVisible] = useState(true);
 
-  const handleSubmit = useCallback((text: string) => {
-    if (text.trim() && !disabled) {
-      onSubmit(text.trim());
-      setValue("");
-    }
-  }, [onSubmit, disabled]);
-
-  useEffect(() => {
+  useKeyboard((key) => {
     if (disabled) return;
-    const interval = setInterval(() => {
-      setCursorVisible((prev) => !prev);
-    }, 500);
-    return () => clearInterval(interval);
-  }, [disabled]);
+    if (key.name === "return") {
+      if (value.trim()) {
+        onSubmit(value.trim());
+        setValue("");
+      }
+      return;
+    }
+    if (key.name === "backspace") {
+      setValue((v) => v.slice(0, -1));
+      return;
+    }
+    // Let App-level handler handle these
+    if (key.name === "escape" || key.name === "tab" || key.name === "up" || key.name === "down") return;
+    if (key.ctrl || key.meta) return;
+    // Printable character
+    if (key.sequence && key.sequence.length === 1) {
+      setValue((v) => v + key.sequence);
+    }
+  });
 
-  useInput((input, key) => {
-    if (key.upArrow || key.downArrow || key.tab || (key.shift && key.tab) || key.escape) {
-      return;
-    }
-    if (key.ctrl && input === "c") {
-      return;
-    }
-    if (key.return) {
-      handleSubmit(value);
-      return;
-    }
-    if (key.backspace || key.delete) {
-      setValue((prev) => prev.slice(0, -1));
-      return;
-    }
-    if (input) {
-      setValue((prev) => prev + input);
-    }
-  }, { isActive: !disabled });
-
-  const placeholder = disabled ? "Processing..." : "";
+  const placeholder = disabled ? "Processing..." : "Ask anything...";
   const promptColor = disabled ? theme.colors.muted : theme.colors.success;
-  const promptIcon = disabled ? "›" : "›";
+  const showPlaceholder = !value;
 
   return (
-    <Box width="100%" paddingX={2} flexShrink={0} height={1}>
-      <Text bold color={promptColor}>{promptIcon} </Text>
-      {value.length > 0 ? (
-        <Text color={theme.colors.info}>
-          {value}
-          {!disabled && cursorVisible && <Text inverse color={theme.colors.primary}> </Text>}
-        </Text>
-      ) : (
-        <>
-          <Text color={theme.colors.muted}>{placeholder}</Text>
-          {!disabled && cursorVisible && <Text inverse color={theme.colors.primary}> </Text>}
-        </>
-      )}
-    </Box>
+    <box width="100%" paddingLeft={1} paddingRight={1} flexShrink={0} height={1}>
+      <text>
+        <span fg={promptColor}><b>{"› "}</b></span>
+        {showPlaceholder ? (
+          <span fg={theme.colors.muted}>{placeholder}</span>
+        ) : (
+          <>
+            <span>{value}</span>
+            <span fg="#000" bg={theme.colors.primary}>{" "}</span>
+          </>
+        )}
+      </text>
+    </box>
   );
 });

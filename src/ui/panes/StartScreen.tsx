@@ -1,5 +1,3 @@
-import React from "react";
-import { Box, Text } from "ink";
 import type { Theme } from "../theme.js";
 import { InputBar } from "./InputBar.js";
 
@@ -34,27 +32,26 @@ const RAINBOW_COLORS = [
 
 export function StartScreen({ onSubmit, disabled = false, theme, height }: StartScreenProps) {
   return (
-    <Box flexDirection="column" width="100%" height={height}>
-      <Box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
+    <box flexDirection="column" width="100%" height={height}>
+      <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
         {LOGO_LINES.map((line, index) => (
-          <Text key={index} color={RAINBOW_COLORS[index % RAINBOW_COLORS.length]}>
+          <text key={index} fg={RAINBOW_COLORS[index % RAINBOW_COLORS.length]}>
             {line}
-          </Text>
+          </text>
         ))}
-        <Box marginTop={1}>
-          <Text color={theme.colors.muted}>Ask anything to get started.</Text>
-        </Box>
-      </Box>
-      <Box
+        <box marginTop={1}>
+          <text fg={theme.colors.muted}>Ask anything to get started.</text>
+        </box>
+      </box>
+      <box
         borderStyle="single"
         borderColor={theme.colors.borderActive}
-        borderTop={true}
-        borderBottom={false}
-        borderLeft={false}
-        borderRight={false}
+        border={["top"]}
+        flexShrink={0}
+        height={2}
       >
         <InputBar onSubmit={onSubmit} disabled={disabled} theme={theme} />
-      </Box>
-    </Box>
+      </box>
+    </box>
   );
 }

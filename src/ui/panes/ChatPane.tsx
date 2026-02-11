@@ -1,10 +1,10 @@
-import React, { useMemo } from "react";
-import { Box, Text } from "ink";
-import Markdown from "ink-markdown-es";
+import { useMemo } from "react";
+import { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "../../harness/events.js";
 import type { ActiveTool } from "../../harness/Harness.js";
-import type { ReactNode } from "react";
 import type { Theme } from "../theme.js";
+
+const defaultSyntaxStyle = SyntaxStyle.create();
 
 interface ChatPaneProps {
   messages: ChatMessage[];
@@ -41,20 +41,6 @@ function getRoleColor(role: ChatMessage["role"], theme: Theme): string {
   }
 }
 
-const markdownRenderers = {
-  paragraph: (content: ReactNode) => (
-    <Box>
-      <Text wrap="wrap">{content}</Text>
-    </Box>
-  ),
-};
-
-const markdownStyles = {
-  paragraph: {
-    wrap: "wrap" as const,
-  },
-};
-
 export function ChatPane({ messages, streamingContent, streamingReasoning, activeTools, height, theme }: ChatPaneProps) {
   const visibleMessages = useMemo(() => {
     let estimatedLines = 0;
@@ -72,14 +58,16 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, activ
   }, [messages, height]);
 
   return (
-    <Box
+    <box
       flexDirection="column"
       flexGrow={1}
-      paddingX={2}
-      paddingY={1}
+      paddingLeft={2}
+      paddingRight={2}
+      paddingTop={1}
+      paddingBottom={1}
     >
       {visibleMessages.length === 0 && !streamingContent && !streamingReasoning && (
-        <Text color={theme.colors.muted}>No messages yet</Text>
+        <text fg={theme.colors.muted}>No messages yet</text>
       )}
 
       {visibleMessages.map((msg, index) => {
@@ -87,78 +75,74 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, activ
         const showLabel = !prevMsg || prevMsg.role !== msg.role;
         
         return (
-          <Box key={msg.id} flexDirection="column" marginBottom={1}>
+          <box key={msg.id} flexDirection="column" marginBottom={1}>
             {msg.role === "assistant" && msg.reasoning && (
-              <Box flexDirection="column" marginBottom={1} paddingX={1}>
-                <Text color={theme.colors.accent} bold>
-                  Thinking...
-                </Text>
-                <Text color={theme.colors.muted} wrap="wrap">
+              <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
+                <text fg={theme.colors.accent}>
+                  <b>Thinking...</b>
+                </text>
+                <text fg={theme.colors.muted}>
                   {msg.reasoning}
-                </Text>
-              </Box>
+                </text>
+              </box>
             )}
             
             {msg.role === "user" ? (
-               <Box borderStyle="single" borderLeft={true} borderRight={false} borderTop={false} borderBottom={false} borderColor={theme.colors.info} paddingLeft={1} flexDirection="column">
-                 {showLabel && <Text color={theme.colors.info} bold>{formatRole(msg.role)}</Text>}
-                 <Text wrap="wrap">{msg.content}</Text>
-               </Box>
+               <box borderStyle="single" border={["left"]} borderColor={theme.colors.info} paddingLeft={1} flexDirection="column">
+                 {showLabel && <text fg={theme.colors.info}><b>{formatRole(msg.role)}</b></text>}
+                 <text>{msg.content}</text>
+               </box>
             ) : (
-              <Box flexDirection="column">
+              <box flexDirection="column">
                 {showLabel && (
-                  <Text color={getRoleColor(msg.role, theme)} bold>
-                    {formatRole(msg.role)}
-                  </Text>
+                  <text fg={getRoleColor(msg.role, theme)}>
+                    <b>{formatRole(msg.role)}</b>
+                  </text>
                 )}
-                <Box paddingLeft={1}>
+                <box paddingLeft={1}>
                   {msg.role === "assistant" ? (
-                    <Markdown renderers={markdownRenderers} styles={markdownStyles}>
-                      {msg.content}
-                    </Markdown>
+                    <markdown syntaxStyle={defaultSyntaxStyle} content={msg.content} />
                   ) : (
-                    <Text wrap="wrap">{msg.content}</Text>
+                    <text>{msg.content}</text>
                   )}
-                </Box>
-              </Box>
+                </box>
+              </box>
             )}
-          </Box>
+          </box>
         );
       })}
 
       {streamingReasoning && (
-        <Box flexDirection="column" marginBottom={1} paddingX={1}>
-          <Text color={theme.colors.accent} bold>
-            Thinking <Text color={theme.colors.warning}>▮</Text>
-          </Text>
-          <Text color={theme.colors.muted} wrap="wrap">
+        <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
+          <text fg={theme.colors.accent}>
+            <b>Thinking</b> <span fg={theme.colors.warning}>▮</span>
+          </text>
+          <text fg={theme.colors.muted}>
             {streamingReasoning}
-          </Text>
-        </Box>
+          </text>
+        </box>
       )}
 
       {activeTools.length > 0 && (
-        <Box flexDirection="column" marginBottom={1} paddingX={1}>
+        <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
           {activeTools.map((tool) => (
-            <Text key={tool.toolCallId} color={theme.colors.warning}>
+            <text key={tool.toolCallId} fg={theme.colors.warning}>
               Running: {tool.toolName}
-            </Text>
+            </text>
           ))}
-        </Box>
+        </box>
       )}
 
       {streamingContent && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text color={theme.colors.secondary} bold>
-            Assistant <Text color={theme.colors.success}>▮</Text>
-          </Text>
-          <Box paddingLeft={1}>
-            <Markdown renderers={markdownRenderers} styles={markdownStyles}>
-              {streamingContent}
-            </Markdown>
-          </Box>
-        </Box>
+        <box flexDirection="column" marginBottom={1}>
+          <text fg={theme.colors.secondary}>
+            <b>Assistant</b> <span fg={theme.colors.success}>▮</span>
+          </text>
+          <box paddingLeft={1}>
+            <markdown syntaxStyle={defaultSyntaxStyle} content={streamingContent} streaming />
+          </box>
+        </box>
       )}
-    </Box>
+    </box>
   );
 }

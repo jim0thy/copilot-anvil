@@ -1,5 +1,4 @@
-import React, { useMemo } from "react";
-import { Box, Text } from "ink";
+import { memo, useMemo } from "react";
 import type { LogEvent } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
 
@@ -44,37 +43,40 @@ function formatTime(date: Date): string {
   });
 }
 
-export const LogsPane = React.memo(function LogsPane({ logs, height, theme }: LogsPaneProps) {
+export const LogsPane = memo(function LogsPane({ logs, height, theme }: LogsPaneProps) {
   const visibleLogs = useMemo(() => {
     const availableLines = height - 4;
     return logs.slice(-Math.max(1, availableLines));
   }, [logs, height]);
 
   return (
-    <Box
+    <box
       flexDirection="column"
       width="100%"
       height={height}
-      borderStyle="round"
+      borderStyle="rounded"
       borderColor={theme.colors.border}
-      paddingX={1}
+      paddingLeft={1}
+      paddingRight={1}
       overflow="hidden"
     >
-      <Text bold color={theme.colors.primary}>
-        Logs
-      </Text>
+      <text fg={theme.colors.primary}>
+        <b>Logs</b>
+      </text>
 
       {visibleLogs.length === 0 && (
-        <Text color={theme.colors.muted}>No logs yet</Text>
+        <text fg={theme.colors.muted}>No logs yet</text>
       )}
 
       {visibleLogs.map((log, index) => (
-        <Box key={`${log.createdAt.getTime()}-${index}`} flexDirection="row">
-          <Text color={theme.colors.muted}>{formatTime(log.createdAt)} </Text>
-          <Text color={getLevelColor(log.level, theme)} bold>[{getLevelLabel(log.level)}] </Text>
-          <Text wrap="truncate-end">{log.message}</Text>
-        </Box>
+        <box key={`${log.createdAt.getTime()}-${index}`} flexDirection="row">
+          <text>
+            <span fg={theme.colors.muted}>{formatTime(log.createdAt)} </span>
+            <b><span fg={getLevelColor(log.level, theme)}>[{getLevelLabel(log.level)}] </span></b>
+            <span>{log.message}</span>
+          </text>
+        </box>
       ))}
-    </Box>
+    </box>
   );
 });

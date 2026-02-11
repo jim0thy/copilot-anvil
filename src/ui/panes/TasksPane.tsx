@@ -1,5 +1,4 @@
-import React, { useMemo } from "react";
-import { Box, Text } from "ink";
+import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
 
 export interface Task {
@@ -57,7 +56,7 @@ function formatDuration(start: Date, end: Date): string {
   return `${minutes}m ${seconds % 60}s`;
 }
 
-export const TasksPane = React.memo(function TasksPane({ tasks, height, theme }: TasksPaneProps) {
+export const TasksPane = memo(function TasksPane({ tasks, height, theme }: TasksPaneProps) {
   const { activeTasks, recentTasks } = useMemo(() => {
     const active = tasks.filter(t => t.status === "running");
     const completed = tasks
@@ -75,66 +74,67 @@ export const TasksPane = React.memo(function TasksPane({ tasks, height, theme }:
   }, [tasks, height]);
 
   return (
-    <Box
+    <box
       flexDirection="column"
       width="100%"
       height={height}
-      borderStyle="round"
+      borderStyle="rounded"
       borderColor={theme.colors.border}
-      paddingX={1}
+      paddingLeft={1}
+      paddingRight={1}
       overflow="hidden"
     >
-      <Text bold color={theme.colors.primary}>
-        Tasks
-      </Text>
+      <text fg={theme.colors.primary}>
+        <b>Tasks</b>
+      </text>
 
       {activeTasks.length === 0 && recentTasks.length === 0 && (
-        <Text color={theme.colors.muted}>No tasks yet</Text>
+        <text fg={theme.colors.muted}>No tasks yet</text>
       )}
 
       {activeTasks.length > 0 && (
         <>
-          <Box marginTop={0} marginBottom={0}>
-             <Text bold color={theme.colors.info}>Active:</Text>
-          </Box>
+          <box>
+             <text fg={theme.colors.info}><b>Active:</b></text>
+          </box>
           {activeTasks.map((task) => (
-            <Box key={task.id} flexDirection="column" marginLeft={1}>
-              <Box flexDirection="row">
-                <Text color={getStatusColor(task.status, theme)}>
+            <box key={task.id} flexDirection="column" marginLeft={1}>
+              <box flexDirection="row">
+                <text fg={getStatusColor(task.status, theme)}>
                   {getStatusIcon(task.status)}{" "}
-                </Text>
-                <Text bold wrap="truncate-end">{task.name}</Text>
-              </Box>
-              <Box marginLeft={2}>
-                 <Text color={theme.colors.muted}>
+                </text>
+                <text><b>{task.name}</b></text>
+              </box>
+              <box marginLeft={2}>
+                 <text fg={theme.colors.muted}>
                    Started {formatTime(task.startedAt)}
-                 </Text>
-              </Box>
-            </Box>
+                 </text>
+              </box>
+            </box>
           ))}
         </>
       )}
 
       {recentTasks.length > 0 && (
         <>
-          <Box marginTop={0} marginBottom={0}>
-            <Text bold color={theme.colors.muted}>Recent:</Text>
-          </Box>
+          <box>
+            <text fg={theme.colors.muted}><b>Recent:</b></text>
+          </box>
           {recentTasks.map((task) => (
-            <Box key={task.id} flexDirection="row" marginLeft={1}>
-              <Text color={getStatusColor(task.status, theme)}>
+            <box key={task.id} flexDirection="row" marginLeft={1}>
+              <text fg={getStatusColor(task.status, theme)}>
                 {getStatusIcon(task.status)}{" "}
-              </Text>
-              <Text wrap="truncate-end">{task.name}</Text>
+              </text>
+              <text>{task.name}</text>
               {task.completedAt && (
-                <Text color={theme.colors.muted}>
+                <text fg={theme.colors.muted}>
                   {" "}({formatDuration(task.startedAt, task.completedAt)})
-                </Text>
+                </text>
               )}
-            </Box>
+            </box>
           ))}
         </>
       )}
-    </Box>
+    </box>
   );
 });
