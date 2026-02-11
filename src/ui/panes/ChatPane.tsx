@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import Markdown from "ink-markdown-es";
 import type { ChatMessage } from "../../harness/events.js";
+import type { ActiveTool } from "../../harness/Harness.js";
 import type { ReactNode } from "react";
 import type { Theme } from "../theme.js";
 
@@ -9,6 +10,7 @@ interface ChatPaneProps {
   messages: ChatMessage[];
   streamingContent: string;
   streamingReasoning: string;
+  activeTools: ActiveTool[];
   height: number;
   theme: Theme;
 }
@@ -16,26 +18,26 @@ interface ChatPaneProps {
 function formatRole(role: ChatMessage["role"]): string {
   switch (role) {
     case "user":
-      return "[You]";
+      return "You";
     case "assistant":
-      return "[Assistant]";
+      return "Assistant";
     case "tool":
-      return "[Tool]";
+      return "Tool";
     case "system":
-      return "[System]";
+      return "System";
   }
 }
 
-function getRoleColor(role: ChatMessage["role"]): string {
+function getRoleColor(role: ChatMessage["role"], theme: Theme): string {
   switch (role) {
     case "user":
-      return "cyan";
+      return theme.colors.info;
     case "assistant":
-      return "green";
+      return theme.colors.secondary;
     case "tool":
-      return "yellow";
+      return theme.colors.warning;
     case "system":
-      return "gray";
+      return theme.colors.muted;
   }
 }
 
@@ -53,7 +55,7 @@ const markdownStyles = {
   },
 };
 
-export function ChatPane({ messages, streamingContent, streamingReasoning, height, theme }: ChatPaneProps) {
+export function ChatPane({ messages, streamingContent, streamingReasoning, activeTools, height, theme }: ChatPaneProps) {
   const visibleMessages = useMemo(() => {
     let estimatedLines = 0;
     const availableLines = height - 2;
@@ -73,56 +75,88 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, heigh
     <Box
       flexDirection="column"
       flexGrow={1}
-      paddingX={1}
+      paddingX={2}
+      paddingY={1}
     >
       {visibleMessages.length === 0 && !streamingContent && !streamingReasoning && (
-        <Text color={theme.colors.muted}>No messages yet. Type a prompt below.</Text>
+        <Text color={theme.colors.muted}>No messages yet</Text>
       )}
 
-      {visibleMessages.map((msg) => (
-        <Box key={msg.id} flexDirection="column" marginBottom={1}>
-          {msg.role === "assistant" && msg.reasoning && (
-            <Box flexDirection="column" marginBottom={1}>
-              <Text color="magenta" bold dimColor>
-                [Thinking]
-              </Text>
-              <Text color={theme.colors.muted} dimColor wrap="wrap">
-                {msg.reasoning}
-              </Text>
-            </Box>
-          )}
-          <Text color={getRoleColor(msg.role)} bold>
-            {formatRole(msg.role)}
-          </Text>
-          {msg.role === "assistant" ? (
-            <Markdown renderers={markdownRenderers} styles={markdownStyles}>
-              {msg.content}
-            </Markdown>
-          ) : (
-            <Text wrap="wrap">{msg.content}</Text>
-          )}
-        </Box>
-      ))}
+      {visibleMessages.map((msg, index) => {
+        const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
+        const showLabel = !prevMsg || prevMsg.role !== msg.role;
+        
+        return (
+          <Box key={msg.id} flexDirection="column" marginBottom={1}>
+            {msg.role === "assistant" && msg.reasoning && (
+              <Box flexDirection="column" marginBottom={1} paddingX={1}>
+                <Text color={theme.colors.accent} bold>
+                  Thinking...
+                </Text>
+                <Text color={theme.colors.muted} wrap="wrap">
+                  {msg.reasoning}
+                </Text>
+              </Box>
+            )}
+            
+            {msg.role === "user" ? (
+               <Box borderStyle="single" borderLeft={true} borderRight={false} borderTop={false} borderBottom={false} borderColor={theme.colors.info} paddingLeft={1} flexDirection="column">
+                 {showLabel && <Text color={theme.colors.info} bold>{formatRole(msg.role)}</Text>}
+                 <Text wrap="wrap">{msg.content}</Text>
+               </Box>
+            ) : (
+              <Box flexDirection="column">
+                {showLabel && (
+                  <Text color={getRoleColor(msg.role, theme)} bold>
+                    {formatRole(msg.role)}
+                  </Text>
+                )}
+                <Box paddingLeft={1}>
+                  {msg.role === "assistant" ? (
+                    <Markdown renderers={markdownRenderers} styles={markdownStyles}>
+                      {msg.content}
+                    </Markdown>
+                  ) : (
+                    <Text wrap="wrap">{msg.content}</Text>
+                  )}
+                </Box>
+              </Box>
+            )}
+          </Box>
+        );
+      })}
 
       {streamingReasoning && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text color="magenta" bold dimColor>
-            [Thinking] <Text color={theme.colors.muted}>▌</Text>
+        <Box flexDirection="column" marginBottom={1} paddingX={1}>
+          <Text color={theme.colors.accent} bold>
+            Thinking <Text color={theme.colors.warning}>▮</Text>
           </Text>
-          <Text color={theme.colors.muted} dimColor wrap="wrap">
+          <Text color={theme.colors.muted} wrap="wrap">
             {streamingReasoning}
           </Text>
         </Box>
       )}
 
+      {activeTools.length > 0 && (
+        <Box flexDirection="column" marginBottom={1} paddingX={1}>
+          {activeTools.map((tool) => (
+            <Text key={tool.toolCallId} color={theme.colors.warning}>
+              Running: {tool.toolName}
+            </Text>
+          ))}
+        </Box>
+      )}
+
       {streamingContent && (
         <Box flexDirection="column" marginBottom={1}>
-          <Text color="green" bold>
-            [Assistant] <Text color={theme.colors.muted}>▌</Text>
+          <Text color={theme.colors.secondary} bold>
+            Assistant <Text color={theme.colors.success}>▮</Text>
           </Text>
-          <Markdown renderers={markdownRenderers} styles={markdownStyles}>
-            {streamingContent}
-          </Markdown>
+          <Box paddingLeft={1}>
+            <Markdown renderers={markdownRenderers} styles={markdownStyles}>
+              {streamingContent}
+            </Markdown>
+          </Box>
         </Box>
       )}
     </Box>
