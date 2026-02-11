@@ -41,6 +41,7 @@ export interface HarnessState {
   tasks: Task[];
   currentModel: string | null;
   availableModels: ModelDescription[];
+  messageQueue: string[];
   contextInfo: {
     currentTokens: number;
     tokenLimit: number;
@@ -64,6 +65,7 @@ export class Harness {
     tasks: [],
     currentModel: null,
     availableModels: [],
+    messageQueue: [],
     contextInfo: {
       currentTokens: 0,
       tokenLimit: 0,
@@ -182,6 +184,8 @@ export class Harness {
           currentRunId: null,
           activeTools: [],
         };
+        // Process next queued message if any
+        this.processNextQueuedMessage();
         break;
 
       case "tool.started": {
@@ -277,8 +281,13 @@ export class Harness {
 
   private async handleSubmitPrompt(text: string): Promise<void> {
     if (this.state.status === "running") {
+      // Queue the message for later processing
+      this.state = {
+        ...this.state,
+        messageQueue: [...this.state.messageQueue, text],
+      };
       this.emit(
-        createLogEvent("warn", "Cannot submit while a run is in progress")
+        createLogEvent("info", `Message queued (${this.state.messageQueue.length} waiting)`)
       );
       return;
     }
@@ -288,6 +297,10 @@ export class Harness {
       return;
     }
 
+    await this.executePrompt(text);
+  }
+
+  private async executePrompt(text: string): Promise<void> {
     const runId = generateId();
 
     const userMessage = createUserMessage(text);
@@ -305,7 +318,7 @@ export class Harness {
     this.emit(createLogEvent("info", `Run started: ${runId}`, runId));
 
     try {
-      await this.adapter.sendPrompt(text, runId);
+      await this.adapter!.sendPrompt(text, runId);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -402,6 +415,24 @@ export class Harness {
         error instanceof Error ? error.message : String(error);
       this.emit(createLogEvent("error", `Model switch failed: ${errorMessage}`));
     }
+  }
+
+  private async processNextQueuedMessage(): Promise<void> {
+    if (this.state.messageQueue.length === 0) {
+      return;
+    }
+
+    const [nextMessage, ...remainingQueue] = this.state.messageQueue;
+    this.state = {
+      ...this.state,
+      messageQueue: remainingQueue,
+    };
+
+    this.emit(
+      createLogEvent("info", `Processing queued message (${remainingQueue.length} remaining)`)
+    );
+
+    await this.executePrompt(nextMessage);
   }
 
   async shutdown(): Promise<void> {
