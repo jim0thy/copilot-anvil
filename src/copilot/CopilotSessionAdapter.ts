@@ -281,8 +281,10 @@ export class CopilotSessionAdapter {
           if (this.currentRunId) {
             const runId = this.currentRunId;
 
-            // Emit any remaining streaming content that wasn't captured by turn events
-            if (this.streamingBuffer) {
+            // Emit any remaining streaming content that wasn't captured by turn events.
+            // Guard with hasEmittedContentForTurn to avoid duplicating content
+            // that was already flushed by assistant.message or turn_end handlers.
+            if (this.streamingBuffer && !this.hasEmittedContentForTurn) {
               const message = createAssistantMessage(this.streamingBuffer);
               this.emit({
                 type: "assistant.message",
