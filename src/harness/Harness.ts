@@ -16,6 +16,20 @@ export type HarnessStatus = "idle" | "running" | "error";
 
 export type HarnessEventHandler = (event: HarnessEvent) => void;
 
+export interface ActiveTool {
+  toolCallId: string;
+  toolName: string;
+}
+
+export interface Task {
+  id: string;
+  name: string;
+  status: "running" | "completed" | "failed";
+  startedAt: Date;
+  completedAt?: Date;
+  error?: string;
+}
+
 export interface HarnessState {
   status: HarnessStatus;
   transcript: ChatMessage[];
@@ -23,6 +37,8 @@ export interface HarnessState {
   currentRunId: string | null;
   streamingContent: string;
   streamingReasoning: string;
+  activeTools: ActiveTool[];
+  tasks: Task[];
   currentModel: string | null;
   availableModels: ModelDescription[];
   contextInfo: {
@@ -34,6 +50,7 @@ export interface HarnessState {
 }
 
 const MAX_LOGS = 100;
+const MAX_TASKS = 50;
 
 export class Harness {
   private state: HarnessState = {
