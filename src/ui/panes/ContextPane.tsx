@@ -26,42 +26,56 @@ export const ContextPane = React.memo(function ContextPane({
     ? Math.round((currentTokens / tokenLimit) * 100) 
     : 0;
   
-  const percentColor = contextPercent > 80 ? "red" : contextPercent > 60 ? "yellow" : "green";
+  const percentColor = contextPercent > 80 
+    ? theme.colors.error 
+    : contextPercent > 60 
+    ? theme.colors.warning 
+    : theme.colors.success;
+
+  // Simple progress bar
+  const barWidth = 20;
+  const filledWidth = Math.round((contextPercent / 100) * barWidth);
+  const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
 
   return (
     <Box
       flexDirection="column"
       width={width}
-      borderStyle="single"
+      borderStyle="round"
       borderColor={theme.colors.border}
       paddingX={1}
+      paddingY={0}
     >
-      <Text bold color={theme.colors.muted}>
-        Context
-      </Text>
+      <Box marginTop={0} marginBottom={1}>
+        <Text bold color={theme.colors.primary}>
+          Context
+        </Text>
+      </Box>
 
-      <Box flexDirection="column" marginTop={1}>
-        <Box>
+      <Box flexDirection="column">
+        <Box marginBottom={0}>
           <Text color={theme.colors.muted}>Tokens: </Text>
-          <Text color="cyan">
-            {currentTokens.toLocaleString()}/{tokenLimit.toLocaleString()}
+          <Text color={theme.colors.info}>
+            {currentTokens.toLocaleString()}<Text color={theme.colors.muted}>/</Text>{tokenLimit.toLocaleString()}
           </Text>
         </Box>
 
-        <Box>
-          <Text color={theme.colors.muted}>Usage: </Text>
-          <Text color={percentColor}>{contextPercent}%</Text>
+        <Box flexDirection="column" marginBottom={1}>
+          <Box>
+            <Text color={percentColor}>{progressBar}</Text>
+            <Text color={theme.colors.muted}> {contextPercent}%</Text>
+          </Box>
         </Box>
 
         <Box>
-          <Text color={theme.colors.muted}>Conv msgs: </Text>
-          <Text>{conversationLength}</Text>
+          <Text color={theme.colors.muted}>Messages: </Text>
+          <Text color={theme.colors.info}>{conversationLength}</Text>
         </Box>
 
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Text color={theme.colors.muted}>Remaining: </Text>
-          <Text color="magenta">
-            {remainingPremiumRequests !== null ? remainingPremiumRequests : '—'}
+          <Text color={theme.colors.accent}>
+            {remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}
           </Text>
         </Box>
       </Box>
