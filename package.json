@@ -15,6 +15,7 @@
     "@github/copilot-sdk": "^0.1.23",
     "ink": "^6.7.0",
     "ink-markdown-es": "^1.1.0",
+    "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "react": "^19.2.4",
     "wrap-ansi": "^9.0.2"
