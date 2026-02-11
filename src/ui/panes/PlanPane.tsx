@@ -83,12 +83,16 @@ export const PlanPane = memo(function PlanPane({
           </text>
           {todoItems.map((item, idx) => (
             <box key={idx} flexDirection="row" marginLeft={1}>
-              <text fg={item.checked ? theme.colors.success : theme.colors.muted}>
-                {item.checked ? "✓" : "☐"}{" "}
-              </text>
-              <text fg={item.checked ? theme.colors.muted : theme.colors.primary}>
-                {item.text}
-              </text>
+              <box width={2} flexShrink={0}>
+                <text fg={item.checked ? theme.colors.success : theme.colors.muted}>
+                  {item.checked ? "✓ " : "☐ "}
+                </text>
+              </box>
+              <box flexShrink={1}>
+                <text fg={item.checked ? theme.colors.muted : theme.colors.primary}>
+                  {item.text}
+                </text>
+              </box>
             </box>
           ))}
         </box>
