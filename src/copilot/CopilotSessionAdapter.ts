@@ -17,7 +17,6 @@ export class CopilotSessionAdapter {
   private currentRunId: string | null = null;
   private streamingBuffer = "";
   private reasoningBuffer = "";
-  private currentReasoningId: string | null = null;
   private isCancelled = false;
   private isProcessing = false;
   private expectedRunGeneration = 0;
@@ -108,7 +107,6 @@ export class CopilotSessionAdapter {
           // Reset per-turn state
           this.streamingBuffer = "";
           this.reasoningBuffer = "";
-          this.currentReasoningId = null;
           this.hasEmittedContentForTurn = false;
 
           if (this.currentRunId) {
@@ -195,7 +193,6 @@ export class CopilotSessionAdapter {
           // Reset for next turn
           this.streamingBuffer = "";
           this.reasoningBuffer = "";
-          this.currentReasoningId = null;
           this.hasEmittedContentForTurn = false;
           break;
         }
@@ -243,7 +240,6 @@ export class CopilotSessionAdapter {
           if (!reasoningDelta) return;
 
           this.reasoningBuffer += reasoningDelta;
-          this.currentReasoningId = reasoningId;
 
           if (this.currentRunId) {
             this.emit({
@@ -305,7 +301,6 @@ export class CopilotSessionAdapter {
 
             this.streamingBuffer = "";
             this.reasoningBuffer = "";
-            this.currentReasoningId = null;
             this.currentRunId = null;
             this.isProcessing = false;
             this.hasEmittedContentForTurn = false;
@@ -369,7 +364,6 @@ export class CopilotSessionAdapter {
     this.currentRunId = runId;
     this.streamingBuffer = "";
     this.reasoningBuffer = "";
-    this.currentReasoningId = null;
     this.isCancelled = false;
     this.isProcessing = true;
     this.hasEmittedContentForTurn = false;
@@ -425,7 +419,6 @@ export class CopilotSessionAdapter {
 
     this.streamingBuffer = "";
     this.reasoningBuffer = "";
-    this.currentReasoningId = null;
     this.currentRunId = null;
 
     if (runId) {
