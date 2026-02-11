@@ -24,6 +24,8 @@ export class CopilotSessionAdapter {
   private _currentModel: string | null = null;
   private _availableModels: ModelDescription[] = [];
   private hasEmittedContentForTurn = false;
+  private planWatcher: any = null;
+  private workspacePath: string | null = null;
 
   onEvent(handler: AdapterEventHandler): void {
     this.eventHandler = handler;
@@ -64,8 +66,14 @@ export class CopilotSessionAdapter {
       });
 
       this._currentModel = model ?? this._availableModels[0]?.id ?? null;
+      this.workspacePath = this.session.workspacePath ?? null;
 
       this.setupSessionEventHandlers();
+      
+      // Setup plan.md watcher if workspace exists
+      if (this.workspacePath) {
+        this.setupPlanWatcher();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const lowerMessage = message.toLowerCase();
@@ -202,12 +210,77 @@ export class CopilotSessionAdapter {
           if (!this.isProcessing) return;
           if (gen !== this.expectedRunGeneration) return;
 
+          const toolName = event.data?.toolName;
+          let args = event.data?.arguments;
+
+          // Parse args if they're a JSON string
+          if (typeof args === "string") {
+            try {
+              args = JSON.parse(args);
+            } catch {
+              // Not valid JSON, keep as string
+            }
+          }
+
+          // Handle special tool calls
+          if (toolName === "report_intent" && args && typeof args === "object") {
+            const intentArg = (args as any).intent;
+            if (intentArg && this.currentRunId) {
+              this.emit({
+                type: "intent.updated",
+                runId: this.currentRunId,
+                intent: intentArg,
+              });
+            }
+          } else if (toolName === "update_todo" && args && typeof args === "object") {
+            const todosArg = (args as any).todos;
+            if (todosArg && this.currentRunId) {
+              this.emit({
+                type: "todo.updated",
+                runId: this.currentRunId,
+                todos: todosArg,
+              });
+            }
+          }
+
           if (this.currentRunId) {
             this.emit({
               type: "tool.started",
               runId: this.currentRunId,
               toolCallId: event.data?.toolCallId ?? "",
               toolName: event.data?.toolName ?? "unknown",
+            });
+          }
+          break;
+        }
+
+        case "assistant.intent": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          const intent = event.data?.intent;
+          if (intent && this.currentRunId) {
+            this.emit({
+              type: "intent.updated",
+              runId: this.currentRunId,
+              intent,
+            });
+          }
+          break;
+        }
+
+        case "tool.execution_progress": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "tool.progress",
+              runId: this.currentRunId,
+              toolCallId: event.data?.toolCallId ?? "",
+              message: event.data?.progressMessage ?? "",
             });
           }
           break;
@@ -336,17 +409,90 @@ export class CopilotSessionAdapter {
         }
 
         case "assistant.usage": {
-          // Extract remaining premium requests from quota snapshots
+          // Extract remaining premium requests from quota snapshots if available
           const quotaSnapshots = event.data?.quotaSnapshots;
-          if (quotaSnapshots) {
+          let remainingPremiumRequests: number | null = null;
+          
+          if (quotaSnapshots && Object.keys(quotaSnapshots).length > 0) {
             for (const [, quota] of Object.entries(quotaSnapshots)) {
-              const remaining = Math.max(0, quota.entitlementRequests - quota.usedRequests);
-              this.emit({
-                type: "quota.info",
-                remainingPremiumRequests: remaining,
-              });
+              // Use SDK-reported remaining if available
+              remainingPremiumRequests = Math.max(0, quota.entitlementRequests - quota.usedRequests);
               break;
             }
+          }
+          
+          // Emit remaining quota info (consumedRequests tracked by harness)
+          this.emit({
+            type: "quota.info",
+            remainingPremiumRequests,
+            consumedRequests: 0, // Not used - harness tracks this via run.finished
+          });
+          break;
+        }
+
+        case "subagent.started": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "subagent.started",
+              runId: this.currentRunId,
+              toolCallId: event.data?.toolCallId ?? "",
+              agentName: event.data?.agentName ?? "",
+              agentDisplayName: event.data?.agentDisplayName ?? "",
+              agentDescription: event.data?.agentDescription ?? "",
+            });
+          }
+          break;
+        }
+
+        case "subagent.completed": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "subagent.completed",
+              runId: this.currentRunId,
+              toolCallId: event.data?.toolCallId ?? "",
+              agentName: event.data?.agentName ?? "",
+            });
+          }
+          break;
+        }
+
+        case "subagent.failed": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "subagent.failed",
+              runId: this.currentRunId,
+              toolCallId: event.data?.toolCallId ?? "",
+              agentName: event.data?.agentName ?? "",
+              error: event.data?.error ?? "Unknown error",
+            });
+          }
+          break;
+        }
+
+        case "skill.invoked": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "skill.invoked",
+              runId: this.currentRunId,
+              name: event.data?.name ?? "",
+              path: event.data?.path ?? "",
+            });
           }
           break;
         }
@@ -484,7 +630,52 @@ export class CopilotSessionAdapter {
     });
   }
 
+  private setupPlanWatcher(): void {
+    if (!this.workspacePath) return;
+
+    const fs = require("fs");
+    const path = require("path");
+    const planPath = path.join(this.workspacePath, "plan.md");
+
+    const readAndEmitPlan = () => {
+      try {
+        if (fs.existsSync(planPath)) {
+          const content = fs.readFileSync(planPath, "utf-8");
+          this.emit({
+            type: "plan.updated",
+            content,
+          });
+        }
+      } catch {
+        // Ignore errors
+      }
+    };
+
+    // Read initial plan if it exists
+    readAndEmitPlan();
+
+    // Watch the directory for plan.md creation/changes
+    try {
+      this.planWatcher = fs.watch(this.workspacePath, (eventType: string, filename: string) => {
+        if (filename === "plan.md") {
+          readAndEmitPlan();
+        }
+      });
+    } catch {
+      // Directory doesn't exist or can't be watched
+    }
+  }
+
   async shutdown(): Promise<void> {
+    if (this.planWatcher) {
+      try {
+        this.planWatcher.close();
+      } catch {
+        // Ignore
+      }
+      this.planWatcher = null;
+    }
+
     if (this.session) {
       try {
         await this.session.destroy();
