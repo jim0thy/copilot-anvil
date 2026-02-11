@@ -43,15 +43,7 @@ export function StartScreen({ onSubmit, disabled = false, theme, height }: Start
           <text fg={theme.colors.muted}>Ask anything to get started.</text>
         </box>
       </box>
-      <box
-        borderStyle="single"
-        borderColor={theme.colors.borderActive}
-        border={["top"]}
-        flexShrink={0}
-        height={2}
-      >
-        <InputBar onSubmit={onSubmit} disabled={disabled} theme={theme} />
-      </box>
+      <InputBar onSubmit={onSubmit} disabled={disabled} theme={theme} />
     </box>
   );
 }

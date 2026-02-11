@@ -11,18 +11,30 @@ import { getTheme } from './theme.js'
 
 interface AppProps {
   harness: Harness;
+  renderer: CliRenderer;
 }
 
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const STATUS_BAR_HEIGHT = 1;
-const INPUT_BAR_HEIGHT = 2;
+const INPUT_BAR_HEIGHT = 3;
 
-export function App({ harness }: AppProps) {
-  const { exit } = useApp();
-  const { stdout } = useStdout();
+function useSpinner(active: boolean): string {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const interval = setInterval(() => {
+      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+    }, 80);
+    return () => clearInterval(interval);
+  }, [active]);
+  return active ? SPINNER_FRAMES[frame] : "";
+}
+
 export function App({ harness, renderer }: AppProps) {
   const { width, height } = useTerminalDimensions();
   const [state, setState] = useState<HarnessState>(harness.getState());
   const [hasStarted, setHasStarted] = useState(false);
+  const spinner = useSpinner(state.status === "running");
 
   useEffect(() => {
     return harness.subscribe(() => {
@@ -44,9 +56,10 @@ export function App({ harness, renderer }: AppProps) {
     if (state.status === "running") {
       harness.dispatch({ type: "cancel" });
     } else {
-      exit();
+      renderer.destroy();
+      process.exit(0);
     }
-  }, [harness, state.status, exit]);
+  }, [harness, state.status, renderer]);
 
   const handleCycleModel = useCallback(() => {
     if (state.status === "running") return;
@@ -84,34 +97,30 @@ export function App({ harness, renderer }: AppProps) {
     : "loading...";
 
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
-  // Account for rounded border (2 rows: top + bottom)
-  const innerHeight = Math.max(1, contentHeight - 2);
-  const chatHeight = Math.max(1, innerHeight - INPUT_BAR_HEIGHT);
 
   return (
     <box flexDirection="column" width={width} height={height - 1}>
       {hasStarted ? (
         <box height={contentHeight} flexDirection="row">
-          <box flexDirection="column" flexGrow={1} borderStyle="rounded" borderColor={theme.colors.border}>
-            <box height={chatHeight} overflow="hidden">
+          <box flexDirection="column" width="65%">
+            <box flexGrow={1} overflow="hidden">
               <ChatPane
                 messages={state.transcript}
                 streamingContent={state.streamingContent}
                 streamingReasoning={state.streamingReasoning}
                 activeTools={state.activeTools}
-                height={chatHeight}
+                height={contentHeight - INPUT_BAR_HEIGHT}
                 theme={theme}
               />
             </box>
-            <box borderStyle="single" borderColor={theme.colors.borderActive} border={["top"]} flexShrink={0} height={2}>
-              <InputBar
-                onSubmit={handleSubmit}
-                disabled={state.status === "running"}
-                theme={theme}
-              />
-            </box>
+            <InputBar
+              onSubmit={handleSubmit}
+              disabled={state.status === "running"}
+              queuedCount={state.messageQueue.length}
+              theme={theme}
+            />
           </box>
-          <box flexDirection="column" width="40%">
+          <box flexDirection="column" width="35%">
             <ContextPane 
               contextInfo={state.contextInfo} 
               width="100%" 
@@ -125,12 +134,12 @@ export function App({ harness, renderer }: AppProps) {
           </box>
         </box>
       ) : (
-        <box height={contentHeight} flexDirection="column" borderStyle="rounded" borderColor={theme.colors.border}>
+        <box height={contentHeight} flexDirection="column">
           <StartScreen
             onSubmit={handleSubmit}
             disabled={state.status === "running"}
             theme={theme}
-            height={innerHeight}
+            height={contentHeight}
           />
         </box>
       )}
@@ -140,6 +149,8 @@ export function App({ harness, renderer }: AppProps) {
         paddingLeft={1}
         paddingRight={1}
         backgroundColor={theme.colors.statusBarBg}
+        flexDirection="row"
+        justifyContent="space-between"
       >
         <text>
           {state.status === "running" && (
@@ -150,7 +161,8 @@ export function App({ harness, renderer }: AppProps) {
           <span fg={theme.colors.primary}><b>Copilot Anvil</b></span>
           <span>  </span>
           <span fg={theme.colors.info}>{modelDisplay}</span>
-          <span>{"  ·  "}</span>
+        </text>
+        <text>
           <span fg={theme.colors.muted}>esc</span><span> quit  </span>
           <span fg={theme.colors.muted}>tab</span><span> model  </span>
           <span fg={theme.colors.muted}>^C</span><span> cancel</span>
