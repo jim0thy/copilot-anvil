@@ -1,16 +1,13 @@
-import { useMemo } from "react";
 import { SyntaxStyle } from "@opentui/core";
-import type { ChatMessage } from "../../harness/events.js";
-import type { ActiveTool } from "../../harness/Harness.js";
+import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
 
 const defaultSyntaxStyle = SyntaxStyle.create();
 
 interface ChatPaneProps {
-  messages: ChatMessage[];
+  transcript: TranscriptItem[];
   streamingContent: string;
   streamingReasoning: string;
-  activeTools: ActiveTool[];
   height: number;
   theme: Theme;
 }
@@ -41,74 +38,128 @@ function getRoleColor(role: ChatMessage["role"], theme: Theme): string {
   }
 }
 
-export function ChatPane({ messages, streamingContent, streamingReasoning, activeTools, height, theme }: ChatPaneProps) {
-  const visibleMessages = useMemo(() => {
-    let estimatedLines = 0;
-    const availableLines = height - 2;
-    const result: ChatMessage[] = [];
-    
-    for (let i = messages.length - 1; i >= 0 && estimatedLines < availableLines; i--) {
-      const msg = messages[i];
-      const contentLines = Math.ceil(msg.content.length / 60) + 2;
-      estimatedLines += contentLines;
-      result.unshift(msg);
-    }
-    
-    return result;
-  }, [messages, height]);
+function formatDuration(startedAt: Date, completedAt?: Date): string {
+  const end = completedAt || new Date();
+  const duration = end.getTime() - startedAt.getTime();
+  return duration > 1000 ? `${(duration / 1000).toFixed(1)}s` : `${duration}ms`;
+}
+
+function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boolean {
+  if (item.kind === "tool-call") return false;
+  if (item.role === "assistant") {
+    return !prev || prev.kind === "tool-call" || (prev.kind === "message" && prev.role === "user");
+  }
+  return !prev || prev.kind === "tool-call" || (prev.kind === "message" && prev.role !== item.role);
+}
+
+function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: boolean; theme: Theme }) {
+  return (
+    <box flexDirection="column" marginBottom={1}>
+      {msg.role === "assistant" && msg.reasoning && (
+        <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
+          <text fg={theme.colors.accent}>
+            <b>Thinking...</b>
+          </text>
+          <text fg={theme.colors.muted}>
+            {msg.reasoning}
+          </text>
+        </box>
+      )}
+
+      {msg.role === "user" ? (
+        <box borderStyle="single" border={["left"]} borderColor={theme.colors.info} paddingLeft={1} flexDirection="column">
+          {showLabel && <text fg={theme.colors.info}><b>{formatRole(msg.role)}</b></text>}
+          <text>{msg.content}</text>
+        </box>
+      ) : (
+        <box flexDirection="column">
+          {showLabel && (
+            <text fg={getRoleColor(msg.role, theme)}>
+              <b>{formatRole(msg.role)}</b>
+            </text>
+          )}
+          <box paddingLeft={1}>
+            {msg.role === "assistant" || msg.role === "tool" ? (
+              <markdown syntaxStyle={defaultSyntaxStyle} content={msg.content} />
+            ) : (
+              <text>{msg.content}</text>
+            )}
+          </box>
+        </box>
+      )}
+    </box>
+  );
+}
+
+function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
+  const isRunning = tool.status === "running";
+  const isFailed = tool.status === "failed";
+  const statusIcon = isRunning ? "▮" : isFailed ? "✗" : "✓";
+  const statusColor = isRunning ? theme.colors.warning : isFailed ? theme.colors.error : theme.colors.success;
+  const borderColor = isRunning ? theme.colors.warning : isFailed ? theme.colors.error : theme.colors.muted;
 
   return (
     <box
       flexDirection="column"
-      flexGrow={1}
-      paddingLeft={2}
-      paddingRight={2}
-      paddingTop={1}
-      paddingBottom={1}
+      marginBottom={1}
+      borderStyle="single"
+      border={["left"]}
+      borderColor={borderColor}
+      paddingLeft={1}
     >
-      {visibleMessages.length === 0 && !streamingContent && !streamingReasoning && (
+      <text>
+        <span fg={statusColor}>{statusIcon} </span>
+        <span fg={theme.colors.info}><b>{tool.toolName}</b></span>
+        <span fg={theme.colors.muted}> ({formatDuration(tool.startedAt, tool.completedAt)})</span>
+      </text>
+      {tool.progress.length > 0 && (
+        <box flexDirection="column" paddingLeft={1}>
+          {tool.progress.map((msg, idx) => (
+            <text key={idx} fg={theme.colors.muted}>
+              {msg}
+            </text>
+          ))}
+        </box>
+      )}
+      {isFailed && tool.error && (
+        <text fg={theme.colors.error}>  Error: {tool.error}</text>
+      )}
+    </box>
+  );
+}
+
+export function ChatPane({ transcript, streamingContent, streamingReasoning, height, theme }: ChatPaneProps) {
+  return (
+    <scrollbox
+      height={height}
+      stickyScroll
+      stickyStart="bottom"
+      viewportCulling={false}
+      contentOptions={{
+        flexDirection: "column",
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: 1,
+      }}
+    >
+      {transcript.length === 0 && !streamingContent && !streamingReasoning && (
         <text fg={theme.colors.muted}>No messages yet</text>
       )}
 
-      {visibleMessages.map((msg, index) => {
-        const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
-        const showLabel = !prevMsg || prevMsg.role !== msg.role;
-        
+      {transcript.map((item, index) => {
+        const prev = index > 0 ? transcript[index - 1] : null;
+
+        if (item.kind === "tool-call") {
+          return <ToolCallInline key={item.id} tool={item} theme={theme} />;
+        }
+
         return (
-          <box key={msg.id} flexDirection="column" marginBottom={1}>
-            {msg.role === "assistant" && msg.reasoning && (
-              <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
-                <text fg={theme.colors.accent}>
-                  <b>Thinking...</b>
-                </text>
-                <text fg={theme.colors.muted}>
-                  {msg.reasoning}
-                </text>
-              </box>
-            )}
-            
-            {msg.role === "user" ? (
-               <box borderStyle="single" border={["left"]} borderColor={theme.colors.info} paddingLeft={1} flexDirection="column">
-                 {showLabel && <text fg={theme.colors.info}><b>{formatRole(msg.role)}</b></text>}
-                 <text>{msg.content}</text>
-               </box>
-            ) : (
-              <box flexDirection="column">
-                {showLabel && (
-                  <text fg={getRoleColor(msg.role, theme)}>
-                    <b>{formatRole(msg.role)}</b>
-                  </text>
-                )}
-                <box paddingLeft={1}>
-                  {msg.role === "assistant" ? (
-                    <markdown syntaxStyle={defaultSyntaxStyle} content={msg.content} />
-                  ) : (
-                    <text>{msg.content}</text>
-                  )}
-                </box>
-              </box>
-            )}
-          </box>
+          <MessageItem
+            key={item.id}
+            msg={item}
+            showLabel={shouldShowLabel(item, prev)}
+            theme={theme}
+          />
         );
       })}
 
@@ -123,26 +174,22 @@ export function ChatPane({ messages, streamingContent, streamingReasoning, activ
         </box>
       )}
 
-      {activeTools.length > 0 && (
-        <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
-          {activeTools.map((tool) => (
-            <text key={tool.toolCallId} fg={theme.colors.warning}>
-              Running: {tool.toolName}
-            </text>
-          ))}
-        </box>
-      )}
-
-      {streamingContent && (
-        <box flexDirection="column" marginBottom={1}>
-          <text fg={theme.colors.secondary}>
-            <b>Assistant</b> <span fg={theme.colors.success}>▮</span>
-          </text>
-          <box paddingLeft={1}>
-            <markdown syntaxStyle={defaultSyntaxStyle} content={streamingContent} streaming />
+      {streamingContent && (() => {
+        const lastItem = transcript.length > 0 ? transcript[transcript.length - 1] : null;
+        const showStreamingLabel = !lastItem || lastItem.kind === "tool-call" || (lastItem.kind === "message" && lastItem.role === "user");
+        return (
+          <box flexDirection="column" marginBottom={1}>
+            {showStreamingLabel && (
+              <text fg={theme.colors.secondary}>
+                <b>Assistant</b> <span fg={theme.colors.success}>▮</span>
+              </text>
+            )}
+            <box paddingLeft={1}>
+              <markdown syntaxStyle={defaultSyntaxStyle} content={streamingContent} streaming />
+            </box>
           </box>
-        </box>
-      )}
-    </box>
+        );
+      })()}
+    </scrollbox>
   );
 }
