@@ -1,6 +1,7 @@
 import { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
+import { SideBySideDiff } from "../components/SideBySideDiff.js";
 
 const defaultSyntaxStyle = SyntaxStyle.create();
 
@@ -91,12 +92,87 @@ function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: b
   );
 }
 
+function formatToolArgsSummary(toolName: string, args?: Record<string, unknown>): string | null {
+  if (!args) return null;
+  
+  if (toolName === "bash" || toolName === "shell") {
+    const command = args.command ?? args.cmd;
+    if (typeof command === "string") return command;
+  }
+
+  if (toolName === "read_file" || toolName === "view") {
+    const path = args.filePath ?? args.path ?? args.file;
+    if (typeof path === "string") return path;
+  }
+
+  if (toolName === "edit_file" || toolName === "write") {
+    const path = args.filePath ?? args.path ?? args.file;
+    if (typeof path === "string") return path;
+  }
+
+  if (toolName === "grep" || toolName === "search") {
+    const pattern = args.pattern ?? args.query ?? args.regex;
+    if (typeof pattern === "string") return pattern;
+  }
+
+  const keys = Object.keys(args);
+  if (keys.length === 0) return null;
+  
+  const firstKey = keys[0];
+  const firstVal = args[firstKey];
+  if (typeof firstVal === "string" && firstVal.length <= 120) return firstVal;
+  
+  return null;
+}
+
+const MAX_OUTPUT_LINES = 20;
+
+function isEditTool(toolName: string): boolean {
+  return toolName === "edit" || toolName === "edit_file" || toolName === "str_replace";
+}
+
+function getEditToolArgs(args?: Record<string, unknown>): { path?: string; oldStr?: string; newStr?: string } | null {
+  if (!args) return null;
+  
+  const path = args.path ?? args.filePath ?? args.file;
+  const oldStr = args.old_str ?? args.oldStr ?? args.search;
+  const newStr = args.new_str ?? args.newStr ?? args.replace;
+  
+  if (typeof oldStr === "string" && typeof newStr === "string") {
+    return {
+      path: typeof path === "string" ? path : undefined,
+      oldStr,
+      newStr,
+    };
+  }
+  return null;
+}
+
+function truncateOutput(output: string): { text: string; truncated: boolean } {
+  const lines = output.split("\n");
+  if (lines.length <= MAX_OUTPUT_LINES) {
+    return { text: output, truncated: false };
+  }
+  return {
+    text: lines.slice(0, MAX_OUTPUT_LINES).join("\n"),
+    truncated: true,
+  };
+}
+
 function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
   const statusIcon = isRunning ? "▮" : isFailed ? "✗" : "✓";
   const statusColor = isRunning ? theme.colors.warning : isFailed ? theme.colors.error : theme.colors.success;
   const borderColor = isRunning ? theme.colors.warning : isFailed ? theme.colors.error : theme.colors.muted;
+
+  const argsSummary = formatToolArgsSummary(tool.toolName, tool.arguments);
+  const hasOutput = tool.output && tool.output.trim().length > 0;
+  
+  // Check if this is an edit tool with diff-able arguments
+  const isEdit = isEditTool(tool.toolName);
+  const editArgs = isEdit ? getEditToolArgs(tool.arguments) : null;
+  const showDiff = isEdit && editArgs && !isRunning;
 
   return (
     <box
@@ -112,6 +188,11 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
         <span fg={theme.colors.info}><b>{tool.toolName}</b></span>
         <span fg={theme.colors.muted}> ({formatDuration(tool.startedAt, tool.completedAt)})</span>
       </text>
+      {argsSummary && (
+        <box paddingLeft={2} marginTop={0}>
+          <text fg={theme.colors.muted}>{argsSummary}</text>
+        </box>
+      )}
       {tool.progress.length > 0 && (
         <box flexDirection="column" paddingLeft={1}>
           {tool.progress.map((msg, idx) => (
@@ -121,6 +202,33 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
           ))}
         </box>
       )}
+      {showDiff && (
+        <SideBySideDiff
+          oldStr={editArgs.oldStr!}
+          newStr={editArgs.newStr!}
+          filePath={editArgs.path}
+          theme={theme}
+        />
+      )}
+      {hasOutput && !showDiff && (() => {
+        const { text, truncated } = truncateOutput(tool.output!);
+        return (
+          <box
+            flexDirection="column"
+            marginTop={1}
+            paddingLeft={1}
+            paddingRight={1}
+            borderStyle="single"
+            border={["left"]}
+            borderColor={theme.colors.borderDim}
+          >
+            <markdown syntaxStyle={defaultSyntaxStyle} content={text} />
+            {truncated && (
+              <text fg={theme.colors.muted}><i>… output truncated</i></text>
+            )}
+          </box>
+        );
+      })()}
       {isFailed && tool.error && (
         <text fg={theme.colors.error}>  Error: {tool.error}</text>
       )}
@@ -150,6 +258,10 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, hei
         const prev = index > 0 ? transcript[index - 1] : null;
 
         if (item.kind === "tool-call") {
+          // Skip report_intent - it's shown in the Plan & Progress pane
+          if (item.toolName === "report_intent") {
+            return null;
+          }
           return <ToolCallInline key={item.id} tool={item} theme={theme} />;
         }
 

@@ -5,6 +5,10 @@ import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
+export type UserInputHandler = (
+  request: { question: string; choices?: string[]; allowFreeform?: boolean }
+) => Promise<{ answer: string; wasFreeform: boolean }>;
+
 export interface ModelDescription {
   id: string;
   name: string;
@@ -26,9 +30,14 @@ export class CopilotSessionAdapter {
   private hasEmittedContentForTurn = false;
   private planWatcher: any = null;
   private workspacePath: string | null = null;
+  private userInputHandler: UserInputHandler | null = null;
 
   onEvent(handler: AdapterEventHandler): void {
     this.eventHandler = handler;
+  }
+
+  onUserInputRequest(handler: UserInputHandler): void {
+    this.userInputHandler = handler;
   }
 
   get currentModel(): string | null {
@@ -63,6 +72,11 @@ export class CopilotSessionAdapter {
       this.session = await this.client.createSession({
         streaming: true,
         model,
+        onUserInputRequest: this.userInputHandler
+          ? async (request: any) => {
+              return this.userInputHandler!(request);
+            }
+          : undefined,
       });
 
       this._currentModel = model ?? this._availableModels[0]?.id ?? null;
@@ -249,6 +263,7 @@ export class CopilotSessionAdapter {
               runId: this.currentRunId,
               toolCallId: event.data?.toolCallId ?? "",
               toolName: event.data?.toolName ?? "unknown",
+              arguments: typeof args === "object" && args !== null ? args as Record<string, unknown> : undefined,
             });
           }
           break;
@@ -292,11 +307,27 @@ export class CopilotSessionAdapter {
           if (gen !== this.expectedRunGeneration) return;
 
           if (this.currentRunId) {
+            let output: string | undefined;
+            const result = event.data?.result;
+            if (result) {
+              if (typeof result === "string") {
+                output = result;
+              } else if (typeof result === "object" && result !== null) {
+                const resultObj = result as Record<string, unknown>;
+                if (typeof resultObj.textResultForLlm === "string") {
+                  output = resultObj.textResultForLlm;
+                } else if (typeof resultObj.sessionLog === "string") {
+                  output = resultObj.sessionLog;
+                }
+              }
+            }
+
             this.emit({
               type: "tool.completed",
               runId: this.currentRunId,
               toolCallId: event.data?.toolCallId ?? "",
               success: event.data?.success ?? false,
+              output,
               error: event.data?.error?.message,
             });
           }

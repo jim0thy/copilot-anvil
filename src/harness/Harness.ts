@@ -20,10 +20,12 @@ export type HarnessEventHandler = (event: HarnessEvent) => void;
 export interface ActiveTool {
   toolCallId: string;
   toolName: string;
+  arguments?: Record<string, unknown>;
   progress: string[];
   startedAt: Date;
   status: "running" | "completed" | "failed";
   completedAt?: Date;
+  output?: string;
   error?: string;
 }
 
@@ -54,6 +56,13 @@ export interface Skill {
   invokeCount: number;
 }
 
+export interface PendingQuestion {
+  requestId: string;
+  question: string;
+  choices?: string[];
+  allowFreeform: boolean;
+}
+
 export interface HarnessState {
   status: HarnessStatus;
   transcript: TranscriptItem[];
@@ -71,6 +80,7 @@ export interface HarnessState {
   currentTodo: string | null;
   currentPlan: string | null;
   currentIntent: string | null;
+  pendingQuestion: PendingQuestion | null;
   contextInfo: {
     currentTokens: number;
     tokenLimit: number;
@@ -103,6 +113,7 @@ export class Harness {
     currentTodo: null,
     currentPlan: null,
     currentIntent: null,
+    pendingQuestion: null,
     contextInfo: {
       currentTokens: 0,
       tokenLimit: 0,
@@ -115,6 +126,7 @@ export class Harness {
   private eventHandlers: Set<HarnessEventHandler> = new Set();
   private pluginManager: PluginManager;
   private adapter: CopilotSessionAdapter | null = null;
+  private questionResolvers: Map<string, (answer: { answer: string; wasFreeform: boolean }) => void> = new Map();
 
   constructor() {
     this.pluginManager = new PluginManager((event) => this.emit(event));
@@ -125,6 +137,10 @@ export class Harness {
     
     adapter.onEvent((event: HarnessEvent) => {
       this.emit(event);
+    });
+
+    adapter.onUserInputRequest((request) => {
+      return this.handleUserInputRequest(request);
     });
   }
 
@@ -239,6 +255,7 @@ export class Harness {
           kind: "tool-call",
           toolCallId: event.toolCallId,
           toolName: event.toolName,
+          arguments: event.arguments,
           progress: [],
           status: "running",
           startedAt: new Date(),
@@ -250,7 +267,8 @@ export class Harness {
             ...this.state.activeTools,
             { 
               toolCallId: event.toolCallId, 
-              toolName: event.toolName, 
+              toolName: event.toolName,
+              arguments: event.arguments,
               progress: [],
               startedAt: new Date(),
               status: "running",
@@ -292,6 +310,7 @@ export class Harness {
               ...tool,
               status: event.success ? ("completed" as const) : ("failed" as const),
               completedAt: new Date(),
+              output: event.output,
               error: event.error,
             };
           }
@@ -316,6 +335,7 @@ export class Harness {
               ...item,
               status: event.success ? ("completed" as const) : ("failed" as const),
               completedAt: new Date(),
+              output: event.output,
               error: event.error,
             };
           }
@@ -473,6 +493,25 @@ export class Harness {
           currentPlan: event.content,
         };
         break;
+
+      case "question.requested":
+        this.state = {
+          ...this.state,
+          pendingQuestion: {
+            requestId: event.requestId,
+            question: event.question,
+            choices: event.choices,
+            allowFreeform: event.allowFreeform,
+          },
+        };
+        break;
+
+      case "question.answered":
+        this.state = {
+          ...this.state,
+          pendingQuestion: null,
+        };
+        break;
     }
   }
 
@@ -488,6 +527,10 @@ export class Harness {
 
       case "change.model":
         await this.handleChangeModel(action.modelId);
+        break;
+
+      case "answer.question":
+        this.handleAnswerQuestion(action.requestId, action.answer, action.wasFreeform);
         break;
     }
   }
@@ -646,6 +689,39 @@ export class Harness {
     );
 
     await this.executePrompt(nextMessage);
+  }
+
+  private handleAnswerQuestion(requestId: string, answer: string, wasFreeform: boolean): void {
+    const resolver = this.questionResolvers.get(requestId);
+    if (resolver) {
+      resolver({ answer, wasFreeform });
+      this.questionResolvers.delete(requestId);
+    }
+
+    this.emit({
+      type: "question.answered",
+      requestId,
+      answer,
+      wasFreeform,
+    });
+  }
+
+  handleUserInputRequest(
+    request: { question: string; choices?: string[]; allowFreeform?: boolean }
+  ): Promise<{ answer: string; wasFreeform: boolean }> {
+    const requestId = generateId();
+
+    this.emit({
+      type: "question.requested",
+      requestId,
+      question: request.question,
+      choices: request.choices,
+      allowFreeform: request.allowFreeform ?? true,
+    });
+
+    return new Promise((resolve) => {
+      this.questionResolvers.set(requestId, resolve);
+    });
   }
 
   async shutdown(): Promise<void> {

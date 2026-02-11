@@ -6,11 +6,13 @@ import { ChatPane } from './panes/ChatPane.js'
 import { ContextPane } from './panes/ContextPane.js'
 import { InputBar } from './panes/InputBar.js'
 import { StartScreen } from './panes/StartScreen.js'
-import { AgentStatusPane } from './panes/AgentStatusPane.js'
+import { SubagentsPane } from './panes/SubagentsPane.js'
 import { PlanPane } from './panes/PlanPane.js'
-import { TasksPane } from './panes/TasksPane.js'
+import { FilesModifiedPane } from './panes/FilesModifiedPane.js'
+import { QuestionModal } from './panes/QuestionModal.js'
 import { getTheme } from './theme.js'
 import { getGitInfo, type GitInfo } from '../utils/git.js'
+import { getModifiedFiles, type FileChange } from '../utils/gitDiff.js'
 
 interface AppProps {
   harness: Harness;
@@ -38,6 +40,7 @@ export function App({ harness, renderer }: AppProps) {
   const [state, setState] = useState<HarnessState>(harness.getState());
   const [hasStarted, setHasStarted] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo>(getGitInfo());
+  const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
   const spinner = useSpinner(state.status === "running");
 
   useEffect(() => {
@@ -46,10 +49,11 @@ export function App({ harness, renderer }: AppProps) {
     });
   }, [harness]);
 
-  // Update git info periodically
+  // Update git info and modified files periodically
   useEffect(() => {
     const interval = setInterval(() => {
       setGitInfo(getGitInfo());
+      setModifiedFiles(getModifiedFiles());
     }, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -86,7 +90,24 @@ export function App({ harness, renderer }: AppProps) {
     harness.dispatch({ type: "change.model", modelId: nextModel.id });
   }, [harness, state.status, state.currentModel, state.availableModels]);
 
+  const handleAnswerQuestion = useCallback(
+    (answer: string, wasFreeform: boolean) => {
+      if (state.pendingQuestion) {
+        harness.dispatch({
+          type: "answer.question",
+          requestId: state.pendingQuestion.requestId,
+          answer,
+          wasFreeform,
+        });
+      }
+    },
+    [harness, state.pendingQuestion]
+  );
+
   useKeyboard((key) => {
+    // Don't handle global keys when question modal is open
+    if (state.pendingQuestion) return;
+
     if (key.name === "escape") {
       renderer.destroy();
       process.exit(0);
@@ -135,8 +156,8 @@ export function App({ harness, renderer }: AppProps) {
               width="100%" 
               theme={theme} 
             />
-            <TasksPane
-              tasks={state.tasks}
+            <FilesModifiedPane
+              files={modifiedFiles}
               height={Math.floor((contentHeight - 10) / 3)}
               theme={theme}
             />
@@ -147,7 +168,7 @@ export function App({ harness, renderer }: AppProps) {
               height={Math.floor((contentHeight - 10) / 3)}
               theme={theme}
             />
-            <AgentStatusPane 
+            <SubagentsPane 
               subagents={state.subagents}
               skills={state.skills}
               height={Math.floor((contentHeight - 10) / 3)} 
@@ -202,6 +223,17 @@ export function App({ harness, renderer }: AppProps) {
           <span fg={theme.colors.muted}>^C</span><span> cancel</span>
         </text>
       </box>
+
+      {/* Question Modal Overlay */}
+      {state.pendingQuestion && (
+        <QuestionModal
+          question={state.pendingQuestion}
+          onAnswer={handleAnswerQuestion}
+          theme={theme}
+          width={width}
+          height={height - 1}
+        />
+      )}
     </box>
   );
 }

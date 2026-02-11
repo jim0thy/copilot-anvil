@@ -23,10 +23,12 @@ export interface ToolCallItem {
   kind: "tool-call";
   toolCallId: string;
   toolName: string;
+  arguments?: Record<string, unknown>;
   progress: string[];
   status: "running" | "completed" | "failed";
   startedAt: Date;
   completedAt?: Date;
+  output?: string;
   error?: string;
 }
 
@@ -141,6 +143,7 @@ export interface ToolStartedEvent {
   runId: string;
   toolCallId: string;
   toolName: string;
+  arguments?: Record<string, unknown>;
 }
 
 export interface ToolProgressEvent {
@@ -155,6 +158,7 @@ export interface ToolCompletedEvent {
   runId: string;
   toolCallId: string;
   success: boolean;
+  output?: string;
   error?: string;
 }
 
@@ -218,6 +222,21 @@ export interface TurnEndedEvent {
   turnId: string;
 }
 
+export interface QuestionRequestedEvent {
+  type: "question.requested";
+  requestId: string;
+  question: string;
+  choices?: string[];
+  allowFreeform: boolean;
+}
+
+export interface QuestionAnsweredEvent {
+  type: "question.answered";
+  requestId: string;
+  answer: string;
+  wasFreeform: boolean;
+}
+
 export type HarnessEvent =
   | RunStartedEvent
   | AssistantDeltaEvent
@@ -244,7 +263,9 @@ export type HarnessEvent =
   | TodoUpdatedEvent
   | PlanUpdatedEvent
   | TurnStartedEvent
-  | TurnEndedEvent;
+  | TurnEndedEvent
+  | QuestionRequestedEvent
+  | QuestionAnsweredEvent;
 
 // ============================================================
 // UI Actions (dispatched from UI to harness)
@@ -281,13 +302,21 @@ export interface ChangeModelAction {
   modelId: string;
 }
 
+export interface AnswerQuestionAction {
+  type: "answer.question";
+  requestId: string;
+  answer: string;
+  wasFreeform: boolean;
+}
+
 export type UIAction =
   | SubmitPromptAction
   | CancelAction
   | SelectResourceAction
   | PermissionRespondAction
   | ApprovePatchAction
-  | ChangeModelAction;
+  | ChangeModelAction
+  | AnswerQuestionAction;
 
 // ============================================================
 // Helper functions
