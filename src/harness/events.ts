@@ -11,11 +11,27 @@ export type MessageRole = "user" | "assistant" | "tool" | "system";
 
 export interface ChatMessage {
   id: string;
+  kind: "message";
   role: MessageRole;
   content: string;
   reasoning?: string;
   createdAt: Date;
 }
+
+export interface ToolCallItem {
+  id: string;
+  kind: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  progress: string[];
+  status: "running" | "completed" | "failed";
+  startedAt: Date;
+  completedAt?: Date;
+  error?: string;
+}
+
+/** A single item in the chat transcript — either a text message or an inline tool call. */
+export type TranscriptItem = ChatMessage | ToolCallItem;
 
 // ============================================================
 // Resource Model (scaffolding for future features)
@@ -117,6 +133,7 @@ export interface UsageInfoEvent {
 export interface QuotaInfoEvent {
   type: "quota.info";
   remainingPremiumRequests: number | null;
+  consumedRequests: number;
 }
 
 export interface ToolStartedEvent {
@@ -126,12 +143,67 @@ export interface ToolStartedEvent {
   toolName: string;
 }
 
+export interface ToolProgressEvent {
+  type: "tool.progress";
+  runId: string;
+  toolCallId: string;
+  message: string;
+}
+
 export interface ToolCompletedEvent {
   type: "tool.completed";
   runId: string;
   toolCallId: string;
   success: boolean;
   error?: string;
+}
+
+export interface SubagentStartedEvent {
+  type: "subagent.started";
+  runId: string;
+  toolCallId: string;
+  agentName: string;
+  agentDisplayName: string;
+  agentDescription: string;
+}
+
+export interface SubagentCompletedEvent {
+  type: "subagent.completed";
+  runId: string;
+  toolCallId: string;
+  agentName: string;
+}
+
+export interface SubagentFailedEvent {
+  type: "subagent.failed";
+  runId: string;
+  toolCallId: string;
+  agentName: string;
+  error: string;
+}
+
+export interface SkillInvokedEvent {
+  type: "skill.invoked";
+  runId: string;
+  name: string;
+  path: string;
+}
+
+export interface IntentUpdatedEvent {
+  type: "intent.updated";
+  runId: string;
+  intent: string;
+}
+
+export interface TodoUpdatedEvent {
+  type: "todo.updated";
+  runId: string;
+  todos: string;
+}
+
+export interface PlanUpdatedEvent {
+  type: "plan.updated";
+  content: string;
 }
 
 export interface TurnStartedEvent {
@@ -162,7 +234,15 @@ export type HarnessEvent =
   | UsageInfoEvent
   | QuotaInfoEvent
   | ToolStartedEvent
+  | ToolProgressEvent
   | ToolCompletedEvent
+  | SubagentStartedEvent
+  | SubagentCompletedEvent
+  | SubagentFailedEvent
+  | SkillInvokedEvent
+  | IntentUpdatedEvent
+  | TodoUpdatedEvent
+  | PlanUpdatedEvent
   | TurnStartedEvent
   | TurnEndedEvent;
 
@@ -220,6 +300,7 @@ export function generateId(): string {
 export function createUserMessage(content: string): ChatMessage {
   return {
     id: generateId(),
+    kind: "message",
     role: "user",
     content,
     createdAt: new Date(),
@@ -229,6 +310,7 @@ export function createUserMessage(content: string): ChatMessage {
 export function createAssistantMessage(content: string): ChatMessage {
   return {
     id: generateId(),
+    kind: "message",
     role: "assistant",
     content,
     createdAt: new Date(),
