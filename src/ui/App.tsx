@@ -6,8 +6,11 @@ import { ChatPane } from './panes/ChatPane.js'
 import { ContextPane } from './panes/ContextPane.js'
 import { InputBar } from './panes/InputBar.js'
 import { StartScreen } from './panes/StartScreen.js'
+import { AgentStatusPane } from './panes/AgentStatusPane.js'
+import { PlanPane } from './panes/PlanPane.js'
 import { TasksPane } from './panes/TasksPane.js'
 import { getTheme } from './theme.js'
+import { getGitInfo, type GitInfo } from '../utils/git.js'
 
 interface AppProps {
   harness: Harness;
@@ -34,6 +37,7 @@ export function App({ harness, renderer }: AppProps) {
   const { width, height } = useTerminalDimensions();
   const [state, setState] = useState<HarnessState>(harness.getState());
   const [hasStarted, setHasStarted] = useState(false);
+  const [gitInfo, setGitInfo] = useState<GitInfo>(getGitInfo());
   const spinner = useSpinner(state.status === "running");
 
   useEffect(() => {
@@ -41,6 +45,14 @@ export function App({ harness, renderer }: AppProps) {
       setState(harness.getState());
     });
   }, [harness]);
+
+  // Update git info periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setGitInfo(getGitInfo());
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSubmit = useCallback(
     (text: string) => {
@@ -103,16 +115,13 @@ export function App({ harness, renderer }: AppProps) {
       {hasStarted ? (
         <box height={contentHeight} flexDirection="row">
           <box flexDirection="column" width="65%">
-            <box flexGrow={1} overflow="hidden">
-              <ChatPane
-                messages={state.transcript}
-                streamingContent={state.streamingContent}
-                streamingReasoning={state.streamingReasoning}
-                activeTools={state.activeTools}
-                height={contentHeight - INPUT_BAR_HEIGHT}
-                theme={theme}
-              />
-            </box>
+            <ChatPane
+              transcript={state.transcript}
+              streamingContent={state.streamingContent}
+              streamingReasoning={state.streamingReasoning}
+              height={contentHeight - INPUT_BAR_HEIGHT}
+              theme={theme}
+            />
             <InputBar
               onSubmit={handleSubmit}
               disabled={state.status === "running"}
@@ -126,9 +135,22 @@ export function App({ harness, renderer }: AppProps) {
               width="100%" 
               theme={theme} 
             />
-            <TasksPane 
-              tasks={state.tasks} 
-              height={contentHeight - 10} 
+            <TasksPane
+              tasks={state.tasks}
+              height={Math.floor((contentHeight - 10) / 3)}
+              theme={theme}
+            />
+            <PlanPane
+              currentIntent={state.currentIntent}
+              currentTodo={state.currentTodo}
+              currentPlan={state.currentPlan}
+              height={Math.floor((contentHeight - 10) / 3)}
+              theme={theme}
+            />
+            <AgentStatusPane 
+              subagents={state.subagents}
+              skills={state.skills}
+              height={Math.floor((contentHeight - 10) / 3)} 
               theme={theme} 
             />
           </box>
@@ -158,9 +180,21 @@ export function App({ harness, renderer }: AppProps) {
           )}
           <span fg={statusColor}>{statusText}</span>
           <span>  </span>
-          <span fg={theme.colors.primary}><b>Copilot Anvil</b></span>
-          <span>  </span>
           <span fg={theme.colors.info}>{modelDisplay}</span>
+          {gitInfo.branch && (
+            <>
+              <span>  </span>
+              <span fg={theme.colors.info}> {gitInfo.branch}</span>
+              {gitInfo.staged > 0 && <span fg={theme.colors.success}> ● {gitInfo.staged}</span>}
+              {gitInfo.unstaged > 0 && <span fg={theme.colors.warning}> ✚ {gitInfo.unstaged}</span>}
+              {gitInfo.untracked > 0 && <span fg={theme.colors.muted}> ? {gitInfo.untracked}</span>}
+              {gitInfo.ahead > 0 && <span fg={theme.colors.success}> ⇡{gitInfo.ahead}</span>}
+              {gitInfo.behind > 0 && <span fg={theme.colors.warning}> ⇣{gitInfo.behind}</span>}
+              {!gitInfo.hasChanges && gitInfo.ahead === 0 && gitInfo.behind === 0 && (
+                <span fg={theme.colors.success}> ✓</span>
+              )}
+            </>
+          )}
         </text>
         <text>
           <span fg={theme.colors.muted}>esc</span><span> quit  </span>

@@ -6,6 +6,7 @@ export interface ContextInfo {
   tokenLimit: number;
   conversationLength: number;
   remainingPremiumRequests: number | null;
+  consumedRequests: number;
 }
 
 interface ContextPaneProps {
@@ -19,7 +20,7 @@ export const ContextPane = memo(function ContextPane({
   width, 
   theme 
 }: ContextPaneProps) {
-  const { currentTokens, tokenLimit, conversationLength, remainingPremiumRequests } = contextInfo;
+  const { currentTokens, tokenLimit, consumedRequests, remainingPremiumRequests } = contextInfo;
   
   const contextPercent = tokenLimit > 0 
     ? Math.round((currentTokens / tokenLimit) * 100) 
@@ -71,8 +72,8 @@ export const ContextPane = memo(function ContextPane({
 
         <box>
           <text>
-            <span fg={theme.colors.muted}>Messages: </span>
-            <span fg={theme.colors.info}>{conversationLength}</span>
+            <span fg={theme.colors.muted}>Requests: </span>
+            <span fg={theme.colors.info}>{consumedRequests}</span>
           </text>
         </box>
 
