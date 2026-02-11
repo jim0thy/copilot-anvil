@@ -9,16 +9,16 @@ interface LogsPaneProps {
   theme: Theme;
 }
 
-function getLevelColor(level: LogEvent["level"]): string {
+function getLevelColor(level: LogEvent["level"], theme: Theme): string {
   switch (level) {
     case "error":
-      return "red";
+      return theme.colors.error;
     case "warn":
-      return "yellow";
+      return theme.colors.warning;
     case "info":
-      return "blue";
+      return theme.colors.info;
     case "debug":
-      return "gray";
+      return theme.colors.muted;
   }
 }
 
@@ -55,21 +55,23 @@ export const LogsPane = React.memo(function LogsPane({ logs, height, theme }: Lo
       flexDirection="column"
       width="100%"
       height={height}
-      borderStyle="single"
+      borderStyle="round"
       borderColor={theme.colors.border}
       paddingX={1}
       overflow="hidden"
     >
-      <Text bold color={theme.colors.muted}>
+      <Text bold color={theme.colors.primary}>
         Logs
       </Text>
 
-      {visibleLogs.length === 0 && <Text color={theme.colors.muted}>No logs yet</Text>}
+      {visibleLogs.length === 0 && (
+        <Text color={theme.colors.muted}>No logs yet</Text>
+      )}
 
       {visibleLogs.map((log, index) => (
         <Box key={`${log.createdAt.getTime()}-${index}`} flexDirection="row">
           <Text color={theme.colors.muted}>{formatTime(log.createdAt)} </Text>
-          <Text color={getLevelColor(log.level)}>[{getLevelLabel(log.level)}] </Text>
+          <Text color={getLevelColor(log.level, theme)} bold>[{getLevelLabel(log.level)}] </Text>
           <Text wrap="truncate-end">{log.message}</Text>
         </Box>
       ))}
