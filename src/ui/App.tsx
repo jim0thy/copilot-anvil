@@ -1,23 +1,26 @@
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
+import Spinner from 'ink-spinner'
 import React, { useCallback, useEffect, useState } from 'react'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
 import { ContextPane } from './panes/ContextPane.js'
 import { InputBar } from './panes/InputBar.js'
-import { LogsPane } from './panes/LogsPane.js'
+import { StartScreen } from './panes/StartScreen.js'
+import { TasksPane } from './panes/TasksPane.js'
 import { getTheme } from './theme.js'
 
 interface AppProps {
   harness: Harness;
 }
 
-const STATUS_BAR_HEIGHT = 3;
+const STATUS_BAR_HEIGHT = 1;
 const INPUT_BAR_HEIGHT = 2;
 
 export function App({ harness }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [state, setState] = useState<HarnessState>(harness.getState());
+  const [hasStarted, setHasStarted] = useState(false);
   const [dimensions, setDimensions] = useState({
     width: stdout?.columns ?? 80,
     height: stdout?.rows ?? 24,
@@ -45,9 +48,12 @@ export function App({ harness }: AppProps) {
 
   const handleSubmit = useCallback(
     (text: string) => {
+      if (!hasStarted) {
+        setHasStarted(true);
+      }
       harness.dispatch({ type: "submit.prompt", text });
     },
-    [harness]
+    [harness, hasStarted]
   );
 
   const handleCancel = useCallback(() => {
@@ -83,68 +89,89 @@ export function App({ harness }: AppProps) {
     }
   });
 
-  const statusColor = state.status === "running" ? "yellow" : "green";
-  const statusText = state.status.toUpperCase();
+  const theme = getTheme();
+
+  const statusColor = state.status === "running" ? theme.colors.warning : theme.colors.success;
+  const statusText = state.status === "running" ? "Processing" : "Ready";
 
   const modelDisplay = state.currentModel
     ? state.currentModel.split("/").pop() || state.currentModel
     : "loading...";
 
-  const theme = getTheme();
-
-  const contentHeight = Math.max(1, dimensions.height - STATUS_BAR_HEIGHT);
+  const contentHeight = Math.max(1, dimensions.height - STATUS_BAR_HEIGHT - 1);
   const chatHeight = Math.max(1, contentHeight - INPUT_BAR_HEIGHT);
 
   return (
     <Box flexDirection="column" width={dimensions.width} height={dimensions.height - 1}>
+      {hasStarted ? (
+        <Box height={contentHeight} flexDirection="row">
+          <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={theme.colors.border}>
+            <Box height={chatHeight} overflow="hidden">
+              <ChatPane
+                messages={state.transcript}
+                streamingContent={state.streamingContent}
+                streamingReasoning={state.streamingReasoning}
+                activeTools={state.activeTools}
+                height={chatHeight}
+                theme={theme}
+              />
+            </Box>
+            <Box borderStyle="single" borderColor={theme.colors.borderActive} borderTop={true} borderBottom={false} borderLeft={false} borderRight={false}>
+              <InputBar
+                onSubmit={handleSubmit}
+                disabled={state.status === "running"}
+                theme={theme}
+              />
+            </Box>
+          </Box>
+          <Box flexDirection="column" width="40%">
+            <ContextPane 
+              contextInfo={state.contextInfo} 
+              width="100%" 
+              theme={theme} 
+            />
+            <TasksPane 
+              tasks={state.tasks} 
+              height={contentHeight - 10} 
+              theme={theme} 
+            />
+          </Box>
+        </Box>
+      ) : (
+        <Box height={contentHeight} flexDirection="column" borderStyle="round" borderColor={theme.colors.border}>
+          <StartScreen
+            onSubmit={handleSubmit}
+            disabled={state.status === "running"}
+            theme={theme}
+            height={contentHeight}
+          />
+        </Box>
+      )}
+
       <Box
         height={STATUS_BAR_HEIGHT}
-        borderStyle="single"
-        borderColor={theme.colors.border}
         paddingX={1}
+        backgroundColor={theme.colors.statusBarBg}
         justifyContent="space-between"
       >
         <Text>
-          <Text bold>Copilot Anvil</Text>
-          <Text color={theme.colors.muted}> | </Text>
+          {state.status === "running" && (
+            <>
+              <Spinner type="dots" />
+              <Text>  </Text>
+            </>
+          )}
           <Text color={statusColor}>{statusText}</Text>
-          <Text color={theme.colors.muted}> | </Text>
-          <Text color="cyan">{modelDisplay}</Text>
+          <Text>  </Text>
+          <Text color={theme.colors.primary} bold>Copilot Anvil</Text>
+          <Text>  </Text>
+          <Text color={theme.colors.info}>{modelDisplay}</Text>
         </Text>
-        <Text color={theme.colors.muted}>Tab: model | Esc: quit | Ctrl+C: cancel</Text>
-      </Box>
-
-      <Box height={contentHeight} flexDirection="row">
-        <Box flexDirection="column" flexGrow={1} borderStyle="single" borderColor={theme.colors.border}>
-          <Box height={chatHeight} overflow="hidden">
-            <ChatPane
-              messages={state.transcript}
-              streamingContent={state.streamingContent}
-              streamingReasoning={state.streamingReasoning}
-              height={chatHeight}
-              theme={theme}
-            />
-          </Box>
-          <Box borderStyle="single" borderColor="cyan" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false}>
-            <InputBar
-              onSubmit={handleSubmit}
-              disabled={state.status === "running"}
-              theme={theme}
-            />
-          </Box>
-        </Box>
-        <Box flexDirection="column" width="40%">
-          <ContextPane 
-            contextInfo={state.contextInfo} 
-            width="100%" 
-            theme={theme} 
-          />
-          <LogsPane 
-            logs={state.logs} 
-            height={contentHeight - 10} 
-            theme={theme} 
-          />
-        </Box>
+        <Text>
+          <Text color={theme.colors.muted}>esc</Text><Text> quit  </Text>
+          <Text color={theme.colors.muted}>tab</Text><Text> model  </Text>
+          <Text color={theme.colors.muted}>^C</Text><Text> cancel</Text>
+        </Text>
       </Box>
     </Box>
   );
