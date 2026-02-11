@@ -119,6 +119,33 @@ export interface QuotaInfoEvent {
   remainingPremiumRequests: number | null;
 }
 
+export interface ToolStartedEvent {
+  type: "tool.started";
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+}
+
+export interface ToolCompletedEvent {
+  type: "tool.completed";
+  runId: string;
+  toolCallId: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface TurnStartedEvent {
+  type: "turn.started";
+  runId: string;
+  turnId: string;
+}
+
+export interface TurnEndedEvent {
+  type: "turn.ended";
+  runId: string;
+  turnId: string;
+}
+
 export type HarnessEvent =
   | RunStartedEvent
   | AssistantDeltaEvent
@@ -133,7 +160,11 @@ export type HarnessEvent =
   | StateUpdatedEvent
   | ModelChangedEvent
   | UsageInfoEvent
-  | QuotaInfoEvent;
+  | QuotaInfoEvent
+  | ToolStartedEvent
+  | ToolCompletedEvent
+  | TurnStartedEvent
+  | TurnEndedEvent;
 
 // ============================================================
 // UI Actions (dispatched from UI to harness)
