@@ -43,6 +43,8 @@ export class Harness {
     currentRunId: null,
     streamingContent: "",
     streamingReasoning: "",
+    activeTools: [],
+    tasks: [],
     currentModel: null,
     availableModels: [],
     contextInfo: {
@@ -103,6 +105,7 @@ export class Harness {
           currentRunId: event.runId,
           streamingContent: "",
           streamingReasoning: "",
+          activeTools: [],
         };
         break;
 
@@ -151,6 +154,7 @@ export class Harness {
           currentRunId: null,
           streamingContent: "",
           streamingReasoning: "",
+          activeTools: [],
         };
         break;
 
@@ -159,7 +163,52 @@ export class Harness {
           ...this.state,
           status: "idle",
           currentRunId: null,
+          activeTools: [],
         };
+        break;
+
+      case "tool.started": {
+        const newTask: Task = {
+          id: event.toolCallId,
+          name: event.toolName,
+          status: "running",
+          startedAt: new Date(),
+        };
+        this.state = {
+          ...this.state,
+          activeTools: [
+            ...this.state.activeTools,
+            { toolCallId: event.toolCallId, toolName: event.toolName },
+          ],
+          tasks: [...this.state.tasks.slice(-MAX_TASKS + 1), newTask],
+        };
+        break;
+      }
+
+      case "tool.completed": {
+        const updatedTasks = this.state.tasks.map((task) => {
+          if (task.id === event.toolCallId) {
+            return {
+              ...task,
+              status: event.success ? ("completed" as const) : ("failed" as const),
+              completedAt: new Date(),
+              error: event.error,
+            };
+          }
+          return task;
+        });
+        this.state = {
+          ...this.state,
+          activeTools: this.state.activeTools.filter(
+            (t) => t.toolCallId !== event.toolCallId
+          ),
+          tasks: updatedTasks,
+        };
+        break;
+      }
+
+      case "turn.started":
+      case "turn.ended":
         break;
 
       case "model.changed":
