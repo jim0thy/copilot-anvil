@@ -19,7 +19,7 @@ export interface Skill {
   invokeCount: number;
 }
 
-interface AgentStatusPaneProps {
+interface SubagentsPaneProps {
   subagents: Subagent[];
   skills: Skill[];
   height: number;
@@ -57,12 +57,12 @@ function formatDuration(start: Date, end: Date): string {
   return `${minutes}m ${seconds % 60}s`;
 }
 
-export const AgentStatusPane = memo(function AgentStatusPane({ 
+export const SubagentsPane = memo(function SubagentsPane({ 
   subagents, 
   skills, 
   height, 
   theme 
-}: AgentStatusPaneProps) {
+}: SubagentsPaneProps) {
   const { activeSubagents, completedSubagents, recentSkills } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents
@@ -97,7 +97,7 @@ export const AgentStatusPane = memo(function AgentStatusPane({
       overflow="hidden"
     >
       <text fg={theme.colors.primary}>
-        <b>Agent Status</b>
+        <b>Subagents & Skills</b>
       </text>
 
       {activeSubagents.length === 0 && completedSubagents.length === 0 && recentSkills.length === 0 && (
