@@ -16,7 +16,6 @@ export class CopilotSessionAdapter {
   private eventHandler: AdapterEventHandler | null = null;
   private currentRunId: string | null = null;
   private streamingBuffer = "";
-  private finalContent = "";
   private reasoningBuffer = "";
   private currentReasoningId: string | null = null;
   private isCancelled = false;
@@ -25,6 +24,7 @@ export class CopilotSessionAdapter {
   private currentRunGeneration = 0;
   private _currentModel: string | null = null;
   private _availableModels: ModelDescription[] = [];
+  private hasEmittedContentForTurn = false;
 
   onEvent(handler: AdapterEventHandler): void {
     this.eventHandler = handler;
@@ -100,6 +100,27 @@ export class CopilotSessionAdapter {
       const gen = this.currentRunGeneration;
 
       switch (event.type) {
+        case "assistant.turn_start": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          // Reset per-turn state
+          this.streamingBuffer = "";
+          this.reasoningBuffer = "";
+          this.currentReasoningId = null;
+          this.hasEmittedContentForTurn = false;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "turn.started",
+              runId: this.currentRunId,
+              turnId: event.data?.turnId ?? "",
+            });
+          }
+          break;
+        }
+
         case "assistant.message_delta": {
           if (this.isCancelled) return;
           if (!this.isProcessing) return;
@@ -125,12 +146,89 @@ export class CopilotSessionAdapter {
           if (!this.isProcessing) return;
           if (gen !== this.expectedRunGeneration) return;
 
+          // The SDK fires assistant.message at the end of each LLM call.
+          // It may contain content, toolRequests, or both.
+          // We use the content from this event if available, otherwise
+          // fall back to the streaming buffer.
           const content = event.data?.content ?? "";
-          if (content) {
-            if (this.finalContent) {
-              this.finalContent += "\n\n";
-            }
-            this.finalContent += content;
+          const resolvedContent = content || this.streamingBuffer;
+
+          if (resolvedContent && this.currentRunId) {
+            const message = createAssistantMessage(resolvedContent);
+            this.emit({
+              type: "assistant.message",
+              runId: this.currentRunId,
+              message,
+            });
+            this.hasEmittedContentForTurn = true;
+          }
+
+          // Reset streaming buffer after emitting (ready for next turn)
+          this.streamingBuffer = "";
+          break;
+        }
+
+        case "assistant.turn_end": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          // If there's leftover streaming content that wasn't captured
+          // by an assistant.message event, emit it now
+          if (!this.hasEmittedContentForTurn && this.streamingBuffer && this.currentRunId) {
+            const message = createAssistantMessage(this.streamingBuffer);
+            this.emit({
+              type: "assistant.message",
+              runId: this.currentRunId,
+              message,
+            });
+          }
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "turn.ended",
+              runId: this.currentRunId,
+              turnId: event.data?.turnId ?? "",
+            });
+          }
+
+          // Reset for next turn
+          this.streamingBuffer = "";
+          this.reasoningBuffer = "";
+          this.currentReasoningId = null;
+          this.hasEmittedContentForTurn = false;
+          break;
+        }
+
+        case "tool.execution_start": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "tool.started",
+              runId: this.currentRunId,
+              toolCallId: event.data?.toolCallId ?? "",
+              toolName: event.data?.toolName ?? "unknown",
+            });
+          }
+          break;
+        }
+
+        case "tool.execution_complete": {
+          if (this.isCancelled) return;
+          if (!this.isProcessing) return;
+          if (gen !== this.expectedRunGeneration) return;
+
+          if (this.currentRunId) {
+            this.emit({
+              type: "tool.completed",
+              runId: this.currentRunId,
+              toolCallId: event.data?.toolCallId ?? "",
+              success: event.data?.success ?? false,
+              error: event.data?.error?.message,
+            });
           }
           break;
         }
@@ -140,11 +238,11 @@ export class CopilotSessionAdapter {
           if (!this.isProcessing) return;
           if (gen !== this.expectedRunGeneration) return;
 
-          const deltaContent = event.data?.deltaContent ?? "";
+          const reasoningDelta = event.data?.deltaContent ?? "";
           const reasoningId = event.data?.reasoningId ?? "";
-          if (!deltaContent) return;
+          if (!reasoningDelta) return;
 
-          this.reasoningBuffer += deltaContent;
+          this.reasoningBuffer += reasoningDelta;
           this.currentReasoningId = reasoningId;
 
           if (this.currentRunId) {
@@ -152,7 +250,7 @@ export class CopilotSessionAdapter {
               type: "reasoning.delta",
               runId: this.currentRunId,
               reasoningId,
-              text: deltaContent,
+              text: reasoningDelta,
             });
           }
           break;
@@ -163,15 +261,15 @@ export class CopilotSessionAdapter {
           if (!this.isProcessing) return;
           if (gen !== this.expectedRunGeneration) return;
 
-          const content = event.data?.content ?? "";
-          const reasoningId = event.data?.reasoningId ?? "";
+          const reasoningContent = event.data?.content ?? "";
+          const rId = event.data?.reasoningId ?? "";
 
-          if (this.currentRunId && content) {
+          if (this.currentRunId && reasoningContent) {
             this.emit({
               type: "reasoning.message",
               runId: this.currentRunId,
-              reasoningId,
-              content,
+              reasoningId: rId,
+              content: reasoningContent,
             });
           }
           break;
@@ -182,11 +280,10 @@ export class CopilotSessionAdapter {
 
           if (this.currentRunId) {
             const runId = this.currentRunId;
-            // Prefer finalContent (complete formatted message) over streamingBuffer
-            const content = this.finalContent || this.streamingBuffer;
 
-            if (content) {
-              const message = createAssistantMessage(content);
+            // Emit any remaining streaming content that wasn't captured by turn events
+            if (this.streamingBuffer) {
+              const message = createAssistantMessage(this.streamingBuffer);
               this.emit({
                 type: "assistant.message",
                 runId,
@@ -201,19 +298,15 @@ export class CopilotSessionAdapter {
             });
 
             this.emit(
-              createLogEvent(
-                "info",
-                `Response complete (${content.length} chars)`,
-                runId
-              )
+              createLogEvent("info", "Response complete", runId)
             );
 
             this.streamingBuffer = "";
-            this.finalContent = "";
             this.reasoningBuffer = "";
             this.currentReasoningId = null;
             this.currentRunId = null;
             this.isProcessing = false;
+            this.hasEmittedContentForTurn = false;
           }
           break;
         }
@@ -249,16 +342,14 @@ export class CopilotSessionAdapter {
           // Extract remaining premium requests from quota snapshots
           const quotaSnapshots = event.data?.quotaSnapshots;
           if (quotaSnapshots) {
-            // Look for premium model quota snapshot (usually keyed by model name)
             for (const [, quota] of Object.entries(quotaSnapshots)) {
-              if (!quota.isUnlimitedEntitlement) {
-                const remaining = quota.entitlementRequests - quota.usedRequests;
-                this.emit({
-                  type: "quota.info",
-                  remainingPremiumRequests: remaining,
-                });
-                break;
-              }
+              // Always show remaining requests, even for unlimited entitlements
+              const remaining = quota.entitlementRequests - quota.usedRequests;
+              this.emit({
+                type: "quota.info",
+                remainingPremiumRequests: remaining,
+              });
+              break;
             }
           }
           break;
@@ -276,13 +367,35 @@ export class CopilotSessionAdapter {
     this.currentRunGeneration = this.expectedRunGeneration;
     this.currentRunId = runId;
     this.streamingBuffer = "";
-    this.finalContent = "";
     this.reasoningBuffer = "";
     this.currentReasoningId = null;
     this.isCancelled = false;
     this.isProcessing = true;
+    this.hasEmittedContentForTurn = false;
 
-    await this.session.send({ prompt });
+    try {
+      await this.session.send({ prompt });
+    } catch (error) {
+      // Check if the error is due to an expired/invalid session
+      const message = error instanceof Error ? error.message : String(error);
+      const lowerMessage = message.toLowerCase();
+      
+      if (lowerMessage.includes("session") || 
+          lowerMessage.includes("expired") ||
+          lowerMessage.includes("invalid") ||
+          lowerMessage.includes("closed") ||
+          lowerMessage.includes("terminated")) {
+        // Attempt to renew the session
+        this.emit(createLogEvent("warn", "Session expired, renewing...", runId));
+        await this.renewSession();
+        
+        // Retry the prompt with the new session
+        await this.session!.send({ prompt });
+      } else {
+        // Re-throw if it's not a session-related error
+        throw error;
+      }
+    }
   }
 
   async abort(): Promise<void> {
@@ -301,6 +414,29 @@ export class CopilotSessionAdapter {
     this.reasoningBuffer = "";
     this.currentReasoningId = null;
     this.currentRunId = null;
+  }
+
+  private async renewSession(): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client not initialized");
+    }
+
+    const currentModel = this._currentModel;
+
+    if (this.session) {
+      try {
+        await this.session.destroy();
+      } catch {
+        // Ignore destroy errors
+      }
+    }
+
+    this.session = await this.client.createSession({
+      streaming: true,
+      model: currentModel ?? undefined,
+    });
+
+    this.setupSessionEventHandlers();
   }
 
   async switchModel(modelId: string): Promise<void> {
