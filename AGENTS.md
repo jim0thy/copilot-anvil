@@ -2,16 +2,16 @@
 
 ## Project Overview
 
-A terminal UI (TUI) for interacting with GitHub Copilot, built with TypeScript, Ink, and the `@github/copilot-sdk`. See [`docs/REQUIREMENTS.md`](./docs/REQUIREMENTS.md) for full specifications.
+A terminal UI (TUI) for interacting with GitHub Copilot, built with TypeScript, OpenTUI, and the `@github/copilot-sdk`. See [`docs/REQUIREMENTS.md`](./docs/REQUIREMENTS.md) for full specifications.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 18+, GitHub Copilot CLI authenticated
-npm install
-npm run dev
+# Prerequisites: Bun 1.0+, GitHub Copilot CLI authenticated
+bun install
+bun run dev
 ```
 
 ---
@@ -24,7 +24,7 @@ This section helps AI coding assistants understand and work with this codebase e
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        UI Layer (Ink/React)                 │
+│                        UI Layer (OpenTUI/React)             │
 │  src/ui/App.tsx, panes/ChatPane.tsx, LogsPane.tsx, etc.     │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HarnessEvent / UIAction
@@ -58,7 +58,7 @@ This section helps AI coding assistants understand and work with this codebase e
 | `src/harness/` | Event bus, state management, plugin system |
 | `src/harness/events.ts` | `HarnessEvent` and `UIAction` type definitions |
 | `src/harness/plugins.ts` | Plugin interface and registries |
-| `src/ui/` | Ink/React components |
+| `src/ui/` | OpenTUI/React components |
 | `src/ui/panes/` | Chat, Logs, Input panes |
 | `docs/REQUIREMENTS.md` | Full requirements document |
 
@@ -166,7 +166,7 @@ Only touch `src/copilot/CopilotSessionAdapter.ts`. Never import SDK elsewhere.
 - No `any` types without explicit justification
 - Prefer interfaces over type shapes for object types
 
-### React/Ink
+### React/OpenTUI
 
 - Functional components with hooks
 - Keep components small and focused
