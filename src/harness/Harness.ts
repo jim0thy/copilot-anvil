@@ -958,6 +958,71 @@ export class Harness {
     }
   }
 
+  /**
+   * Run a prompt in an ephemeral background session that doesn't affect the user's current session.
+   * Used for internal operations like smart commit.
+   */
+  async runEphemeralPrompt(
+    prompt: string,
+    options?: {
+      model?: string;
+      displayText?: string;
+    }
+  ): Promise<void> {
+    if (!this.adapter) {
+      this.emit(createLogEvent("error", "Copilot adapter not initialized"));
+      return;
+    }
+
+    const runId = generateId();
+    const displayText = options?.displayText ?? prompt;
+
+    // Add user message to transcript
+    const userMessage = createUserMessage(displayText);
+    this.state = {
+      ...this.state,
+      transcript: [...this.state.transcript, userMessage],
+    };
+
+    this.emit({
+      type: "run.started",
+      runId,
+      createdAt: new Date(),
+    });
+
+    this.emit(createLogEvent("info", `Ephemeral run started: ${runId}`, runId));
+
+    // Update status to running
+    this.state = {
+      ...this.state,
+      status: "running",
+      currentRunId: runId,
+      streamingContent: "",
+      streamingReasoning: "",
+      currentIntent: null,
+      currentTodo: null,
+      currentPlan: null,
+    };
+
+    try {
+      await this.adapter.runEphemeralPrompt(prompt, runId, {
+        model: options?.model,
+        onEvent: (event) => {
+          this.emit(event);
+        },
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.emit(createLogEvent("error", `Ephemeral run failed: ${errorMessage}`, runId));
+      this.emit({
+        type: "run.finished",
+        runId,
+        createdAt: new Date(),
+      });
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.adapter) {
       await this.adapter.shutdown();

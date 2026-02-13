@@ -891,6 +891,177 @@ export class CopilotSessionAdapter {
     });
   }
 
+  /**
+   * Run a prompt in an ephemeral background session that is not stored in session history.
+   * Uses a separate session and model (Gemini 3 Flash by default) so it doesn't affect
+   * the user's current session.
+   * 
+   * IMPORTANT: This method creates a completely independent session object.
+   * It does NOT touch this.session, this._currentSessionId, or any other user session state.
+   */
+  async runEphemeralPrompt(
+    prompt: string,
+    runId: string,
+    options?: {
+      model?: string;
+      onEvent?: (event: HarnessEvent) => void;
+    }
+  ): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client not initialized");
+    }
+
+    const model = options?.model ?? "gemini-3-flash";
+    const onEvent = options?.onEvent;
+
+    // Create an ephemeral session with a unique ID that won't be saved.
+    // Using underscore prefix to mark as internal/ephemeral.
+    // This is a LOCAL variable - we never assign it to this.session.
+    const ephemeralSessionId = `_ephemeral_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+    // Store in local variable only - NOT in this.session
+    let ephemeralSession: CopilotSession | null = null;
+
+    try {
+      ephemeralSession = await this.client.createSession({
+        sessionId: ephemeralSessionId,
+        streaming: true,
+        model,
+        // Disable infinite sessions to prevent persistence
+        infiniteSessions: { enabled: false },
+        onUserInputRequest: this.userInputHandler
+          ? async (request: any) => {
+              return this.userInputHandler!(request);
+            }
+          : undefined,
+      });
+
+      // Set up event handlers for the ephemeral session
+      ephemeralSession.on((event) => {
+        switch (event.type) {
+          case "assistant.message_delta": {
+            const deltaContent = event.data?.deltaContent ?? "";
+            if (deltaContent && onEvent) {
+              onEvent({
+                type: "assistant.delta",
+                runId,
+                text: deltaContent,
+              });
+            }
+            break;
+          }
+
+          case "assistant.message": {
+            const content = event.data?.content ?? "";
+            if (content && onEvent) {
+              const message = createAssistantMessage(content);
+              onEvent({
+                type: "assistant.message",
+                runId,
+                message,
+              });
+            }
+            break;
+          }
+
+          case "tool.execution_start": {
+            if (onEvent) {
+              let args = event.data?.arguments;
+              if (typeof args === "string") {
+                try {
+                  args = JSON.parse(args);
+                } catch {
+                  // Not valid JSON, keep as string
+                }
+              }
+              onEvent({
+                type: "tool.started",
+                runId,
+                toolCallId: event.data?.toolCallId ?? "",
+                toolName: event.data?.toolName ?? "unknown",
+                arguments: typeof args === "object" && args !== null ? args as Record<string, unknown> : undefined,
+              });
+            }
+            break;
+          }
+
+          case "tool.execution_complete": {
+            if (onEvent) {
+              let output: string | undefined;
+              const result = event.data?.result;
+              if (result) {
+                if (typeof result === "string") {
+                  output = result;
+                } else if (typeof result === "object" && result !== null) {
+                  const resultObj = result as Record<string, unknown>;
+                  if (typeof resultObj.textResultForLlm === "string") {
+                    output = resultObj.textResultForLlm;
+                  } else if (typeof resultObj.sessionLog === "string") {
+                    output = resultObj.sessionLog;
+                  }
+                }
+              }
+              onEvent({
+                type: "tool.completed",
+                runId,
+                toolCallId: event.data?.toolCallId ?? "",
+                success: event.data?.success ?? false,
+                output,
+                error: event.data?.error?.message,
+              });
+            }
+            break;
+          }
+
+          case "session.idle": {
+            if (onEvent) {
+              onEvent({
+                type: "run.finished",
+                runId,
+                createdAt: new Date(),
+              });
+            }
+            break;
+          }
+
+          case "assistant.intent": {
+            const intent = event.data?.intent;
+            if (intent && onEvent) {
+              onEvent({
+                type: "intent.updated",
+                runId,
+                intent,
+              });
+            }
+            break;
+          }
+        }
+      });
+
+      // Send the prompt
+      await ephemeralSession.send({ prompt });
+
+      // Wait for the session to complete (session.idle event)
+      await new Promise<void>((resolve) => {
+        const checkIdle = ephemeralSession!.on((event) => {
+          if (event.type === "session.idle") {
+            resolve();
+          }
+        });
+      });
+
+    } finally {
+      // Clean up ONLY the ephemeral session - user's this.session is untouched
+      if (ephemeralSession) {
+        try {
+          await ephemeralSession.destroy();
+        } catch {
+          // Ignore destroy errors
+        }
+      }
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.planWatcher) {
       try {
