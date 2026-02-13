@@ -2,7 +2,6 @@ import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
 
 interface PlanPaneProps {
-  currentIntent: string | null;
   currentTodo: string | null;
   currentPlan: string | null;
   height: number;
@@ -29,7 +28,6 @@ function parseMarkdownChecklist(markdown: string): Array<{ checked: boolean; tex
 }
 
 export const PlanPane = memo(function PlanPane({
-  currentIntent,
   currentTodo,
   currentPlan,
   height,
@@ -43,7 +41,6 @@ export const PlanPane = memo(function PlanPane({
 
   const hasPlan = currentPlan && currentPlan.trim().length > 0;
   const hasTodo = todoItems.length > 0;
-  const hasIntent = currentIntent && currentIntent.trim().length > 0;
 
   return (
     <box
@@ -60,20 +57,8 @@ export const PlanPane = memo(function PlanPane({
         <b>Plan & Progress</b>
       </text>
 
-      {!hasIntent && !hasTodo && !hasPlan && (
+      {!hasTodo && !hasPlan && (
         <text fg={c.subtle}>No active plan or todos</text>
-      )}
-
-      {/* Current Intent */}
-      {hasIntent && (
-        <box marginTop={1} flexDirection="column">
-          <text fg={c.subtext1}>
-            <b>Current Intent:</b>
-          </text>
-          <box marginLeft={1}>
-            <text fg={c.accent}>→ {currentIntent}</text>
-          </box>
-        </box>
       )}
 
       {/* TODO Checklist */}

@@ -40,7 +40,7 @@ export const DebugOverlay = memo(function DebugOverlay({
         setVisibleLines(newLines);
         scheduleDismiss();
       }
-    }, 500);
+    }, 1000);
     return () => {
       clearInterval(interval);
       if (dismissTimer.current) clearTimeout(dismissTimer.current);

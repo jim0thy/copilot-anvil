@@ -1,6 +1,6 @@
 import { useKeyboard, useTerminalDimensions } from '@opentui/react'
 import type { CliRenderer } from '@opentui/core'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
 import { InputBar } from './panes/InputBar.js'
@@ -14,8 +14,8 @@ import { CommandModal } from './panes/CommandModal.js'
 import { Sidebar } from './panes/Sidebar.js'
 import { DebugOverlay } from './panes/DebugOverlay.js'
 import { getTheme } from './theme.js'
-import { getGitInfo, type GitInfo } from '../utils/git.js'
-import { getModifiedFiles, type FileChange } from '../utils/gitDiff.js'
+import { getGitInfo, getGitInfoAsync, type GitInfo } from '../utils/git.js'
+import { getModifiedFiles, getModifiedFilesAsync, type FileChange } from '../utils/gitDiff.js'
 
 interface AppProps {
   harness: Harness;
@@ -23,7 +23,7 @@ interface AppProps {
 }
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const STATUS_BAR_HEIGHT = 1;
+const STATUS_BAR_HEIGHT = 2;
 const MIN_INPUT_BAR_HEIGHT = 3;
 
 function useSpinner(active: boolean): string {
@@ -51,19 +51,35 @@ export function App({ harness, renderer }: AppProps) {
   const [inputBarHeight, setInputBarHeight] = useState(MIN_INPUT_BAR_HEIGHT);
   const spinner = useSpinner(state.status === "running");
 
+  // Coalesce rapid events into a single setState per microtask
+  const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     return harness.subscribe(() => {
-      setState(harness.getState());
+      if (rafRef.current === null) {
+        rafRef.current = setTimeout(() => {
+          rafRef.current = null;
+          setState(harness.getState());
+        }, 0);
+      }
     });
   }, [harness]);
 
-  // Update git info and modified files periodically
   useEffect(() => {
-    const interval = setInterval(() => {
-      setGitInfo(getGitInfo());
-      setModifiedFiles(getModifiedFiles());
-    }, 5000);
-    return () => clearInterval(interval);
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      const [info, files] = await Promise.all([getGitInfoAsync(), getModifiedFilesAsync()]);
+      if (!cancelled) {
+        setGitInfo(info);
+        setModifiedFiles(files);
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const handleSubmit = useCallback(
@@ -114,6 +130,7 @@ export function App({ harness, renderer }: AppProps) {
 
   const handleSelectSession = useCallback((sessionId: string) => {
     harness.dispatch({ type: "session.switch", sessionId });
+    setHasStarted(true);
   }, [harness]);
 
   const handleNewSession = useCallback(() => {
@@ -235,7 +252,7 @@ export function App({ harness, renderer }: AppProps) {
               <InputBar
                 onSubmit={handleSubmit}
                 disabled={state.status === "running"}
-                suppressKeys={showModelSelector || showSkillsPane}
+                suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || !!state.ephemeralRun}
                 queuedCount={state.messageQueue.length}
                 theme={theme}
                 onHeightChange={handleInputHeightChange}
@@ -262,7 +279,7 @@ export function App({ harness, renderer }: AppProps) {
           <StartScreen
             onSubmit={handleSubmit}
             disabled={state.status === "running"}
-            suppressKeys={showModelSelector || showSkillsPane}
+            suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || !!state.ephemeralRun}
             theme={theme}
             height={contentHeight}
           />
@@ -271,9 +288,10 @@ export function App({ harness, renderer }: AppProps) {
 
       <box
         height={STATUS_BAR_HEIGHT}
-        paddingLeft={1}
-        paddingRight={1}
-        backgroundColor={c.mantle}
+        paddingLeft={2}
+        paddingRight={2}
+        paddingTop={1}
+        backgroundColor={c.base}
         flexDirection="row"
         justifyContent="space-between"
       >
@@ -354,7 +372,7 @@ export function App({ harness, renderer }: AppProps) {
       {showCommitConfirm && (
         <ConfirmModal
           title="Smart Commit & Push"
-          message={`This will:\n• Categorize uncommitted changes\n• Create a commit for each category\n• Push all commits to remote\n\nProceed?`}
+          message={`This will:\n- Categorize uncommitted changes\n- Create a commit for each category\n- Push all commits to remote\n\nProceed?`}
           confirmLabel="Commit & Push"
           cancelLabel="Cancel"
           onConfirm={handleSmartCommitConfirm}

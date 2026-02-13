@@ -1,5 +1,6 @@
 import { createPatch } from "diff";
 import { getTreeSitterClient, extToFiletype } from "@opentui/core";
+import { memo } from "react";
 import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
 import { getSyntaxStyle } from "../syntaxTheme.js";
@@ -69,7 +70,7 @@ function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boo
   return !prev || prev.kind === "tool-call" || (prev.kind === "message" && prev.role !== item.role);
 }
 
-function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: boolean; theme: Theme }) {
+const MessageItem = memo(function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: boolean; theme: Theme }) {
   const c = theme.colors;
   return (
     <box flexDirection="column" marginBottom={1}>
@@ -85,7 +86,7 @@ function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: b
       )}
 
       {msg.role === "user" ? (
-        <box borderStyle="single" border={["left"]} borderColor={c.info} paddingLeft={1} flexDirection="column">
+        <box borderStyle="single" border={["left"]} borderColor={c.info} backgroundColor={c.mantle} paddingLeft={1} flexDirection="column">
           {showLabel && <text fg={c.info}><b>{formatRole(msg.role)}</b></text>}
           <text fg={c.text}>{msg.content}</text>
         </box>
@@ -107,7 +108,7 @@ function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: b
       )}
     </box>
   );
-}
+});
 
 function formatToolArgsSummary(toolName: string, args?: Record<string, unknown>): string | null {
   if (!args) return null;
@@ -176,7 +177,7 @@ function truncateOutput(output: string): { text: string; truncated: boolean } {
   };
 }
 
-function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
+const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
   const c = theme.colors;
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
@@ -221,7 +222,7 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
         </box>
       )}
       {showDiff && (
-        <box marginTop={1}>
+        <box marginTop={1} backgroundColor={c.surface0}>
           <diff
             diff={createPatch(
               editArgs.path ?? "file",
@@ -233,10 +234,10 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
             syntaxStyle={getSyntaxStyle(theme.mode)}
             treeSitterClient={treeSitterClient}
             showLineNumbers={true}
-            addedBg={c.diffAddedBg}
-            removedBg={c.diffRemovedBg}
-            contextBg={c.diffContextBg}
-            lineNumberBg={c.diffLineNumberBg}
+            addedBg={c.surface0}
+            removedBg={c.surface0}
+            contextBg={c.surface0}
+            lineNumberBg={c.surface0}
           />
         </box>
       )}
@@ -248,9 +249,8 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
             marginTop={1}
             paddingLeft={1}
             paddingRight={1}
-            borderStyle="single"
-            border={["left"]}
-            borderColor={c.borderDim}
+            paddingTop={1}
+            backgroundColor={c.surface0}
           >
             <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={text} />
             {truncated && (
@@ -264,7 +264,7 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
       )}
     </box>
   );
-}
+});
 
 export function ChatPane({ transcript, streamingContent, streamingReasoning, isStreaming, height, theme }: ChatPaneProps) {
   const c = theme.colors;

@@ -159,11 +159,9 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
 
 // --- Plan & Progress Section ---
 function PlanSection({ 
-  currentIntent, 
   currentTodo, 
   theme 
 }: { 
-  currentIntent: string | null; 
   currentTodo: string | null; 
   theme: Theme;
 }) {
@@ -190,12 +188,6 @@ function PlanSection({
       <text fg={c.primary}>
         <b>Plan & Progress</b>
       </text>
-
-      {currentIntent && (
-        <box marginTop={1} flexDirection="column">
-          <text fg={c.accent}>→ {currentIntent}</text>
-        </box>
-      )}
 
       {todoItems.length > 0 && (
         <box marginTop={1} flexDirection="column">
@@ -336,7 +328,6 @@ export const Sidebar = memo(function Sidebar({
   const hasFiles = files.length > 0;
   
   const hasPlanContent = useMemo(() => {
-    if (currentIntent && currentIntent.trim().length > 0) return true;
     if (currentTodo) {
       const lines = currentTodo.split("\n");
       for (const line of lines) {
@@ -344,7 +335,7 @@ export const Sidebar = memo(function Sidebar({
       }
     }
     return false;
-  }, [currentIntent, currentTodo]);
+  }, [currentTodo]);
 
   const hasSubagentsOrSkills = subagents.length > 0 || skills.length > 0;
 
@@ -353,12 +344,19 @@ export const Sidebar = memo(function Sidebar({
       flexDirection="column"
       width="100%"
       height={height}
-      borderStyle="rounded"
-      borderColor={c.border}
+      backgroundColor={c.mantle}
       paddingLeft={1}
       paddingRight={1}
+      paddingTop={1}
       overflow="hidden"
     >
+      {/* Intent Title - shown at top when active */}
+      {currentIntent && currentIntent.trim().length > 0 && (
+        <box marginBottom={1}>
+          <text fg={c.accent}>→ {currentIntent}</text>
+        </box>
+      )}
+
       {/* Context Section - Always visible */}
       <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
 
@@ -375,7 +373,6 @@ export const Sidebar = memo(function Sidebar({
         <>
           <SectionDivider theme={theme} innerWidth={innerWidth} />
           <PlanSection 
-            currentIntent={currentIntent} 
             currentTodo={currentTodo} 
             theme={theme} 
           />
