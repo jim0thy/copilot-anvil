@@ -10,6 +10,7 @@ import { ModelSelector } from './panes/ModelSelector.js'
 import { SessionSwitcher } from './panes/SessionSwitcher.js'
 import { SkillsPane } from './panes/SkillsPane.js'
 import { ConfirmModal } from './panes/ConfirmModal.js'
+import { CommandModal } from './panes/CommandModal.js'
 import { Sidebar } from './panes/Sidebar.js'
 import { DebugOverlay } from './panes/DebugOverlay.js'
 import { getTheme } from './theme.js'
@@ -157,8 +158,12 @@ export function App({ harness, renderer }: AppProps) {
     setShowCommitConfirm(false);
   }, []);
 
+  const handleCloseCommandModal = useCallback(() => {
+    harness.dispatch({ type: "ephemeral.close" });
+  }, [harness]);
+
   useKeyboard((key) => {
-    if (state.pendingQuestion || showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm) return;
+    if (state.pendingQuestion || showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || state.ephemeralRun) return;
 
     if (key.name === "escape") {
       renderer.destroy();
@@ -354,6 +359,17 @@ export function App({ harness, renderer }: AppProps) {
           cancelLabel="Cancel"
           onConfirm={handleSmartCommitConfirm}
           onCancel={handleSmartCommitCancel}
+          theme={theme}
+          width={width}
+          height={height - 1}
+        />
+      )}
+
+      {/* Command Modal (Ephemeral Run) */}
+      {state.ephemeralRun && (
+        <CommandModal
+          ephemeralRun={state.ephemeralRun}
+          onClose={handleCloseCommandModal}
           theme={theme}
           width={width}
           height={height - 1}
