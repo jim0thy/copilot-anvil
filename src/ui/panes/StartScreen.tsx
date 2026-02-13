@@ -1,8 +1,8 @@
 import type { Theme } from "../theme.js";
-import { InputBar } from "./InputBar.js";
+import { InputBar, type SubmitData } from "./InputBar.js";
 
 interface StartScreenProps {
-  onSubmit: (text: string) => void;
+  onSubmit: (data: SubmitData) => void;
   disabled?: boolean;
   suppressKeys?: boolean;
   theme: Theme;

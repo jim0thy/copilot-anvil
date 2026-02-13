@@ -3,15 +3,15 @@ import type { CliRenderer } from '@opentui/core'
 import { useCallback, useEffect, useState } from 'react'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
-import { ContextPane } from './panes/ContextPane.js'
 import { InputBar } from './panes/InputBar.js'
 import { StartScreen } from './panes/StartScreen.js'
-import { SubagentsPane } from './panes/SubagentsPane.js'
-import { PlanPane } from './panes/PlanPane.js'
-import { FilesModifiedPane } from './panes/FilesModifiedPane.js'
 import { QuestionModal } from './panes/QuestionModal.js'
 import { ModelSelector } from './panes/ModelSelector.js'
+import { SessionSwitcher } from './panes/SessionSwitcher.js'
 import { SkillsPane } from './panes/SkillsPane.js'
+import { ConfirmModal } from './panes/ConfirmModal.js'
+import { Sidebar } from './panes/Sidebar.js'
+import { DebugOverlay } from './panes/DebugOverlay.js'
 import { getTheme } from './theme.js'
 import { getGitInfo, type GitInfo } from '../utils/git.js'
 import { getModifiedFiles, type FileChange } from '../utils/gitDiff.js'
@@ -44,7 +44,9 @@ export function App({ harness, renderer }: AppProps) {
   const [gitInfo, setGitInfo] = useState<GitInfo>(getGitInfo());
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showSessionSwitcher, setShowSessionSwitcher] = useState(false);
   const [showSkillsPane, setShowSkillsPane] = useState(false);
+  const [showCommitConfirm, setShowCommitConfirm] = useState(false);
   const [inputBarHeight, setInputBarHeight] = useState(MIN_INPUT_BAR_HEIGHT);
   const spinner = useSpinner(state.status === "running");
 
@@ -64,11 +66,11 @@ export function App({ harness, renderer }: AppProps) {
   }, []);
 
   const handleSubmit = useCallback(
-    (text: string) => {
+    (data: { text: string; images?: string[] }) => {
       if (!hasStarted) {
         setHasStarted(true);
       }
-      harness.dispatch({ type: "submit.prompt", text });
+      harness.dispatch({ type: "submit.prompt", text: data.text, images: data.images });
       // Reset input bar height when submitting
       setInputBarHeight(MIN_INPUT_BAR_HEIGHT);
     },
@@ -109,6 +111,18 @@ export function App({ harness, renderer }: AppProps) {
     setShowSkillsPane(false);
   }, []);
 
+  const handleSelectSession = useCallback((sessionId: string) => {
+    harness.dispatch({ type: "session.switch", sessionId });
+  }, [harness]);
+
+  const handleNewSession = useCallback(() => {
+    harness.dispatch({ type: "session.new" });
+  }, [harness]);
+
+  const handleCloseSessionSwitcher = useCallback(() => {
+    setShowSessionSwitcher(false);
+  }, []);
+
   const handleInputHeightChange = useCallback((height: number) => {
     setInputBarHeight(height);
   }, []);
@@ -127,8 +141,21 @@ export function App({ harness, renderer }: AppProps) {
     [harness, state.pendingQuestion]
   );
 
+  const handleSmartCommitConfirm = useCallback(() => {
+    setShowCommitConfirm(false);
+    if (!hasStarted) {
+      setHasStarted(true);
+    }
+    const prompt = `Categorize the current uncommitted changes in this repository, create a distinct commit for each logical category with a descriptive commit message, and push all commits to the remote. Show me what you're doing at each step.`;
+    harness.dispatch({ type: "submit.prompt", text: prompt });
+  }, [harness, hasStarted]);
+
+  const handleSmartCommitCancel = useCallback(() => {
+    setShowCommitConfirm(false);
+  }, []);
+
   useKeyboard((key) => {
-    if (state.pendingQuestion || showModelSelector || showSkillsPane) return;
+    if (state.pendingQuestion || showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm) return;
 
     if (key.name === "escape") {
       renderer.destroy();
@@ -144,6 +171,24 @@ export function App({ harness, renderer }: AppProps) {
     }
     if (key.ctrl && key.name === "s") {
       setShowSkillsPane(true);
+    }
+    if (key.ctrl && key.name === "n") {
+      if (state.status !== "running") {
+        handleNewSession();
+      }
+    }
+    if (key.ctrl && key.name === "o") {
+      if (state.status !== "running") {
+        // Refresh sessions when opening switcher
+        harness.dispatch({ type: "session.refresh" }).then(() => {
+          setShowSessionSwitcher(true);
+        });
+      }
+    }
+    if (key.ctrl && key.name === "g") {
+      if (state.status !== "running" && gitInfo.hasChanges) {
+        setShowCommitConfirm(true);
+      }
     }
   });
 
@@ -162,7 +207,7 @@ export function App({ harness, renderer }: AppProps) {
     <box flexDirection="column" width={width} height={height - 1}>
       {hasStarted ? (
         <box height={contentHeight} flexDirection="row">
-          <box flexDirection="column" width="65%">
+          <box flexDirection="column" width="82.5%">
             <ChatPane
               transcript={state.transcript}
               streamingContent={state.streamingContent}
@@ -188,29 +233,18 @@ export function App({ harness, renderer }: AppProps) {
               />
             )}
           </box>
-          <box flexDirection="column" width="35%">
-            <ContextPane 
-              contextInfo={state.contextInfo} 
-              width="100%" 
-              theme={theme} 
-            />
-            <FilesModifiedPane
+          <box flexDirection="column" width="17.5%">
+            <Sidebar
+              contextInfo={state.contextInfo}
               files={modifiedFiles}
-              height={Math.floor((contentHeight - 10) / 3)}
-              theme={theme}
-            />
-            <PlanPane
               currentIntent={state.currentIntent}
               currentTodo={state.currentTodo}
               currentPlan={state.currentPlan}
-              height={Math.floor((contentHeight - 10) / 3)}
-              theme={theme}
-            />
-            <SubagentsPane 
               subagents={state.subagents}
               skills={state.skills}
-              height={Math.floor((contentHeight - 10) / 3)} 
-              theme={theme} 
+              height={contentHeight}
+              width={Math.floor(width * 0.175)}
+              theme={theme}
             />
           </box>
         </box>
@@ -258,8 +292,12 @@ export function App({ harness, renderer }: AppProps) {
         </text>
         <text>
           <span fg={theme.colors.muted}>esc</span><span> quit  </span>
+          <span fg={theme.colors.muted}>^N</span><span> new  </span>
+          <span fg={theme.colors.muted}>^O</span><span> sessions  </span>
           <span fg={theme.colors.muted}>S-Tab</span><span> model  </span>
-          <span fg={theme.colors.muted}>^S</span><span> skills  </span>
+          {gitInfo.hasChanges && (
+            <><span fg={theme.colors.muted}>^G</span><span> commit  </span></>
+          )}
           <span fg={theme.colors.muted}>^C</span><span> cancel</span>
         </text>
       </box>
@@ -288,6 +326,37 @@ export function App({ harness, renderer }: AppProps) {
           height={height - 1}
         />
       )}
+
+      {/* Session Switcher Modal */}
+      {showSessionSwitcher && (
+        <SessionSwitcher
+          sessions={state.availableSessions}
+          currentSessionId={state.currentSessionId}
+          onSelect={handleSelectSession}
+          onNewSession={handleNewSession}
+          onClose={handleCloseSessionSwitcher}
+          theme={theme}
+          width={width}
+          height={height - 1}
+        />
+      )}
+
+      {/* Smart Commit Confirm Modal */}
+      {showCommitConfirm && (
+        <ConfirmModal
+          title="Smart Commit & Push"
+          message={`This will:\n• Categorize uncommitted changes\n• Create a commit for each category\n• Push all commits to remote\n\nProceed?`}
+          confirmLabel="Commit & Push"
+          cancelLabel="Cancel"
+          onConfirm={handleSmartCommitConfirm}
+          onCancel={handleSmartCommitCancel}
+          theme={theme}
+          width={width}
+          height={height - 1}
+        />
+      )}
+
+      <DebugOverlay theme={theme} width={width} height={height - 1} />
     </box>
   );
 }
