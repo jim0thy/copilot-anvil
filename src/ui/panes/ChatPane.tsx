@@ -12,7 +12,11 @@ function getFiletypeFromPath(path?: string): string | undefined {
   const ext = path.split(".").pop()?.toLowerCase();
   if (!ext) return undefined;
   // Use OpenTUI's built-in extension to filetype mapping
-  return extToFiletype(ext);
+  const filetype = extToFiletype(ext);
+  // Map React variants to base filetypes since tree-sitter uses the same parser
+  if (filetype === "typescriptreact") return "typescript";
+  if (filetype === "javascriptreact") return "javascript";
+  return filetype;
 }
 
 interface ChatPaneProps {
