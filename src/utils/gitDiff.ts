@@ -1,4 +1,7 @@
-import { execSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 export interface FileChange {
   path: string;
@@ -7,15 +10,32 @@ export interface FileChange {
   status: "modified" | "added" | "deleted" | "renamed";
 }
 
+// Cached result for synchronous initial render
+let cachedModifiedFiles: FileChange[] = [];
+
+/**
+ * Returns the last cached modified files synchronously (for initial state).
+ */
 export function getModifiedFiles(): FileChange[] {
+  return cachedModifiedFiles;
+}
+
+/**
+ * Fetches modified files asynchronously without blocking the event loop.
+ * Updates the internal cache and returns the result.
+ */
+export async function getModifiedFilesAsync(): Promise<FileChange[]> {
   try {
     // Get list of changed files with numstat
-    const diffOutput = execSync("git diff --numstat HEAD", {
+    const { stdout } = await execFileAsync("git", ["diff", "--numstat", "HEAD"], {
       encoding: "utf8",
-      stdio: ["pipe", "pipe", "ignore"],
-    }).trim();
+    });
+    const diffOutput = stdout.trim();
 
-    if (!diffOutput) return [];
+    if (!diffOutput) {
+      cachedModifiedFiles = [];
+      return cachedModifiedFiles;
+    }
 
     const files: FileChange[] = [];
     const lines = diffOutput.split("\n");
@@ -25,7 +45,7 @@ export function getModifiedFiles(): FileChange[] {
       if (parts.length < 3) continue;
 
       const [additions, deletions, ...pathParts] = parts;
-      const path = pathParts.join(" ");
+      const filePath = pathParts.join(" ");
 
       // Binary files show "-" for additions/deletions
       const adds = additions === "-" ? 0 : parseInt(additions, 10);
@@ -36,9 +56,7 @@ export function getModifiedFiles(): FileChange[] {
       if (adds > 0 && dels === 0) {
         // Check if it's a new file
         try {
-          execSync(`git ls-files --error-unmatch "${path}"`, {
-            stdio: ["pipe", "pipe", "ignore"],
-          });
+          await execFileAsync("git", ["ls-files", "--error-unmatch", filePath]);
         } catch {
           status = "added";
         }
@@ -47,15 +65,17 @@ export function getModifiedFiles(): FileChange[] {
       }
 
       files.push({
-        path,
+        path: filePath,
         additions: adds,
         deletions: dels,
         status,
       });
     }
 
-    return files;
+    cachedModifiedFiles = files;
+    return cachedModifiedFiles;
   } catch {
-    return [];
+    cachedModifiedFiles = [];
+    return cachedModifiedFiles;
   }
 }
