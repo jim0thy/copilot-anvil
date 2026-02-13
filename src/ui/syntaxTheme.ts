@@ -1,166 +1,176 @@
 import { SyntaxStyle, RGBA, type StyleDefinition } from "@opentui/core";
 import type { ThemeMode } from "./theme.js";
+import { catppuccin } from "./theme.js";
 
-// Helper to create RGBA from ints
-const rgb = (r: number, g: number, b: number) => RGBA.fromInts(r, g, b, 255);
-
-// Tree-sitter highlight group styles for syntax highlighting
-// These map to tree-sitter capture groups like @keyword, @string, @comment, etc.
-
-const darkStyles: Record<string, StyleDefinition> = {
-  // Base
-  default: { fg: rgb(212, 212, 212) }, // Light gray
-
-  // Comments
-  comment: { fg: rgb(106, 153, 85), italic: true }, // Green italic
-
-  // Keywords
-  keyword: { fg: rgb(197, 134, 192) }, // Purple/magenta
-  "keyword.function": { fg: rgb(197, 134, 192) },
-  "keyword.return": { fg: rgb(197, 134, 192) },
-  "keyword.operator": { fg: rgb(197, 134, 192) },
-  "keyword.import": { fg: rgb(197, 134, 192) },
-  "keyword.export": { fg: rgb(197, 134, 192) },
-
-  // Types
-  type: { fg: rgb(78, 201, 176) }, // Teal
-  "type.builtin": { fg: rgb(78, 201, 176) },
-
-  // Functions
-  function: { fg: rgb(220, 220, 170) }, // Yellow
-  "function.call": { fg: rgb(220, 220, 170) },
-  "function.method": { fg: rgb(220, 220, 170) },
-  "function.builtin": { fg: rgb(220, 220, 170) },
-  method: { fg: rgb(220, 220, 170) },
-
-  // Variables
-  variable: { fg: rgb(156, 220, 254) }, // Light blue
-  "variable.parameter": { fg: rgb(156, 220, 254) },
-  "variable.builtin": { fg: rgb(86, 156, 214) },
-  parameter: { fg: rgb(156, 220, 254) },
-  property: { fg: rgb(156, 220, 254) },
-
-  // Strings
-  string: { fg: rgb(206, 145, 120) }, // Orange/brown
-  "string.special": { fg: rgb(206, 145, 120) },
-  "string.escape": { fg: rgb(215, 186, 125) }, // Golden
-
-  // Numbers
-  number: { fg: rgb(181, 206, 168) }, // Light green
-  float: { fg: rgb(181, 206, 168) },
-
-  // Constants
-  constant: { fg: rgb(79, 193, 255) }, // Bright blue
-  "constant.builtin": { fg: rgb(86, 156, 214) },
-  boolean: { fg: rgb(86, 156, 214) },
-
-  // Operators
-  operator: { fg: rgb(212, 212, 212) },
-  punctuation: { fg: rgb(212, 212, 212) },
-  "punctuation.bracket": { fg: rgb(212, 212, 212) },
-  "punctuation.delimiter": { fg: rgb(212, 212, 212) },
-
-  // Tags (HTML/JSX)
-  tag: { fg: rgb(86, 156, 214) }, // Blue
-  "tag.attribute": { fg: rgb(156, 220, 254) },
-
-  // Attributes
-  attribute: { fg: rgb(156, 220, 254) },
-
-  // Labels
-  label: { fg: rgb(156, 220, 254) },
-
-  // Namespaces
-  namespace: { fg: rgb(78, 201, 176) },
-  module: { fg: rgb(78, 201, 176) },
-
-  // Constructor
-  constructor: { fg: rgb(78, 201, 176) },
-
-  // Markup (markdown)
-  "markup.heading": { fg: rgb(86, 156, 214), bold: true },
-  "markup.bold": { bold: true },
-  "markup.italic": { italic: true },
-  "markup.link": { fg: rgb(86, 156, 214), underline: true },
-  "markup.raw": { fg: rgb(206, 145, 120) },
+// Helper to create RGBA from hex string
+const hex = (color: string) => {
+  const r = Number.parseInt(color.slice(1, 3), 16);
+  const g = Number.parseInt(color.slice(3, 5), 16);
+  const b = Number.parseInt(color.slice(5, 7), 16);
+  return RGBA.fromInts(r, g, b, 255);
 };
 
-const lightStyles: Record<string, StyleDefinition> = {
-  // Base
-  default: { fg: rgb(0, 0, 0) }, // Black
+// Tree-sitter highlight group styles for syntax highlighting
+// Using Catppuccin Frappé palette for dark mode
+// https://catppuccin.com/palette
 
-  // Comments
-  comment: { fg: rgb(0, 128, 0), italic: true }, // Green italic
+const p = catppuccin.frappe;
+const darkStyles: Record<string, StyleDefinition> = {
+  // Base - use text color
+  default: { fg: hex(p.text) },
 
-  // Keywords
-  keyword: { fg: rgb(0, 0, 255) }, // Blue
-  "keyword.function": { fg: rgb(0, 0, 255) },
-  "keyword.return": { fg: rgb(0, 0, 255) },
-  "keyword.operator": { fg: rgb(0, 0, 255) },
-  "keyword.import": { fg: rgb(0, 0, 255) },
-  "keyword.export": { fg: rgb(0, 0, 255) },
+  // Comments - overlay colors with italic
+  comment: { fg: hex(p.overlay1), italic: true },
 
-  // Types
-  type: { fg: rgb(38, 127, 153) }, // Teal
-  "type.builtin": { fg: rgb(38, 127, 153) },
+  // Keywords - mauve (purple)
+  keyword: { fg: hex(p.mauve) },
+  "keyword.function": { fg: hex(p.mauve) },
+  "keyword.return": { fg: hex(p.mauve) },
+  "keyword.operator": { fg: hex(p.mauve) },
+  "keyword.import": { fg: hex(p.mauve) },
+  "keyword.export": { fg: hex(p.mauve) },
 
-  // Functions
-  function: { fg: rgb(121, 94, 38) }, // Brown
-  "function.call": { fg: rgb(121, 94, 38) },
-  "function.method": { fg: rgb(121, 94, 38) },
-  "function.builtin": { fg: rgb(121, 94, 38) },
-  method: { fg: rgb(121, 94, 38) },
+  // Types - yellow
+  type: { fg: hex(p.yellow) },
+  "type.builtin": { fg: hex(p.yellow) },
 
-  // Variables
-  variable: { fg: rgb(0, 16, 128) }, // Dark blue
-  "variable.parameter": { fg: rgb(0, 16, 128) },
-  "variable.builtin": { fg: rgb(0, 0, 255) },
-  parameter: { fg: rgb(0, 16, 128) },
-  property: { fg: rgb(0, 16, 128) },
+  // Functions - blue
+  function: { fg: hex(p.blue) },
+  "function.call": { fg: hex(p.blue) },
+  "function.method": { fg: hex(p.blue) },
+  "function.builtin": { fg: hex(p.blue) },
+  method: { fg: hex(p.blue) },
 
-  // Strings
-  string: { fg: rgb(163, 21, 21) }, // Red
-  "string.special": { fg: rgb(163, 21, 21) },
-  "string.escape": { fg: rgb(0, 0, 255) },
+  // Variables - text, parameters in maroon
+  variable: { fg: hex(p.text) },
+  "variable.parameter": { fg: hex(p.maroon) },
+  "variable.builtin": { fg: hex(p.red) },
+  parameter: { fg: hex(p.maroon) },
+  property: { fg: hex(p.lavender) },
 
-  // Numbers
-  number: { fg: rgb(9, 136, 90) }, // Green
-  float: { fg: rgb(9, 136, 90) },
+  // Strings - green
+  string: { fg: hex(p.green) },
+  "string.special": { fg: hex(p.green) },
+  "string.escape": { fg: hex(p.pink) },
 
-  // Constants
-  constant: { fg: rgb(0, 0, 255) },
-  "constant.builtin": { fg: rgb(0, 0, 255) },
-  boolean: { fg: rgb(0, 0, 255) },
+  // Numbers - peach
+  number: { fg: hex(p.peach) },
+  float: { fg: hex(p.peach) },
 
-  // Operators
-  operator: { fg: rgb(0, 0, 0) },
-  punctuation: { fg: rgb(0, 0, 0) },
-  "punctuation.bracket": { fg: rgb(0, 0, 0) },
-  "punctuation.delimiter": { fg: rgb(0, 0, 0) },
+  // Constants - peach
+  constant: { fg: hex(p.peach) },
+  "constant.builtin": { fg: hex(p.peach) },
+  boolean: { fg: hex(p.peach) },
 
-  // Tags (HTML/JSX)
-  tag: { fg: rgb(128, 0, 0) }, // Maroon
-  "tag.attribute": { fg: rgb(255, 0, 0) },
+  // Operators - sky
+  operator: { fg: hex(p.sky) },
+  punctuation: { fg: hex(p.overlay2) },
+  "punctuation.bracket": { fg: hex(p.overlay2) },
+  "punctuation.delimiter": { fg: hex(p.overlay2) },
 
-  // Attributes
-  attribute: { fg: rgb(255, 0, 0) },
+  // Tags (HTML/JSX) - blue
+  tag: { fg: hex(p.blue) },
+  "tag.attribute": { fg: hex(p.yellow) },
 
-  // Labels
-  label: { fg: rgb(0, 16, 128) },
+  // Attributes - yellow
+  attribute: { fg: hex(p.yellow) },
 
-  // Namespaces
-  namespace: { fg: rgb(38, 127, 153) },
-  module: { fg: rgb(38, 127, 153) },
+  // Labels - sapphire
+  label: { fg: hex(p.sapphire) },
 
-  // Constructor
-  constructor: { fg: rgb(38, 127, 153) },
+  // Namespaces - teal
+  namespace: { fg: hex(p.teal) },
+  module: { fg: hex(p.teal) },
+
+  // Constructor - sapphire
+  constructor: { fg: hex(p.sapphire) },
 
   // Markup (markdown)
-  "markup.heading": { fg: rgb(0, 0, 255), bold: true },
+  "markup.heading": { fg: hex(p.blue), bold: true },
   "markup.bold": { bold: true },
   "markup.italic": { italic: true },
-  "markup.link": { fg: rgb(0, 0, 255), underline: true },
-  "markup.raw": { fg: rgb(163, 21, 21) },
+  "markup.link": { fg: hex(p.blue), underline: true },
+  "markup.raw": { fg: hex(p.green) },
+};
+
+// Using Catppuccin Latte palette for light mode
+const pl = catppuccin.latte;
+const lightStyles: Record<string, StyleDefinition> = {
+  // Base - use text color
+  default: { fg: hex(pl.text) },
+
+  // Comments - overlay colors with italic
+  comment: { fg: hex(pl.overlay1), italic: true },
+
+  // Keywords - mauve (purple)
+  keyword: { fg: hex(pl.mauve) },
+  "keyword.function": { fg: hex(pl.mauve) },
+  "keyword.return": { fg: hex(pl.mauve) },
+  "keyword.operator": { fg: hex(pl.mauve) },
+  "keyword.import": { fg: hex(pl.mauve) },
+  "keyword.export": { fg: hex(pl.mauve) },
+
+  // Types - yellow
+  type: { fg: hex(pl.yellow) },
+  "type.builtin": { fg: hex(pl.yellow) },
+
+  // Functions - blue
+  function: { fg: hex(pl.blue) },
+  "function.call": { fg: hex(pl.blue) },
+  "function.method": { fg: hex(pl.blue) },
+  "function.builtin": { fg: hex(pl.blue) },
+  method: { fg: hex(pl.blue) },
+
+  // Variables - text, parameters in maroon
+  variable: { fg: hex(pl.text) },
+  "variable.parameter": { fg: hex(pl.maroon) },
+  "variable.builtin": { fg: hex(pl.red) },
+  parameter: { fg: hex(pl.maroon) },
+  property: { fg: hex(pl.lavender) },
+
+  // Strings - green
+  string: { fg: hex(pl.green) },
+  "string.special": { fg: hex(pl.green) },
+  "string.escape": { fg: hex(pl.pink) },
+
+  // Numbers - peach
+  number: { fg: hex(pl.peach) },
+  float: { fg: hex(pl.peach) },
+
+  // Constants - peach
+  constant: { fg: hex(pl.peach) },
+  "constant.builtin": { fg: hex(pl.peach) },
+  boolean: { fg: hex(pl.peach) },
+
+  // Operators - sky
+  operator: { fg: hex(pl.sky) },
+  punctuation: { fg: hex(pl.overlay2) },
+  "punctuation.bracket": { fg: hex(pl.overlay2) },
+  "punctuation.delimiter": { fg: hex(pl.overlay2) },
+
+  // Tags (HTML/JSX) - blue
+  tag: { fg: hex(pl.blue) },
+  "tag.attribute": { fg: hex(pl.yellow) },
+
+  // Attributes - yellow
+  attribute: { fg: hex(pl.yellow) },
+
+  // Labels - sapphire
+  label: { fg: hex(pl.sapphire) },
+
+  // Namespaces - teal
+  namespace: { fg: hex(pl.teal) },
+  module: { fg: hex(pl.teal) },
+
+  // Constructor - sapphire
+  constructor: { fg: hex(pl.sapphire) },
+
+  // Markup (markdown)
+  "markup.heading": { fg: hex(pl.blue), bold: true },
+  "markup.bold": { bold: true },
+  "markup.italic": { italic: true },
+  "markup.link": { fg: hex(pl.blue), underline: true },
+  "markup.raw": { fg: hex(pl.green) },
 };
 
 let cachedDarkStyle: SyntaxStyle | null = null;
