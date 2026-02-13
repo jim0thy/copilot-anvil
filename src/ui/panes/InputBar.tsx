@@ -1,7 +1,10 @@
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
-import { memo, useState, useEffect } from "react";
+import { memo, useState, useEffect, useRef, useCallback } from "react";
 import type { Theme } from "../theme.js";
 import type { PasteEvent } from "@opentui/core";
+
+// Blinking cursor interval in ms
+const CURSOR_BLINK_INTERVAL = 530;
 
 export interface SubmitData {
   text: string;
@@ -33,9 +36,43 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   
   // Track attached images
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  
+  // Use refs for values accessed in keyboard/paste callbacks to avoid stale closures
+  const cursorPosRef = useRef(cursorPos);
+  cursorPosRef.current = cursorPos;
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const attachedImagesRef = useRef(attachedImages);
+  attachedImagesRef.current = attachedImages;
+  const pastedContentRef = useRef(pastedContent);
+  pastedContentRef.current = pastedContent;
+  
+  const [cursorVisible, setCursorVisible] = useState(true);
+  const blinkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  useEffect(() => {
+    if (!disabled) {
+      blinkIntervalRef.current = setInterval(() => {
+        setCursorVisible((v) => !v);
+      }, CURSOR_BLINK_INTERVAL);
+    } else {
+      setCursorVisible(false);
+    }
+    
+    return () => {
+      if (blinkIntervalRef.current) {
+        clearInterval(blinkIntervalRef.current);
+      }
+    };
+  }, [disabled]);
+  
+  // Reset cursor visibility on any input change
+  useEffect(() => {
+    setCursorVisible(true);
+  }, [value, cursorPos]);
 
   const handleSubmit = () => {
-    let textToSubmit = value;
+    let textToSubmit = valueRef.current;
     
     // Parse /attach commands and remove them from the text
     const attachRegex = /\/attach\s+([^\s]+)/g;
@@ -44,15 +81,16 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
     
     for (const match of matches) {
       const imagePath = match[1];
-      if (imagePath && !attachedImages.includes(imagePath)) {
+      if (imagePath && !attachedImagesRef.current.includes(imagePath)) {
         newImages.push(imagePath);
       }
       // Remove the /attach command from the text
       textToSubmit = textToSubmit.replace(match[0], '').trim();
     }
     
-    const allImages = [...attachedImages, ...newImages];
-    const fullText = pastedContent ? pastedContent + "\n" + textToSubmit : textToSubmit;
+    const allImages = [...attachedImagesRef.current, ...newImages];
+    const currentPasted = pastedContentRef.current;
+    const fullText = currentPasted ? currentPasted + "\n" + textToSubmit : textToSubmit;
     
     if (fullText.trim() || allImages.length > 0) {
       onSubmit({
@@ -89,14 +127,15 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
         const attachMatch = text.match(/^\/attach\s+(.+)$/);
         if (attachMatch) {
           const imagePath = attachMatch[1].trim();
-          if (!attachedImages.includes(imagePath)) {
+          if (!attachedImagesRef.current.includes(imagePath)) {
             setAttachedImages((prev) => [...prev, imagePath]);
           }
         } else {
           // Regular single line paste - insert at cursor position
+          const pos = cursorPosRef.current;
           setValue((v) => {
-            const newValue = v.slice(0, cursorPos) + text + v.slice(cursorPos);
-            setCursorPos(cursorPos + text.length);
+            const newValue = v.slice(0, pos) + text + v.slice(pos);
+            setCursorPos(pos + text.length);
             return newValue;
           });
         }
@@ -107,7 +146,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
     return () => {
       renderer.keyInput.off("paste", handlePaste);
     };
-  }, [renderer, suppressKeys, disabled, cursorPos, attachedImages]);
+  }, [renderer, suppressKeys, disabled]);
 
   useKeyboard((key) => {
     if (suppressKeys) return;
@@ -117,17 +156,19 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
     }
     if (key.name === "backspace") {
       setValue((v) => {
-        if (cursorPos === 0) return v;
-        const newValue = v.slice(0, cursorPos - 1) + v.slice(cursorPos);
-        setCursorPos(cursorPos - 1);
+        const pos = cursorPosRef.current;
+        if (pos === 0) return v;
+        const newValue = v.slice(0, pos - 1) + v.slice(pos);
+        setCursorPos(pos - 1);
         return newValue;
       });
       return;
     }
     if (key.name === "delete") {
       setValue((v) => {
-        if (cursorPos >= v.length) return v;
-        return v.slice(0, cursorPos) + v.slice(cursorPos + 1);
+        const pos = cursorPosRef.current;
+        if (pos >= v.length) return v;
+        return v.slice(0, pos) + v.slice(pos + 1);
       });
       return;
     }
@@ -136,7 +177,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       return;
     }
     if (key.name === "right") {
-      setCursorPos((pos) => Math.min(value.length, pos + 1));
+      setCursorPos((pos) => Math.min(valueRef.current.length, pos + 1));
       return;
     }
     if (key.name === "home" || (key.ctrl && key.name === "a")) {
@@ -144,7 +185,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       return;
     }
     if (key.name === "end" || (key.ctrl && key.name === "e")) {
-      setCursorPos(value.length);
+      setCursorPos(valueRef.current.length);
       return;
     }
     if (key.name === "escape" || key.name === "tab" || key.name === "up" || key.name === "down") return;
@@ -153,8 +194,9 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
     // Printable character
     if (key.sequence && key.sequence.length === 1) {
       setValue((v) => {
-        const newValue = v.slice(0, cursorPos) + key.sequence + v.slice(cursorPos);
-        setCursorPos(cursorPos + 1);
+        const pos = cursorPosRef.current;
+        const newValue = v.slice(0, pos) + key.sequence + v.slice(pos);
+        setCursorPos(pos + 1);
         return newValue;
       });
     }
@@ -167,15 +209,15 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const showPlaceholder = !value && !pastedContent;
 
   // Calculate height based on wrapped text
-  // Account for: border (2 lines) + padding + wrapped content + paste indicator + image indicators
-  const contentWidth = Math.max(1, Math.floor(width * 0.65) - 4); // 65% width minus padding and border
+  // Account for: padding (top+bottom) + wrapped content + paste indicator + image indicators
+  const contentWidth = Math.max(1, Math.floor(width * 0.65) - 4); // 65% width minus padding
   const prompt = "› ";
   const displayText = showPlaceholder ? placeholder : value;
   const fullText = prompt + displayText;
   const lines = Math.ceil(fullText.length / contentWidth) || 1;
   const pasteIndicatorLines = pastedContent ? 1 : 0;
   const imageIndicatorLines = attachedImages.length;
-  const calculatedHeight = Math.max(3, lines + pasteIndicatorLines + imageIndicatorLines + 2); // Minimum 3, add 2 for borders
+  const calculatedHeight = Math.max(3, lines + pasteIndicatorLines + imageIndicatorLines + 2); // Minimum 3, add 2 for top/bottom padding
 
   // Notify parent of height change
   useEffect(() => {
@@ -185,26 +227,39 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   }, [calculatedHeight, onHeightChange]);
 
   return (
-    <box key={resetKey} width="100%" height={calculatedHeight} flexShrink={0} borderStyle="single" borderColor={c.border}>
-      <box paddingLeft={1} paddingRight={1} flexDirection="column">
+    <box 
+      key={resetKey} 
+      width="100%" 
+      height={calculatedHeight} 
+      flexShrink={0} 
+      borderStyle="single"
+      border={["left"]}
+      borderColor={c.info}
+      backgroundColor={c.mantle}
+      paddingLeft={1}
+      justifyContent="center"
+    >
+      <box flexDirection="column" justifyContent="center">
         {pastedContent && (
           <text>
-            <span fg="#000" bg="#ffff00">[pasted ~{pastedLineCount} lines]</span>
+            <span fg={c.text} bg={c.surface1}> 📋 {pastedLineCount} lines pasted </span>
           </text>
         )}
         {attachedImages.map((img, idx) => (
           <text key={idx}>
-            <span fg="#000" bg="#ffff00">[image {idx + 1}: {img}]</span>
+            <span fg={c.text} bg={c.surface1}> 🖼 {img.split('/').pop()} </span>
           </text>
         ))}
         <text wrapMode="word">
-          <span fg={promptColor}><b>{"› "}</b></span>
           {showPlaceholder ? (
-            <span fg={c.subtle}>{placeholder}</span>
+            <>
+              <span fg={c.cursorText} bg={cursorVisible ? c.cursor : undefined}>{" "}</span>
+              <span fg={c.subtle}>{placeholder}</span>
+            </>
           ) : (
             <>
               <span fg={c.text}>{value.slice(0, cursorPos)}</span>
-              <span fg={c.cursorText} bg={c.cursor}>{cursorPos < value.length ? value[cursorPos] : " "}</span>
+              <span fg={c.cursorText} bg={cursorVisible ? c.cursor : undefined}>{cursorPos < value.length ? value[cursorPos] : " "}</span>
               <span fg={c.text}>{value.slice(cursorPos + 1)}</span>
             </>
           )}
