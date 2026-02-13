@@ -1168,6 +1168,7 @@ export class Harness {
       ...this.state,
       ephemeralRun: null,
     };
+    this.emit(createLogEvent("info", "Ephemeral run closed"));
   }
 
   async shutdown(): Promise<void> {
