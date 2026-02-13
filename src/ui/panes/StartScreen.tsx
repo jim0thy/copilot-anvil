@@ -4,6 +4,7 @@ import { InputBar } from "./InputBar.js";
 interface StartScreenProps {
   onSubmit: (text: string) => void;
   disabled?: boolean;
+  suppressKeys?: boolean;
   theme: Theme;
   height: number;
 }
@@ -30,7 +31,7 @@ const RAINBOW_COLORS = [
   "#ff00ff",
 ];
 
-export function StartScreen({ onSubmit, disabled = false, theme, height }: StartScreenProps) {
+export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, height }: StartScreenProps) {
   return (
     <box flexDirection="column" width="100%" height={height}>
       <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
@@ -43,7 +44,7 @@ export function StartScreen({ onSubmit, disabled = false, theme, height }: Start
           <text fg={theme.colors.muted}>Ask anything to get started.</text>
         </box>
       </box>
-      <InputBar onSubmit={onSubmit} disabled={disabled} theme={theme} />
+      <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} />
     </box>
   );
 }

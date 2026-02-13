@@ -13,6 +13,11 @@ export interface ThemeColors {
   info: string;
   accent: string;
   statusBarBg: string;
+  paneBg: string;
+  diffAddedBg: string;
+  diffRemovedBg: string;
+  diffContextBg: string;
+  diffLineNumberBg: string;
 }
 
 export interface Theme {
@@ -33,6 +38,11 @@ const DARK_COLORS: ThemeColors = {
   info: "#60a5fa",
   accent: "#c084fc",
   statusBarBg: "#2d3748",
+  paneBg: "#1a1a1a",
+  diffAddedBg: "#1e3a2f",
+  diffRemovedBg: "#3d2a2a",
+  diffContextBg: "#1e1e2e",
+  diffLineNumberBg: "#252535",
 };
 
 const LIGHT_COLORS: ThemeColors = {
@@ -48,6 +58,11 @@ const LIGHT_COLORS: ThemeColors = {
   info: "#3182ce",
   accent: "#805ad5",
   statusBarBg: "#e2e8f0",
+  paneBg: "#f0f0f0",
+  diffAddedBg: "#d4edda",
+  diffRemovedBg: "#f8d7da",
+  diffContextBg: "#f8f9fa",
+  diffLineNumberBg: "#e9ecef",
 };
 
 let cachedTheme: Theme | null = null;

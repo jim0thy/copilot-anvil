@@ -7,16 +7,12 @@ interface QuestionModalProps {
   question: PendingQuestion;
   onAnswer: (answer: string, wasFreeform: boolean) => void;
   theme: Theme;
-  width: number;
-  height: number;
 }
 
 export const QuestionModal = memo(function QuestionModal({
   question,
   onAnswer,
   theme,
-  width,
-  height,
 }: QuestionModalProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [freeformValue, setFreeformValue] = useState("");
@@ -78,49 +74,25 @@ export const QuestionModal = memo(function QuestionModal({
     }
   });
 
-  const modalWidth = Math.min(60, width - 4);
-  const modalHeight = Math.min(hasChoices ? choices.length + 10 : 8, height - 4);
-  const modalX = Math.floor((width - modalWidth) / 2);
-  const modalY = Math.floor((height - modalHeight) / 2);
-
   return (
-    <box
-      position="absolute"
-      left={0}
-      top={0}
-      width={width}
-      height={height}
-      backgroundColor="rgba(0,0,0,0.7)"
-    >
-      <box
-        position="absolute"
-        left={modalX}
-        top={modalY}
-        width={modalWidth}
-        height={modalHeight}
-        borderStyle="double"
-        borderColor={theme.colors.primary}
-        backgroundColor={theme.colors.statusBarBg}
-        flexDirection="column"
-        padding={1}
-      >
-        {/* Header */}
-        <box marginBottom={1}>
+    <box flexDirection="column" width="100%" flexShrink={0}>
+      {/* Question text - expands above input area */}
+      {inputMode === "choices" && hasChoices && (
+        <box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor={theme.colors.primary}
+          backgroundColor={theme.colors.statusBarBg}
+          paddingLeft={1}
+          paddingRight={1}
+          paddingTop={1}
+          paddingBottom={1}
+        >
           <text>
-            <span fg={theme.colors.primary}><b>❓ Agent Question</b></span>
-          </text>
-        </box>
-
-        {/* Question text */}
-        <box marginBottom={1}>
-          <text>
+            <span fg={theme.colors.primary}><b>❓ </b></span>
             <span fg={theme.colors.info}>{question.question}</span>
           </text>
-        </box>
-
-        {/* Choices or Freeform input */}
-        {inputMode === "choices" && hasChoices ? (
-          <box flexDirection="column">
+          <box flexDirection="column" marginTop={1}>
             {choices.map((choice, index) => (
               <box key={index}>
                 <text>
@@ -134,7 +106,7 @@ export const QuestionModal = memo(function QuestionModal({
               </box>
             ))}
             {canUseFreeform && (
-              <box marginTop={1}>
+              <box>
                 <text>
                   <span fg={selectedIndex === choices.length ? theme.colors.primary : theme.colors.muted}>
                     {selectedIndex === choices.length ? "› " : "  "}
@@ -146,43 +118,42 @@ export const QuestionModal = memo(function QuestionModal({
               </box>
             )}
           </box>
-        ) : (
-          <box flexDirection="column">
-            <box
-              borderStyle="single"
-              borderColor={theme.colors.border}
-              paddingLeft={1}
-              paddingRight={1}
-            >
-              <text>
+          <box marginTop={1}>
+            <text>
+              <span fg={theme.colors.muted}>↑↓ navigate • Enter select</span>
+            </text>
+          </box>
+        </box>
+      )}
+
+      {/* Input area - replaces normal input bar */}
+      <box 
+        height={3} 
+        borderStyle="single" 
+        borderColor={inputMode === "freeform" ? theme.colors.primary : theme.colors.border}
+      >
+        <box paddingLeft={1} paddingRight={1}>
+          <text>
+            {inputMode === "freeform" ? (
+              <>
+                <span fg={theme.colors.primary}><b>{"❓ "}</b></span>
+                <span fg={theme.colors.info}>{question.question}</span>
+                <span> </span>
                 {freeformValue ? (
                   <>
                     <span>{freeformValue}</span>
                     <span fg="#000" bg={theme.colors.primary}>{" "}</span>
                   </>
                 ) : (
-                  <span fg={theme.colors.muted}>Type your answer...</span>
+                  <span fg={theme.colors.muted}>Type answer...</span>
                 )}
-              </text>
-            </box>
-            {hasChoices && (
-              <box marginTop={1}>
-                <text>
-                  <span fg={theme.colors.muted}>Press ESC to go back to choices</span>
-                </text>
-              </box>
+              </>
+            ) : (
+              <>
+                <span fg={theme.colors.primary}><b>{"› "}</b></span>
+                <span fg={theme.colors.muted}>Use ↑↓ to select answer</span>
+              </>
             )}
-          </box>
-        )}
-
-        {/* Footer with hints */}
-        <box marginTop={1}>
-          <text>
-            <span fg={theme.colors.muted}>
-              {inputMode === "choices"
-                ? "↑↓ navigate • Enter select"
-                : "Enter submit"}
-            </span>
           </text>
         </box>
       </box>

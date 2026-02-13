@@ -10,6 +10,8 @@ import { SubagentsPane } from './panes/SubagentsPane.js'
 import { PlanPane } from './panes/PlanPane.js'
 import { FilesModifiedPane } from './panes/FilesModifiedPane.js'
 import { QuestionModal } from './panes/QuestionModal.js'
+import { ModelSelector } from './panes/ModelSelector.js'
+import { SkillsPane } from './panes/SkillsPane.js'
 import { getTheme } from './theme.js'
 import { getGitInfo, type GitInfo } from '../utils/git.js'
 import { getModifiedFiles, type FileChange } from '../utils/gitDiff.js'
@@ -21,7 +23,7 @@ interface AppProps {
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const STATUS_BAR_HEIGHT = 1;
-const INPUT_BAR_HEIGHT = 3;
+const MIN_INPUT_BAR_HEIGHT = 3;
 
 function useSpinner(active: boolean): string {
   const [frame, setFrame] = useState(0);
@@ -41,6 +43,9 @@ export function App({ harness, renderer }: AppProps) {
   const [hasStarted, setHasStarted] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo>(getGitInfo());
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showSkillsPane, setShowSkillsPane] = useState(false);
+  const [inputBarHeight, setInputBarHeight] = useState(MIN_INPUT_BAR_HEIGHT);
   const spinner = useSpinner(state.status === "running");
 
   useEffect(() => {
@@ -64,6 +69,8 @@ export function App({ harness, renderer }: AppProps) {
         setHasStarted(true);
       }
       harness.dispatch({ type: "submit.prompt", text });
+      // Reset input bar height when submitting
+      setInputBarHeight(MIN_INPUT_BAR_HEIGHT);
     },
     [harness, hasStarted]
   );
@@ -77,18 +84,34 @@ export function App({ harness, renderer }: AppProps) {
     }
   }, [harness, state.status, renderer]);
 
-  const handleCycleModel = useCallback(() => {
-    if (state.status === "running") return;
-    if (state.availableModels.length === 0) return;
+  const handleSelectModel = useCallback((modelId: string) => {
+    harness.dispatch({ type: "change.model", modelId });
+    setShowModelSelector(false);
+  }, [harness]);
 
-    const currentIndex = state.availableModels.findIndex(
-      (m) => m.id === state.currentModel
-    );
-    const nextIndex = (currentIndex + 1) % state.availableModels.length;
-    const nextModel = state.availableModels[nextIndex];
+  const handleCloseModelSelector = useCallback(() => {
+    setShowModelSelector(false);
+  }, []);
 
-    harness.dispatch({ type: "change.model", modelId: nextModel.id });
-  }, [harness, state.status, state.currentModel, state.availableModels]);
+  const handleSelectSkill = useCallback((skillName: string) => {
+    setShowSkillsPane(false);
+    // Invoke the skill by sending a prompt to use it
+    harness.dispatch({ 
+      type: "submit.prompt", 
+      text: `Use the ${skillName} skill` 
+    });
+    if (!hasStarted) {
+      setHasStarted(true);
+    }
+  }, [harness, hasStarted]);
+
+  const handleCloseSkillsPane = useCallback(() => {
+    setShowSkillsPane(false);
+  }, []);
+
+  const handleInputHeightChange = useCallback((height: number) => {
+    setInputBarHeight(height);
+  }, []);
 
   const handleAnswerQuestion = useCallback(
     (answer: string, wasFreeform: boolean) => {
@@ -105,8 +128,7 @@ export function App({ harness, renderer }: AppProps) {
   );
 
   useKeyboard((key) => {
-    // Don't handle global keys when question modal is open
-    if (state.pendingQuestion) return;
+    if (state.pendingQuestion || showModelSelector || showSkillsPane) return;
 
     if (key.name === "escape") {
       renderer.destroy();
@@ -115,8 +137,13 @@ export function App({ harness, renderer }: AppProps) {
     if (key.ctrl && key.name === "c") {
       handleCancel();
     }
-    if (key.name === "tab") {
-      handleCycleModel();
+    if (key.shift && key.name === "tab") {
+      if (state.status !== "running" && state.availableModels.length > 0) {
+        setShowModelSelector(true);
+      }
+    }
+    if (key.ctrl && key.name === "s") {
+      setShowSkillsPane(true);
     }
   });
 
@@ -140,15 +167,26 @@ export function App({ harness, renderer }: AppProps) {
               transcript={state.transcript}
               streamingContent={state.streamingContent}
               streamingReasoning={state.streamingReasoning}
-              height={contentHeight - INPUT_BAR_HEIGHT}
+              isStreaming={state.status === "running"}
+              height={contentHeight - inputBarHeight}
               theme={theme}
             />
-            <InputBar
-              onSubmit={handleSubmit}
-              disabled={state.status === "running"}
-              queuedCount={state.messageQueue.length}
-              theme={theme}
-            />
+            {state.pendingQuestion ? (
+              <QuestionModal
+                question={state.pendingQuestion}
+                onAnswer={handleAnswerQuestion}
+                theme={theme}
+              />
+            ) : (
+              <InputBar
+                onSubmit={handleSubmit}
+                disabled={state.status === "running"}
+                suppressKeys={showModelSelector || showSkillsPane}
+                queuedCount={state.messageQueue.length}
+                theme={theme}
+                onHeightChange={handleInputHeightChange}
+              />
+            )}
           </box>
           <box flexDirection="column" width="35%">
             <ContextPane 
@@ -181,6 +219,7 @@ export function App({ harness, renderer }: AppProps) {
           <StartScreen
             onSubmit={handleSubmit}
             disabled={state.status === "running"}
+            suppressKeys={showModelSelector || showSkillsPane}
             theme={theme}
             height={contentHeight}
           />
@@ -219,16 +258,31 @@ export function App({ harness, renderer }: AppProps) {
         </text>
         <text>
           <span fg={theme.colors.muted}>esc</span><span> quit  </span>
-          <span fg={theme.colors.muted}>tab</span><span> model  </span>
+          <span fg={theme.colors.muted}>S-Tab</span><span> model  </span>
+          <span fg={theme.colors.muted}>^S</span><span> skills  </span>
           <span fg={theme.colors.muted}>^C</span><span> cancel</span>
         </text>
       </box>
 
-      {/* Question Modal Overlay */}
-      {state.pendingQuestion && (
-        <QuestionModal
-          question={state.pendingQuestion}
-          onAnswer={handleAnswerQuestion}
+      {/* Model Selector Modal */}
+      {showModelSelector && (
+        <ModelSelector
+          models={state.availableModels}
+          currentModelId={state.currentModel}
+          onSelect={handleSelectModel}
+          onClose={handleCloseModelSelector}
+          theme={theme}
+          width={width}
+          height={height - 1}
+        />
+      )}
+
+      {/* Skills Pane Modal */}
+      {showSkillsPane && (
+        <SkillsPane
+          skills={state.skills}
+          onSelect={handleSelectSkill}
+          onClose={handleCloseSkillsPane}
           theme={theme}
           width={width}
           height={height - 1}

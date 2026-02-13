@@ -1,14 +1,25 @@
-import { SyntaxStyle } from "@opentui/core";
+import { createPatch } from "diff";
+import { getTreeSitterClient, extToFiletype } from "@opentui/core";
 import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
-import { SideBySideDiff } from "../components/SideBySideDiff.js";
+import { getSyntaxStyle } from "../syntaxTheme.js";
 
-const defaultSyntaxStyle = SyntaxStyle.create();
+// Singleton tree-sitter client for syntax highlighting
+const treeSitterClient = getTreeSitterClient();
+
+function getFiletypeFromPath(path?: string): string | undefined {
+  if (!path) return undefined;
+  const ext = path.split(".").pop()?.toLowerCase();
+  if (!ext) return undefined;
+  // Use OpenTUI's built-in extension to filetype mapping
+  return extToFiletype(ext);
+}
 
 interface ChatPaneProps {
   transcript: TranscriptItem[];
   streamingContent: string;
   streamingReasoning: string;
+  isStreaming: boolean;
   height: number;
   theme: Theme;
 }
@@ -81,7 +92,7 @@ function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: b
           )}
           <box paddingLeft={1}>
             {msg.role === "assistant" || msg.role === "tool" ? (
-              <markdown syntaxStyle={defaultSyntaxStyle} content={msg.content} />
+              <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={msg.content} />
             ) : (
               <text>{msg.content}</text>
             )}
@@ -203,12 +214,24 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
         </box>
       )}
       {showDiff && (
-        <SideBySideDiff
-          oldStr={editArgs.oldStr!}
-          newStr={editArgs.newStr!}
-          filePath={editArgs.path}
-          theme={theme}
-        />
+        <box marginTop={1}>
+          <diff
+            diff={createPatch(
+              editArgs.path ?? "file",
+              editArgs.oldStr!,
+              editArgs.newStr!,
+            )}
+            view="split"
+            filetype={getFiletypeFromPath(editArgs.path)}
+            syntaxStyle={getSyntaxStyle(theme.mode)}
+            treeSitterClient={treeSitterClient}
+            showLineNumbers={true}
+            addedBg={theme.colors.diffAddedBg}
+            removedBg={theme.colors.diffRemovedBg}
+            contextBg={theme.colors.diffContextBg}
+            lineNumberBg={theme.colors.diffLineNumberBg}
+          />
+        </box>
       )}
       {hasOutput && !showDiff && (() => {
         const { text, truncated } = truncateOutput(tool.output!);
@@ -222,7 +245,7 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
             border={["left"]}
             borderColor={theme.colors.borderDim}
           >
-            <markdown syntaxStyle={defaultSyntaxStyle} content={text} />
+            <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={text} />
             {truncated && (
               <text fg={theme.colors.muted}><i>… output truncated</i></text>
             )}
@@ -236,13 +259,16 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
   );
 }
 
-export function ChatPane({ transcript, streamingContent, streamingReasoning, height, theme }: ChatPaneProps) {
+export function ChatPane({ transcript, streamingContent, streamingReasoning, isStreaming, height, theme }: ChatPaneProps) {
+  // Only auto-scroll when actively receiving streaming content, not when user is typing
+  const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning);
+  
   return (
     <scrollbox
       height={height}
-      stickyScroll
+      stickyScroll={shouldStickyScroll}
       stickyStart="bottom"
-      viewportCulling={false}
+      viewportCulling
       contentOptions={{
         flexDirection: "column",
         paddingLeft: 2,
@@ -297,7 +323,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, hei
               </text>
             )}
             <box paddingLeft={1}>
-              <markdown syntaxStyle={defaultSyntaxStyle} content={streamingContent} streaming />
+              <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={streamingContent} streaming />
             </box>
           </box>
         );
