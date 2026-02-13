@@ -67,6 +67,16 @@ export interface PendingQuestion {
   allowFreeform: boolean;
 }
 
+export interface EphemeralRun {
+  runId: string;
+  displayText: string;
+  transcript: TranscriptItem[];
+  streamingContent: string;
+  status: "running" | "completed" | "failed";
+  startedAt: Date;
+  completedAt?: Date;
+}
+
 export interface HarnessState {
   status: HarnessStatus;
   transcript: TranscriptItem[];
@@ -87,6 +97,7 @@ export interface HarnessState {
   pendingQuestion: PendingQuestion | null;
   currentSessionId: string | null;
   availableSessions: SessionInfo[];
+  ephemeralRun: EphemeralRun | null;
   contextInfo: {
     currentTokens: number;
     tokenLimit: number;
@@ -122,6 +133,7 @@ export class Harness {
     pendingQuestion: null,
     currentSessionId: null,
     availableSessions: [],
+    ephemeralRun: null,
     contextInfo: {
       currentTokens: 0,
       tokenLimit: 0,
@@ -197,6 +209,18 @@ export class Harness {
   }
 
   private processEvent(event: HarnessEvent): void {
+    // Check if this event is for an ephemeral run
+    const isEphemeralEvent = 
+      this.state.ephemeralRun && 
+      'runId' in event && 
+      event.runId === this.state.ephemeralRun.runId;
+
+    if (isEphemeralEvent) {
+      // Route ephemeral events to separate state
+      this.processEphemeralEvent(event);
+      return;
+    }
+
     switch (event.type) {
       case "run.started":
         this.state = {
@@ -608,6 +632,82 @@ export class Harness {
     }
   }
 
+  private processEphemeralEvent(event: HarnessEvent): void {
+    if (!this.state.ephemeralRun) return;
+
+    switch (event.type) {
+      case "assistant.delta":
+        this.state = {
+          ...this.state,
+          ephemeralRun: {
+            ...this.state.ephemeralRun,
+            streamingContent: this.state.ephemeralRun.streamingContent + event.text,
+          },
+        };
+        break;
+
+      case "assistant.message": {
+        // Add message to ephemeral transcript (without reasoning in modal)
+        const message: ChatMessage = {
+          ...event.message,
+          kind: "message",
+        };
+        this.state = {
+          ...this.state,
+          ephemeralRun: {
+            ...this.state.ephemeralRun,
+            transcript: [...this.state.ephemeralRun.transcript, message],
+            streamingContent: "",
+          },
+        };
+        break;
+      }
+
+      case "run.finished": {
+        // Flush any remaining streaming content
+        let newTranscript = this.state.ephemeralRun.transcript;
+        if (this.state.ephemeralRun.streamingContent) {
+          const finalMessage = createAssistantMessage(this.state.ephemeralRun.streamingContent);
+          newTranscript = [...newTranscript, finalMessage];
+        }
+
+        this.state = {
+          ...this.state,
+          ephemeralRun: {
+            ...this.state.ephemeralRun,
+            transcript: newTranscript,
+            streamingContent: "",
+            status: "completed",
+            completedAt: new Date(),
+          },
+        };
+        break;
+      }
+
+      case "run.cancelled":
+        if (this.state.ephemeralRun) {
+          this.state = {
+            ...this.state,
+            ephemeralRun: {
+              ...this.state.ephemeralRun,
+              status: "failed",
+              completedAt: new Date(),
+            },
+          };
+        }
+        break;
+
+      // Ignore reasoning events for ephemeral runs (don't show thinking in modal)
+      case "reasoning.delta":
+      case "reasoning.message":
+        break;
+
+      default:
+        // Other events (tool calls, logs, etc.) are handled normally
+        break;
+    }
+  }
+
   async dispatch(action: UIAction): Promise<void> {
     switch (action.type) {
       case "submit.prompt":
@@ -636,6 +736,10 @@ export class Harness {
 
       case "session.refresh":
         await this.handleRefreshSessions();
+        break;
+
+      case "ephemeral.close":
+        this.handleCloseEphemeral();
         break;
     }
   }
@@ -977,11 +1081,18 @@ export class Harness {
     const runId = generateId();
     const displayText = options?.displayText ?? prompt;
 
-    // Add user message to transcript
+    // Create ephemeral run state (don't add to main transcript)
     const userMessage = createUserMessage(displayText);
     this.state = {
       ...this.state,
-      transcript: [...this.state.transcript, userMessage],
+      ephemeralRun: {
+        runId,
+        displayText,
+        transcript: [userMessage],
+        streamingContent: "",
+        status: "running",
+        startedAt: new Date(),
+      },
     };
 
     this.emit({
@@ -991,18 +1102,6 @@ export class Harness {
     });
 
     this.emit(createLogEvent("info", `Ephemeral run started: ${runId}`, runId));
-
-    // Update status to running
-    this.state = {
-      ...this.state,
-      status: "running",
-      currentRunId: runId,
-      streamingContent: "",
-      streamingReasoning: "",
-      currentIntent: null,
-      currentTodo: null,
-      currentPlan: null,
-    };
 
     try {
       await this.adapter.runEphemeralPrompt(prompt, runId, {
@@ -1020,7 +1119,25 @@ export class Harness {
         runId,
         createdAt: new Date(),
       });
+      
+      if (this.state.ephemeralRun) {
+        this.state = {
+          ...this.state,
+          ephemeralRun: {
+            ...this.state.ephemeralRun,
+            status: "failed",
+            completedAt: new Date(),
+          },
+        };
+      }
     }
+  }
+
+  private handleCloseEphemeral(): void {
+    this.state = {
+      ...this.state,
+      ephemeralRun: null,
+    };
   }
 
   async shutdown(): Promise<void> {
