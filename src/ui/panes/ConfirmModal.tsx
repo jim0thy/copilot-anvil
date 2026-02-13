@@ -25,6 +25,7 @@ export const ConfirmModal = memo(function ConfirmModal({
   width,
   height,
 }: ConfirmModalProps) {
+  const c = theme.colors;
   const [selectedIndex, setSelectedIndex] = useState(0);
   const options = [confirmLabel, cancelLabel];
 
@@ -70,15 +71,15 @@ export const ConfirmModal = memo(function ConfirmModal({
       width={modalWidth}
       height={modalHeight}
       borderStyle="double"
-      borderColor={theme.colors.warning}
-      backgroundColor={theme.colors.statusBarBg}
+      borderColor={c.warning}
+      backgroundColor={c.mantle}
       flexDirection="column"
       padding={1}
     >
       {/* Header */}
       <box marginBottom={1}>
         <text>
-          <span fg={theme.colors.warning}><b>⚠️  {title}</b></span>
+          <span fg={c.warning}><b>⚠️  {title}</b></span>
         </text>
       </box>
 
@@ -86,7 +87,7 @@ export const ConfirmModal = memo(function ConfirmModal({
       <box flexDirection="column" marginBottom={1}>
         {lines.map((line, index) => (
           <text key={index}>
-            <span fg={theme.colors.info}>{line}</span>
+            <span fg={c.text}>{line}</span>
           </text>
         ))}
       </box>
@@ -100,8 +101,8 @@ export const ConfirmModal = memo(function ConfirmModal({
             <box key={option} marginRight={2}>
               <text>
                 <span
-                  fg={isSelected ? (isConfirm ? theme.colors.warning : theme.colors.muted) : theme.colors.muted}
-                  bg={isSelected ? theme.colors.primary : undefined}
+                  fg={isSelected ? (isConfirm ? c.warning : c.subtext0) : c.subtext0}
+                  bg={isSelected ? c.surface1 : undefined}
                 >
                   {isSelected ? ` ${option} ` : ` ${option} `}
                 </span>
@@ -114,7 +115,7 @@ export const ConfirmModal = memo(function ConfirmModal({
       {/* Footer with hints */}
       <box marginTop={1}>
         <text>
-          <span fg={theme.colors.muted}>
+          <span fg={c.subtle}>
             ←→ navigate • Enter select • Y/N quick • Esc cancel
           </span>
         </text>

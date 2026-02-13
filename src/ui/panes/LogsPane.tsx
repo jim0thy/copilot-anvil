@@ -9,15 +9,16 @@ interface LogsPaneProps {
 }
 
 function getLevelColor(level: LogEvent["level"], theme: Theme): string {
+  const c = theme.colors;
   switch (level) {
     case "error":
-      return theme.colors.error;
+      return c.error;
     case "warn":
-      return theme.colors.warning;
+      return c.warning;
     case "info":
-      return theme.colors.info;
+      return c.info;
     case "debug":
-      return theme.colors.muted;
+      return c.subtle;
   }
 }
 
@@ -44,6 +45,7 @@ function formatTime(date: Date): string {
 }
 
 export const LogsPane = memo(function LogsPane({ logs, height, theme }: LogsPaneProps) {
+  const c = theme.colors;
   const visibleLogs = useMemo(() => {
     const availableLines = height - 4;
     return logs.slice(-Math.max(1, availableLines));
@@ -55,25 +57,25 @@ export const LogsPane = memo(function LogsPane({ logs, height, theme }: LogsPane
       width="100%"
       height={height}
       borderStyle="rounded"
-      borderColor={theme.colors.border}
+      borderColor={c.border}
       paddingLeft={1}
       paddingRight={1}
       overflow="hidden"
     >
-      <text fg={theme.colors.primary}>
+      <text fg={c.primary}>
         <b>Logs</b>
       </text>
 
       {visibleLogs.length === 0 && (
-        <text fg={theme.colors.muted}>No logs yet</text>
+        <text fg={c.subtle}>No logs yet</text>
       )}
 
       {visibleLogs.map((log, index) => (
         <box key={`${log.createdAt.getTime()}-${index}`} flexDirection="row">
           <text>
-            <span fg={theme.colors.muted}>{formatTime(log.createdAt)} </span>
+            <span fg={c.subtext0}>{formatTime(log.createdAt)} </span>
             <b><span fg={getLevelColor(log.level, theme)}>[{getLevelLabel(log.level)}] </span></b>
-            <span>{log.message}</span>
+            <span fg={c.text}>{log.message}</span>
           </text>
         </box>
       ))}

@@ -147,7 +147,10 @@ export function App({ harness, renderer }: AppProps) {
       setHasStarted(true);
     }
     const prompt = `Categorize the current uncommitted changes in this repository, create a distinct commit for each logical category with a descriptive commit message, and push all commits to the remote. Show me what you're doing at each step.`;
-    harness.dispatch({ type: "submit.prompt", text: prompt });
+    harness.runEphemeralPrompt(prompt, {
+      model: "gemini-3-flash",
+      displayText: "[Smart Commit & Push]",
+    });
   }, [harness, hasStarted]);
 
   const handleSmartCommitCancel = useCallback(() => {
@@ -193,8 +196,9 @@ export function App({ harness, renderer }: AppProps) {
   });
 
   const theme = getTheme();
+  const c = theme.colors; // Shorthand for cleaner code
 
-  const statusColor = state.status === "running" ? theme.colors.warning : theme.colors.success;
+  const statusColor = state.status === "running" ? c.warning : c.success;
   const statusText = state.status === "running" ? "Processing" : "Ready";
 
   const modelDisplay = state.currentModel
@@ -264,7 +268,7 @@ export function App({ harness, renderer }: AppProps) {
         height={STATUS_BAR_HEIGHT}
         paddingLeft={1}
         paddingRight={1}
-        backgroundColor={theme.colors.statusBarBg}
+        backgroundColor={c.mantle}
         flexDirection="row"
         justifyContent="space-between"
       >
@@ -274,31 +278,31 @@ export function App({ harness, renderer }: AppProps) {
           )}
           <span fg={statusColor}>{statusText}</span>
           <span>  </span>
-          <span fg={theme.colors.info}>{modelDisplay}</span>
+          <span fg={c.link}>{modelDisplay}</span>
           {gitInfo.branch && (
             <>
               <span>  </span>
-              <span fg={theme.colors.info}> {gitInfo.branch}</span>
-              {gitInfo.staged > 0 && <span fg={theme.colors.success}> ● {gitInfo.staged}</span>}
-              {gitInfo.unstaged > 0 && <span fg={theme.colors.warning}> ✚ {gitInfo.unstaged}</span>}
-              {gitInfo.untracked > 0 && <span fg={theme.colors.muted}> ? {gitInfo.untracked}</span>}
-              {gitInfo.ahead > 0 && <span fg={theme.colors.success}> ⇡{gitInfo.ahead}</span>}
-              {gitInfo.behind > 0 && <span fg={theme.colors.warning}> ⇣{gitInfo.behind}</span>}
+              <span fg={c.link}> {gitInfo.branch}</span>
+              {gitInfo.staged > 0 && <span fg={c.success}> ● {gitInfo.staged}</span>}
+              {gitInfo.unstaged > 0 && <span fg={c.warning}> ✚ {gitInfo.unstaged}</span>}
+              {gitInfo.untracked > 0 && <span fg={c.subtle}> ? {gitInfo.untracked}</span>}
+              {gitInfo.ahead > 0 && <span fg={c.success}> ⇡{gitInfo.ahead}</span>}
+              {gitInfo.behind > 0 && <span fg={c.warning}> ⇣{gitInfo.behind}</span>}
               {!gitInfo.hasChanges && gitInfo.ahead === 0 && gitInfo.behind === 0 && (
-                <span fg={theme.colors.success}> ✓</span>
+                <span fg={c.success}> ✓</span>
               )}
             </>
           )}
         </text>
         <text>
-          <span fg={theme.colors.muted}>esc</span><span> quit  </span>
-          <span fg={theme.colors.muted}>^N</span><span> new  </span>
-          <span fg={theme.colors.muted}>^O</span><span> sessions  </span>
-          <span fg={theme.colors.muted}>S-Tab</span><span> model  </span>
+          <span fg={c.subtext0}>esc</span><span fg={c.text}> quit  </span>
+          <span fg={c.subtext0}>^N</span><span fg={c.text}> new  </span>
+          <span fg={c.subtext0}>^O</span><span fg={c.text}> sessions  </span>
+          <span fg={c.subtext0}>S-Tab</span><span fg={c.text}> model  </span>
           {gitInfo.hasChanges && (
-            <><span fg={theme.colors.muted}>^G</span><span> commit  </span></>
+            <><span fg={c.subtext0}>^G</span><span fg={c.text}> commit  </span></>
           )}
-          <span fg={theme.colors.muted}>^C</span><span> cancel</span>
+          <span fg={c.subtext0}>^C</span><span fg={c.text}> cancel</span>
         </text>
       </box>
 

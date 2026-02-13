@@ -19,6 +19,7 @@ interface InputBarProps {
 
 // Custom keyboard-driven input (OpenTUI's <input> doesn't work in child components)
 export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange }: InputBarProps) {
+  const c = theme.colors;
   const [value, setValue] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   // Key changes when input is cleared to force height recalculation
@@ -162,7 +163,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const placeholder = queuedCount > 0
     ? `Ask anything... (${queuedCount} queued)`
     : "Ask anything...";
-  const promptColor = disabled ? theme.colors.muted : theme.colors.success;
+  const promptColor = disabled ? c.subtle : c.success;
   const showPlaceholder = !value && !pastedContent;
 
   // Calculate height based on wrapped text
@@ -184,7 +185,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   }, [calculatedHeight, onHeightChange]);
 
   return (
-    <box key={resetKey} width="100%" height={calculatedHeight} flexShrink={0} borderStyle="single" borderColor={theme.colors.border}>
+    <box key={resetKey} width="100%" height={calculatedHeight} flexShrink={0} borderStyle="single" borderColor={c.border}>
       <box paddingLeft={1} paddingRight={1} flexDirection="column">
         {pastedContent && (
           <text>
@@ -199,12 +200,12 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
         <text wrapMode="word">
           <span fg={promptColor}><b>{"› "}</b></span>
           {showPlaceholder ? (
-            <span fg={theme.colors.muted}>{placeholder}</span>
+            <span fg={c.subtle}>{placeholder}</span>
           ) : (
             <>
-              <span>{value.slice(0, cursorPos)}</span>
-              <span fg="#000" bg={theme.colors.primary}>{cursorPos < value.length ? value[cursorPos] : " "}</span>
-              <span>{value.slice(cursorPos + 1)}</span>
+              <span fg={c.text}>{value.slice(0, cursorPos)}</span>
+              <span fg={c.cursorText} bg={c.cursor}>{cursorPos < value.length ? value[cursorPos] : " "}</span>
+              <span fg={c.text}>{value.slice(cursorPos + 1)}</span>
             </>
           )}
         </text>

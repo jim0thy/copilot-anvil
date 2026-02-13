@@ -35,15 +35,16 @@ function getStatusLabel(status: FileChange["status"]): string {
 }
 
 function getStatusColor(status: FileChange["status"], theme: Theme): string {
+  const c = theme.colors;
   switch (status) {
     case "modified":
-      return theme.colors.warning;
+      return c.warning;
     case "added":
-      return theme.colors.success;
+      return c.success;
     case "deleted":
-      return theme.colors.error;
+      return c.error;
     case "renamed":
-      return theme.colors.info;
+      return c.info;
   }
 }
 
@@ -72,11 +73,21 @@ function truncatePath(path: string, maxLength: number): string {
   return "…" + dir.slice(-(maxDirLength)) + "/" + filename;
 }
 
+function formatStats(additions: number, deletions: number): { add: string; del: string } {
+  const add = additions > 0 ? `+${additions}` : "";
+  const del = deletions > 0 ? `-${deletions}` : "";
+  return { add, del };
+}
+
+// Fixed-width stat column (e.g., "+999 -999" = 10 chars max)
+const STAT_COL_WIDTH = 12;
+
 export const FilesModifiedPane = memo(function FilesModifiedPane({ 
   files, 
   height, 
   theme 
 }: FilesModifiedPaneProps) {
+  const c = theme.colors;
   const maxFilePathLength = 30;
   const displayFiles = files.slice(0, Math.max(1, height - 4));
   
@@ -97,107 +108,79 @@ export const FilesModifiedPane = memo(function FilesModifiedPane({
       width="100%"
       height={height}
       borderStyle="rounded"
-      borderColor={theme.colors.border}
+      borderColor={c.border}
       paddingLeft={1}
       paddingRight={1}
       overflow="hidden"
     >
       {/* Header */}
       <box flexDirection="row" width="100%">
-        <text fg={theme.colors.primary}>
+        <text fg={c.primary}>
           <b>Files Modified</b>
         </text>
         {files.length > 0 && (
-          <text fg={theme.colors.muted}> {files.length} file{files.length !== 1 ? "s" : ""}</text>
+          <text fg={c.subtext0}> ({files.length})</text>
         )}
       </box>
 
       {/* Empty state */}
       {files.length === 0 && (
         <box marginTop={1}>
-          <text fg={theme.colors.muted}>  No changes yet</text>
+          <text fg={c.subtle}>  No changes yet</text>
         </box>
       )}
 
       {/* File list */}
-      <box flexDirection="column" gap={0} marginTop={files.length > 0 ? 1 : 0}>
-        {displayFiles.map((file, idx) => (
-          <box key={idx} flexDirection="row" width="100%">
-            <text>
-              <span fg={getStatusColor(file.status, theme)}>
-                <b>{getStatusLabel(file.status)}</b>
-              </span>
-              <span fg={theme.colors.muted}> │ </span>
-              <span>{truncatePath(file.path, maxFilePathLength)}</span>
+      <box flexDirection="column" marginTop={0} gap={0}>
+        {displayFiles.map((file, idx) => {
+          const { add, del } = formatStats(file.additions, file.deletions);
+          return (
+            <box key={idx} flexDirection="row" width="100%" height={1} justifyContent="space-between">
+              {/* Left: status + filename */}
+              <box flexDirection="row" flexShrink={1} overflow="hidden" height={1}>
+                <text>
+                  <span fg={getStatusColor(file.status, theme)}>
+                    <b>{getStatusLabel(file.status)}</b>
+                  </span>
+                  <span fg={c.subtle}> │ </span>
+                  <span fg={c.text}>{truncatePath(file.path, maxFilePathLength)}</span>
+                </text>
+              </box>
+              {/* Right: stats (fixed width, right-aligned) */}
               {(file.additions > 0 || file.deletions > 0) && (
-                <>
-                  <span fg={theme.colors.muted}> </span>
-                  {file.additions > 0 && (
-                    <span fg={theme.colors.success}>+{file.additions}</span>
-                  )}
-                  {file.additions > 0 && file.deletions > 0 && (
-                    <span fg={theme.colors.muted}>/</span>
-                  )}
-                  {file.deletions > 0 && (
-                    <span fg={theme.colors.error}>-{file.deletions}</span>
-                  )}
-                </>
+                <box width={STAT_COL_WIDTH} height={1} justifyContent="flex-end" flexShrink={0}>
+                  <text>
+                    {add && <span fg={c.success}>{add}</span>}
+                    {add && del && <span fg={c.subtle}> </span>}
+                    {del && <span fg={c.error}>{del}</span>}
+                  </text>
+                </box>
               )}
-            </text>
-          </box>
-        ))}
+            </box>
+          );
+        })}
       </box>
 
       {/* Overflow indicator */}
       {files.length > displayFiles.length && (
-        <text fg={theme.colors.muted}>
+        <text fg={c.subtle}>
           ⋯ {files.length - displayFiles.length} more
         </text>
       )}
 
       {/* Summary footer */}
       {files.length > 0 && (
-        <box marginTop={1} paddingTop={1}>
-          <text>
-            <span fg={theme.colors.borderDim}>───</span>
-          </text>
-          <text fg={theme.colors.muted}>
-            {stats.added > 0 && (
-              <span>
-                <span fg={theme.colors.success}>+{stats.added}</span>
-                {" "}
-              </span>
-            )}
-            {stats.modified > 0 && (
-              <span>
-                <span fg={theme.colors.warning}>~{stats.modified}</span>
-                {" "}
-              </span>
-            )}
-            {stats.deleted > 0 && (
-              <span>
-                <span fg={theme.colors.error}>-{stats.deleted}</span>
-                {" "}
-              </span>
-            )}
-            {stats.renamed > 0 && (
-              <span>
-                <span fg={theme.colors.info}>→{stats.renamed}</span>
-                {" "}
-              </span>
-            )}
-            <span fg={theme.colors.borderDim}>│</span>
-            {" "}
-            {totalAdditions > 0 && (
-              <span fg={theme.colors.success}>+{totalAdditions}</span>
-            )}
-            {totalAdditions > 0 && totalDeletions > 0 && (
-              <span fg={theme.colors.muted}>/</span>
-            )}
-            {totalDeletions > 0 && (
-              <span fg={theme.colors.error}>-{totalDeletions}</span>
-            )}
-          </text>
+        <box marginTop={0} flexDirection="row" width="100%" height={1} justifyContent="space-between">
+          {/* Left: "Total:" label */}
+          <text fg={c.subtext0}>Total:</text>
+          {/* Right: stats (fixed width, right-aligned) */}
+          <box width={STAT_COL_WIDTH} justifyContent="flex-end" flexShrink={0}>
+            <text>
+              {totalAdditions > 0 && <span fg={c.success}>+{totalAdditions}</span>}
+              {totalAdditions > 0 && totalDeletions > 0 && <span fg={c.subtle}> </span>}
+              {totalDeletions > 0 && <span fg={c.error}>-{totalDeletions}</span>}
+            </text>
+          </box>
         </box>
       )}
     </box>

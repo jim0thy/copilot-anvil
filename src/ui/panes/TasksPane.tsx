@@ -28,13 +28,14 @@ function getStatusIcon(status: Task["status"]): string {
 }
 
 function getStatusColor(status: Task["status"], theme: Theme): string {
+  const c = theme.colors;
   switch (status) {
     case "running":
-      return theme.colors.warning;
+      return c.warning;
     case "completed":
-      return theme.colors.success;
+      return c.success;
     case "failed":
-      return theme.colors.error;
+      return c.error;
   }
 }
 
@@ -57,6 +58,7 @@ function formatDuration(start: Date, end: Date): string {
 }
 
 export const TasksPane = memo(function TasksPane({ tasks, height, theme }: TasksPaneProps) {
+  const c = theme.colors;
   const { activeTasks, recentTasks } = useMemo(() => {
     const active = tasks.filter(t => t.status === "running");
     const completed = tasks
@@ -79,23 +81,23 @@ export const TasksPane = memo(function TasksPane({ tasks, height, theme }: Tasks
       width="100%"
       height={height}
       borderStyle="rounded"
-      borderColor={theme.colors.border}
+      borderColor={c.border}
       paddingLeft={1}
       paddingRight={1}
       overflow="hidden"
     >
-      <text fg={theme.colors.primary}>
+      <text fg={c.primary}>
         <b>Tasks</b>
       </text>
 
       {activeTasks.length === 0 && recentTasks.length === 0 && (
-        <text fg={theme.colors.muted}>No tasks yet</text>
+        <text fg={c.subtle}>No tasks yet</text>
       )}
 
       {activeTasks.length > 0 && (
         <>
           <box>
-             <text fg={theme.colors.info}><b>Active:</b></text>
+             <text fg={c.subtext1}><b>Active:</b></text>
           </box>
           {activeTasks.map((task) => (
             <box key={task.id} flexDirection="column" marginLeft={1}>
@@ -103,10 +105,10 @@ export const TasksPane = memo(function TasksPane({ tasks, height, theme }: Tasks
                 <text fg={getStatusColor(task.status, theme)}>
                   {getStatusIcon(task.status)}{" "}
                 </text>
-                <text><b>{task.name}</b></text>
+                <text fg={c.text}><b>{task.name}</b></text>
               </box>
               <box marginLeft={2}>
-                 <text fg={theme.colors.muted}>
+                 <text fg={c.subtext0}>
                    Started {formatTime(task.startedAt)}
                  </text>
               </box>
@@ -118,16 +120,16 @@ export const TasksPane = memo(function TasksPane({ tasks, height, theme }: Tasks
       {recentTasks.length > 0 && (
         <>
           <box>
-            <text fg={theme.colors.muted}><b>Recent:</b></text>
+            <text fg={c.subtext0}><b>Recent:</b></text>
           </box>
           {recentTasks.map((task) => (
             <box key={task.id} flexDirection="row" marginLeft={1}>
               <text fg={getStatusColor(task.status, theme)}>
                 {getStatusIcon(task.status)}{" "}
               </text>
-              <text>{task.name}</text>
+              <text fg={c.text}>{task.name}</text>
               {task.completedAt && (
-                <text fg={theme.colors.muted}>
+                <text fg={c.subtle}>
                   {" "}({formatDuration(task.startedAt, task.completedAt)})
                 </text>
               )}

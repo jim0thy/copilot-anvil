@@ -64,6 +64,7 @@ export const SessionSwitcher = memo(function SessionSwitcher({
   width,
   height,
 }: SessionSwitcherProps) {
+  const c = theme.colors;
   // Sort by most recent and limit to last 10 sessions
   const recentSessions = sessions
     .sort((a, b) => {
@@ -203,17 +204,17 @@ export const SessionSwitcher = memo(function SessionSwitcher({
       width={modalWidth}
       height={modalHeight}
       borderStyle="double"
-      borderColor={theme.colors.primary}
-      backgroundColor={theme.colors.statusBarBg}
+      borderColor={c.primary}
+      backgroundColor={c.mantle}
       flexDirection="column"
       padding={1}
     >
       {/* Header */}
       <box marginBottom={1}>
         <text>
-          <span fg={theme.colors.primary}><b>📁 Sessions</b></span>
+          <span fg={c.primary}><b>📁 Sessions</b></span>
           {recentSessions.length > 0 && (
-            <span fg={theme.colors.muted}> ({recentSessions.length} recent)</span>
+            <span fg={c.subtext0}> ({recentSessions.length} recent)</span>
           )}
         </text>
       </box>
@@ -229,7 +230,7 @@ export const SessionSwitcher = memo(function SessionSwitcher({
             return (
               <box key={item.id}>
                 <text>
-                  <span fg={theme.colors.muted}>
+                  <span fg={c.subtext0}>
                     {formatSessionName(item)}
                   </span>
                 </text>
@@ -240,14 +241,14 @@ export const SessionSwitcher = memo(function SessionSwitcher({
           return (
             <box key={item.id}>
               <text>
-                <span fg={isSelected ? theme.colors.primary : theme.colors.muted}>
+                <span fg={isSelected ? c.primary : c.subtle}>
                   {isSelected ? "› " : "  "}
                 </span>
-                <span fg={isSelected ? (item.type === "new" ? theme.colors.success : theme.colors.info) : theme.colors.muted}>
+                <span fg={isSelected ? (item.type === "new" ? c.success : c.info) : c.subtext0}>
                   {formatSessionName(item)}
                 </span>
                 {isCurrent && (
-                  <span fg={theme.colors.success}> ✓ current</span>
+                  <span fg={c.success}> ✓ current</span>
                 )}
               </text>
             </box>
@@ -256,7 +257,7 @@ export const SessionSwitcher = memo(function SessionSwitcher({
         {items.length > maxItems && (
           <box>
             <text>
-              <span fg={theme.colors.muted}>
+              <span fg={c.subtle}>
                 ... and {items.length - maxItems} more
               </span>
             </text>
@@ -267,7 +268,7 @@ export const SessionSwitcher = memo(function SessionSwitcher({
       {/* Footer with hints */}
       <box marginTop={1}>
         <text>
-          <span fg={theme.colors.muted}>
+          <span fg={c.subtle}>
             ↑↓ navigate • Enter select • Esc cancel
           </span>
         </text>

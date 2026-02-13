@@ -35,6 +35,7 @@ export const PlanPane = memo(function PlanPane({
   height,
   theme,
 }: PlanPaneProps) {
+  const c = theme.colors;
   const todoItems = useMemo(() => {
     if (!currentTodo) return [];
     return parseMarkdownChecklist(currentTodo);
@@ -50,27 +51,27 @@ export const PlanPane = memo(function PlanPane({
       width="100%"
       height={height}
       borderStyle="rounded"
-      borderColor={theme.colors.border}
+      borderColor={c.border}
       paddingLeft={1}
       paddingRight={1}
       overflow="hidden"
     >
-      <text fg={theme.colors.primary}>
+      <text fg={c.primary}>
         <b>Plan & Progress</b>
       </text>
 
       {!hasIntent && !hasTodo && !hasPlan && (
-        <text fg={theme.colors.muted}>No active plan or todos</text>
+        <text fg={c.subtle}>No active plan or todos</text>
       )}
 
       {/* Current Intent */}
       {hasIntent && (
         <box marginTop={1} flexDirection="column">
-          <text fg={theme.colors.info}>
+          <text fg={c.subtext1}>
             <b>Current Intent:</b>
           </text>
           <box marginLeft={1}>
-            <text fg={theme.colors.accent}>→ {currentIntent}</text>
+            <text fg={c.accent}>→ {currentIntent}</text>
           </box>
         </box>
       )}
@@ -78,18 +79,18 @@ export const PlanPane = memo(function PlanPane({
       {/* TODO Checklist */}
       {hasTodo && (
         <box marginTop={1} flexDirection="column">
-          <text fg={theme.colors.secondary}>
+          <text fg={c.secondary}>
             <b>Tasks:</b>
           </text>
           {todoItems.map((item, idx) => (
             <box key={idx} flexDirection="row" marginLeft={1}>
               <box width={2} flexShrink={0}>
-                <text fg={item.checked ? theme.colors.success : theme.colors.muted}>
+                <text fg={item.checked ? c.success : c.subtle}>
                   {item.checked ? "✓ " : "☐ "}
                 </text>
               </box>
               <box flexShrink={1}>
-                <text fg={item.checked ? theme.colors.muted : theme.colors.primary}>
+                <text fg={item.checked ? c.subtle : c.text}>
                   {item.text}
                 </text>
               </box>
@@ -101,17 +102,17 @@ export const PlanPane = memo(function PlanPane({
       {/* Plan Content */}
       {hasPlan && (
         <box marginTop={1} flexDirection="column">
-          <text fg={theme.colors.muted}>
+          <text fg={c.subtext0}>
             <b>Plan:</b>
           </text>
           <box marginLeft={1} flexDirection="column">
             {currentPlan.split("\n").slice(0, 10).map((line, idx) => (
-              <text key={idx} fg={theme.colors.muted}>
+              <text key={idx} fg={c.subtle}>
                 {line}
               </text>
             ))}
             {currentPlan.split("\n").length > 10 && (
-              <text fg={theme.colors.muted}>...</text>
+              <text fg={c.subtle}>...</text>
             )}
           </box>
         </box>

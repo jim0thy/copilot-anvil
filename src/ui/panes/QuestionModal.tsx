@@ -14,6 +14,7 @@ export const QuestionModal = memo(function QuestionModal({
   onAnswer,
   theme,
 }: QuestionModalProps) {
+  const c = theme.colors;
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [freeformValue, setFreeformValue] = useState("");
   const [inputMode, setInputMode] = useState<"choices" | "freeform">(
@@ -81,25 +82,25 @@ export const QuestionModal = memo(function QuestionModal({
         <box
           flexDirection="column"
           borderStyle="single"
-          borderColor={theme.colors.primary}
-          backgroundColor={theme.colors.statusBarBg}
+          borderColor={c.borderActive}
+          backgroundColor={c.mantle}
           paddingLeft={1}
           paddingRight={1}
           paddingTop={1}
           paddingBottom={1}
         >
           <text>
-            <span fg={theme.colors.primary}><b>❓ </b></span>
-            <span fg={theme.colors.info}>{question.question}</span>
+            <span fg={c.primary}><b>❓ </b></span>
+            <span fg={c.info}>{question.question}</span>
           </text>
           <box flexDirection="column" marginTop={1}>
             {choices.map((choice, index) => (
               <box key={index}>
                 <text>
-                  <span fg={selectedIndex === index ? theme.colors.primary : theme.colors.muted}>
+                  <span fg={selectedIndex === index ? c.primary : c.subtle}>
                     {selectedIndex === index ? "› " : "  "}
                   </span>
-                  <span fg={selectedIndex === index ? theme.colors.info : theme.colors.muted}>
+                  <span fg={selectedIndex === index ? c.text : c.subtext0}>
                     {choice}
                   </span>
                 </text>
@@ -108,10 +109,10 @@ export const QuestionModal = memo(function QuestionModal({
             {canUseFreeform && (
               <box>
                 <text>
-                  <span fg={selectedIndex === choices.length ? theme.colors.primary : theme.colors.muted}>
+                  <span fg={selectedIndex === choices.length ? c.primary : c.subtle}>
                     {selectedIndex === choices.length ? "› " : "  "}
                   </span>
-                  <span fg={selectedIndex === choices.length ? theme.colors.info : theme.colors.muted}>
+                  <span fg={selectedIndex === choices.length ? c.text : c.subtext0}>
                     <i>Type custom answer...</i>
                   </span>
                 </text>
@@ -120,7 +121,7 @@ export const QuestionModal = memo(function QuestionModal({
           </box>
           <box marginTop={1}>
             <text>
-              <span fg={theme.colors.muted}>↑↓ navigate • Enter select</span>
+              <span fg={c.subtle}>↑↓ navigate • Enter select</span>
             </text>
           </box>
         </box>
@@ -130,28 +131,28 @@ export const QuestionModal = memo(function QuestionModal({
       <box 
         height={3} 
         borderStyle="single" 
-        borderColor={inputMode === "freeform" ? theme.colors.primary : theme.colors.border}
+        borderColor={inputMode === "freeform" ? c.borderActive : c.border}
       >
         <box paddingLeft={1} paddingRight={1}>
           <text>
             {inputMode === "freeform" ? (
               <>
-                <span fg={theme.colors.primary}><b>{"❓ "}</b></span>
-                <span fg={theme.colors.info}>{question.question}</span>
+                <span fg={c.primary}><b>{"❓ "}</b></span>
+                <span fg={c.info}>{question.question}</span>
                 <span> </span>
                 {freeformValue ? (
                   <>
-                    <span>{freeformValue}</span>
-                    <span fg="#000" bg={theme.colors.primary}>{" "}</span>
+                    <span fg={c.text}>{freeformValue}</span>
+                    <span fg={c.cursorText} bg={c.cursor}>{" "}</span>
                   </>
                 ) : (
-                  <span fg={theme.colors.muted}>Type answer...</span>
+                  <span fg={c.subtle}>Type answer...</span>
                 )}
               </>
             ) : (
               <>
-                <span fg={theme.colors.primary}><b>{"› "}</b></span>
-                <span fg={theme.colors.muted}>Use ↑↓ to select answer</span>
+                <span fg={c.primary}><b>{"› "}</b></span>
+                <span fg={c.subtle}>Use ↑↓ to select answer</span>
               </>
             )}
           </text>

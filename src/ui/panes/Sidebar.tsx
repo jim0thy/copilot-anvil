@@ -19,6 +19,7 @@ interface SidebarProps {
 
 // --- Context Section (always visible) ---
 function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: ContextInfo; theme: Theme; innerWidth: number }) {
+  const c = theme.colors;
   const { currentTokens, tokenLimit, consumedRequests, remainingPremiumRequests } = contextInfo;
   
   const contextPercent = tokenLimit > 0 
@@ -26,10 +27,10 @@ function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: Conte
     : 0;
   
   const percentColor = contextPercent > 80 
-    ? theme.colors.error 
+    ? c.error 
     : contextPercent > 60 
-    ? theme.colors.warning 
-    : theme.colors.success;
+    ? c.warning 
+    : c.success;
 
   // Dynamic bar width: use available inner width, capped reasonably
   const barWidth = Math.max(10, Math.min(innerWidth, 60));
@@ -39,18 +40,18 @@ function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: Conte
   return (
     <box flexDirection="column">
       <box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <text fg={theme.colors.primary}>
+        <text fg={c.primary}>
           <b>Context</b>
         </text>
         <box flexDirection="row" gap={2}>
           <text>
-            <span fg={theme.colors.muted}>Req: </span>
-            <span fg={theme.colors.info}><b>{consumedRequests}</b></span>
+            <span fg={c.subtext0}>Req: </span>
+            <span fg={c.info}><b>{consumedRequests}</b></span>
           </text>
-          <text fg={theme.colors.muted}>│</text>
+          <text fg={c.subtle}>│</text>
           <text>
-            <span fg={theme.colors.muted}>Rem: </span>
-            <span fg={theme.colors.accent}>
+            <span fg={c.subtext0}>Rem: </span>
+            <span fg={c.accent}>
               <b>{remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}</b>
             </span>
           </text>
@@ -60,10 +61,10 @@ function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: Conte
       <box flexDirection="column" marginTop={1}>
         <box flexDirection="row" justifyContent="space-between" alignItems="center">
           <text>
-            <span fg={theme.colors.info}><b>{currentTokens.toLocaleString()}</b></span>
-            <span fg={theme.colors.muted}> / </span>
-            <span fg={theme.colors.muted}>{tokenLimit.toLocaleString()}</span>
-            <span fg={theme.colors.muted}> tokens</span>
+            <span fg={c.info}><b>{currentTokens.toLocaleString()}</b></span>
+            <span fg={c.subtle}> / </span>
+            <span fg={c.subtext0}>{tokenLimit.toLocaleString()}</span>
+            <span fg={c.subtext0}> tokens</span>
           </text>
           <text fg={percentColor}><b>{contextPercent}%</b></text>
         </box>
@@ -77,17 +78,19 @@ function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: Conte
 
 // --- Section Divider ---
 function SectionDivider({ theme, innerWidth }: { theme: Theme; innerWidth: number }) {
+  const c = theme.colors;
   // Dynamic divider width based on available space
   const dividerWidth = Math.max(1, innerWidth);
   return (
     <box marginTop={1} marginBottom={1} width="100%">
-      <text fg={theme.colors.border}>{"─".repeat(dividerWidth)}</text>
+      <text fg={c.border}>{"─".repeat(dividerWidth)}</text>
     </box>
   );
 }
 
 // --- Files Modified Section ---
 function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
+  const c = theme.colors;
   const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
   const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);
 
@@ -102,50 +105,54 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
 
   const getStatusColor = (status: FileChange["status"]): string => {
     switch (status) {
-      case "modified": return theme.colors.warning;
-      case "added": return theme.colors.success;
-      case "deleted": return theme.colors.error;
-      case "renamed": return theme.colors.info;
+      case "modified": return c.warning;
+      case "added": return c.success;
+      case "deleted": return c.error;
+      case "renamed": return c.info;
     }
   };
 
   return (
-    <box flexDirection="column">
-      <text fg={theme.colors.primary}>
-        <b>Files Modified</b>
-        <span fg={theme.colors.muted}> ({files.length})</span>
-      </text>
+    <box flexDirection="column" gap={0}>
+      <box height={1}>
+        <text fg={c.primary}>
+          <b>Files Modified</b>
+          <span fg={c.subtext0}> ({files.length})</span>
+        </text>
+      </box>
 
       {files.map((file, idx) => (
-        <box key={idx} flexDirection="row" justifyContent="space-between">
-          <box flexDirection="row" flexShrink={1} width="100%">
+        <box key={idx} flexDirection="row" justifyContent="space-between" height={1}>
+          <box flexDirection="row" flexShrink={1} width="100%" height={1}>
             <text fg={getStatusColor(file.status)}>
               {getStatusIcon(file.status)}{" "}
             </text>
-            <text>{file.path}</text>
+            <text fg={c.text}>{file.path}</text>
           </box>
-          <text fg={theme.colors.muted}>
+          <text fg={c.subtext0}>
             {file.additions > 0 && (
-              <span fg={theme.colors.success}>+{file.additions}</span>
+              <span fg={c.success}>+{file.additions}</span>
             )}
             {file.additions > 0 && file.deletions > 0 && <span> </span>}
             {file.deletions > 0 && (
-              <span fg={theme.colors.error}>-{file.deletions}</span>
+              <span fg={c.error}>-{file.deletions}</span>
             )}
           </text>
         </box>
       ))}
 
-      <text>
-        <span fg={theme.colors.muted}>Total: </span>
-        {totalAdditions > 0 && (
-          <span fg={theme.colors.success}>+{totalAdditions}</span>
-        )}
-        {totalAdditions > 0 && totalDeletions > 0 && <span> </span>}
-        {totalDeletions > 0 && (
-          <span fg={theme.colors.error}>-{totalDeletions}</span>
-        )}
-      </text>
+      <box height={1}>
+        <text>
+          <span fg={c.subtext0}>Total: </span>
+          {totalAdditions > 0 && (
+            <span fg={c.success}>+{totalAdditions}</span>
+          )}
+          {totalAdditions > 0 && totalDeletions > 0 && <span> </span>}
+          {totalDeletions > 0 && (
+            <span fg={c.error}>-{totalDeletions}</span>
+          )}
+        </text>
+      </box>
     </box>
   );
 }
@@ -160,6 +167,7 @@ function PlanSection({
   currentTodo: string | null; 
   theme: Theme;
 }) {
+  const c = theme.colors;
   const todoItems = useMemo(() => {
     if (!currentTodo) return [];
     const lines = currentTodo.split("\n");
@@ -179,13 +187,13 @@ function PlanSection({
 
   return (
     <box flexDirection="column">
-      <text fg={theme.colors.primary}>
+      <text fg={c.primary}>
         <b>Plan & Progress</b>
       </text>
 
       {currentIntent && (
         <box marginTop={1} flexDirection="column">
-          <text fg={theme.colors.accent}>→ {currentIntent}</text>
+          <text fg={c.accent}>→ {currentIntent}</text>
         </box>
       )}
 
@@ -194,12 +202,12 @@ function PlanSection({
           {todoItems.map((item, idx) => (
             <box key={idx} flexDirection="row" width="100%">
               <box width={2} flexShrink={0}>
-                <text fg={item.checked ? theme.colors.success : theme.colors.muted}>
+                <text fg={item.checked ? c.success : c.subtle}>
                   {item.checked ? "✓ " : "☐ "}
                 </text>
               </box>
               <box flexShrink={1} width="100%">
-                <text fg={item.checked ? theme.colors.muted : theme.colors.primary}>
+                <text fg={item.checked ? c.subtle : c.text}>
                   {item.text}
                 </text>
               </box>
@@ -221,6 +229,7 @@ function SubagentsSection({
   skills: Skill[]; 
   theme: Theme;
 }) {
+  const c = theme.colors;
   const { activeSubagents, completedSubagents, recentSkills } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents
@@ -249,15 +258,15 @@ function SubagentsSection({
 
   const getStatusColor = (status: Subagent["status"]): string => {
     switch (status) {
-      case "running": return theme.colors.warning;
-      case "completed": return theme.colors.success;
-      case "failed": return theme.colors.error;
+      case "running": return c.warning;
+      case "completed": return c.success;
+      case "failed": return c.error;
     }
   };
 
   return (
     <box flexDirection="column">
-      <text fg={theme.colors.primary}>
+      <text fg={c.primary}>
         <b>Subagents & Skills</b>
       </text>
 
@@ -268,7 +277,7 @@ function SubagentsSection({
               <text fg={getStatusColor(agent.status)}>
                 {getStatusIcon(agent.status)}{" "}
               </text>
-              <text><b>{agent.agentDisplayName}</b></text>
+              <text fg={c.text}><b>{agent.agentDisplayName}</b></text>
             </box>
           ))}
         </box>
@@ -281,7 +290,7 @@ function SubagentsSection({
               <text fg={getStatusColor(agent.status)}>
                 {getStatusIcon(agent.status)}{" "}
               </text>
-              <text fg={theme.colors.muted}>{agent.agentDisplayName}</text>
+              <text fg={c.subtle}>{agent.agentDisplayName}</text>
             </box>
           ))}
         </box>
@@ -291,10 +300,10 @@ function SubagentsSection({
         <box marginTop={1} flexDirection="column">
           {recentSkills.map((skill) => (
             <box key={skill.name} flexDirection="row">
-              <text fg={theme.colors.accent}>◆ </text>
-              <text>{skill.name}</text>
+              <text fg={c.accent}>◆ </text>
+              <text fg={c.text}>{skill.name}</text>
               {skill.invokeCount > 1 && (
-                <text fg={theme.colors.muted}>
+                <text fg={c.subtext0}>
                   {" "}(×{skill.invokeCount})
                 </text>
               )}
@@ -319,6 +328,7 @@ export const Sidebar = memo(function Sidebar({
   width,
   theme,
 }: SidebarProps) {
+  const c = theme.colors;
   // Calculate inner width: total width minus border (2) and padding (2)
   const innerWidth = Math.max(1, width - 4);
   
@@ -344,7 +354,7 @@ export const Sidebar = memo(function Sidebar({
       width="100%"
       height={height}
       borderStyle="rounded"
-      borderColor={theme.colors.border}
+      borderColor={c.border}
       paddingLeft={1}
       paddingRight={1}
       overflow="hidden"

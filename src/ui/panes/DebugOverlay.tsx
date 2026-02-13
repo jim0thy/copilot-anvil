@@ -18,6 +18,7 @@ export const DebugOverlay = memo(function DebugOverlay({
   width,
   height,
 }: DebugOverlayProps) {
+  const c = theme.colors;
   const [visibleLines, setVisibleLines] = useState<StderrLine[]>([]);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDismissedAt = useRef(0);
@@ -64,15 +65,15 @@ export const DebugOverlay = memo(function DebugOverlay({
       width={overlayWidth}
       height={overlayHeight}
       borderStyle="single"
-      borderColor={theme.colors.warning}
-      backgroundColor={theme.colors.statusBarBg}
+      borderColor={c.warning}
+      backgroundColor={c.mantle}
       paddingLeft={1}
       paddingRight={1}
       flexDirection="column"
     >
       {visibleLines.map((line, i) => (
         <text key={`${line.timestamp}-${i}`}>
-          <span fg={theme.colors.warning}>{line.text}</span>
+          <span fg={c.warning}>{line.text}</span>
         </text>
       ))}
     </box>

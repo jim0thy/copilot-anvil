@@ -22,6 +22,7 @@ export const ModelSelector = memo(function ModelSelector({
   width,
   height,
 }: ModelSelectorProps) {
+  const c = theme.colors;
   const currentIndex = models.findIndex((m) => m.id === currentModelId);
   const [selectedIndex, setSelectedIndex] = useState(
     currentIndex >= 0 ? currentIndex : 0
@@ -61,15 +62,15 @@ export const ModelSelector = memo(function ModelSelector({
       width={modalWidth}
       height={modalHeight}
       borderStyle="double"
-      borderColor={theme.colors.primary}
-      backgroundColor={theme.colors.statusBarBg}
+      borderColor={c.primary}
+      backgroundColor={c.mantle}
       flexDirection="column"
       padding={1}
     >
         {/* Header */}
         <box marginBottom={1}>
           <text>
-            <span fg={theme.colors.primary}><b>🤖 Select Model</b></span>
+            <span fg={c.primary}><b>🤖 Select Model</b></span>
           </text>
         </box>
 
@@ -81,14 +82,14 @@ export const ModelSelector = memo(function ModelSelector({
             return (
               <box key={model.id}>
                 <text>
-                  <span fg={isSelected ? theme.colors.primary : theme.colors.muted}>
+                  <span fg={isSelected ? c.primary : c.subtle}>
                     {isSelected ? "› " : "  "}
                   </span>
-                  <span fg={isSelected ? theme.colors.info : theme.colors.muted}>
+                  <span fg={isSelected ? c.info : c.subtext0}>
                     {model.name || model.id.split("/").pop() || model.id}
                   </span>
                   {isCurrent && (
-                    <span fg={theme.colors.success}> ✓</span>
+                    <span fg={c.success}> ✓</span>
                   )}
                 </text>
               </box>
@@ -99,7 +100,7 @@ export const ModelSelector = memo(function ModelSelector({
         {/* Footer with hints */}
         <box marginTop={1}>
           <text>
-            <span fg={theme.colors.muted}>
+            <span fg={c.subtle}>
               ↑↓ navigate • Enter select • Esc cancel
             </span>
           </text>

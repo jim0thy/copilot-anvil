@@ -42,15 +42,16 @@ function formatRole(role: ChatMessage["role"]): string {
 }
 
 function getRoleColor(role: ChatMessage["role"], theme: Theme): string {
+  const c = theme.colors;
   switch (role) {
     case "user":
-      return theme.colors.info;
+      return c.info;
     case "assistant":
-      return theme.colors.secondary;
+      return c.secondary;
     case "tool":
-      return theme.colors.warning;
+      return c.warning;
     case "system":
-      return theme.colors.muted;
+      return c.subtle;
   }
 }
 
@@ -69,23 +70,24 @@ function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boo
 }
 
 function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: boolean; theme: Theme }) {
+  const c = theme.colors;
   return (
     <box flexDirection="column" marginBottom={1}>
       {msg.role === "assistant" && msg.reasoning && (
         <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
-          <text fg={theme.colors.accent}>
+          <text fg={c.accent}>
             <b>Thinking...</b>
           </text>
-          <text fg={theme.colors.muted}>
+          <text fg={c.subtle}>
             {msg.reasoning}
           </text>
         </box>
       )}
 
       {msg.role === "user" ? (
-        <box borderStyle="single" border={["left"]} borderColor={theme.colors.info} paddingLeft={1} flexDirection="column">
-          {showLabel && <text fg={theme.colors.info}><b>{formatRole(msg.role)}</b></text>}
-          <text>{msg.content}</text>
+        <box borderStyle="single" border={["left"]} borderColor={c.info} paddingLeft={1} flexDirection="column">
+          {showLabel && <text fg={c.info}><b>{formatRole(msg.role)}</b></text>}
+          <text fg={c.text}>{msg.content}</text>
         </box>
       ) : (
         <box flexDirection="column">
@@ -98,7 +100,7 @@ function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: b
             {msg.role === "assistant" || msg.role === "tool" ? (
               <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={msg.content} />
             ) : (
-              <text>{msg.content}</text>
+              <text fg={c.text}>{msg.content}</text>
             )}
           </box>
         </box>
@@ -175,11 +177,12 @@ function truncateOutput(output: string): { text: string; truncated: boolean } {
 }
 
 function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
+  const c = theme.colors;
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
   const statusIcon = isRunning ? "▮" : isFailed ? "✗" : "✓";
-  const statusColor = isRunning ? theme.colors.warning : isFailed ? theme.colors.error : theme.colors.success;
-  const borderColor = isRunning ? theme.colors.warning : isFailed ? theme.colors.error : theme.colors.muted;
+  const statusColor = isRunning ? c.warning : isFailed ? c.error : c.success;
+  const borderColor = isRunning ? c.warning : isFailed ? c.error : c.border;
 
   const argsSummary = formatToolArgsSummary(tool.toolName, tool.arguments);
   const hasOutput = tool.output && tool.output.trim().length > 0;
@@ -200,18 +203,18 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
     >
       <text>
         <span fg={statusColor}>{statusIcon} </span>
-        <span fg={theme.colors.info}><b>{tool.toolName}</b></span>
-        <span fg={theme.colors.muted}> ({formatDuration(tool.startedAt, tool.completedAt)})</span>
+        <span fg={c.info}><b>{tool.toolName}</b></span>
+        <span fg={c.subtle}> ({formatDuration(tool.startedAt, tool.completedAt)})</span>
       </text>
       {argsSummary && (
         <box paddingLeft={2} marginTop={0}>
-          <text fg={theme.colors.muted}>{argsSummary}</text>
+          <text fg={c.subtext0}>{argsSummary}</text>
         </box>
       )}
       {tool.progress.length > 0 && (
         <box flexDirection="column" paddingLeft={1}>
           {tool.progress.map((msg, idx) => (
-            <text key={idx} fg={theme.colors.muted}>
+            <text key={idx} fg={c.subtle}>
               {msg}
             </text>
           ))}
@@ -230,10 +233,10 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
             syntaxStyle={getSyntaxStyle(theme.mode)}
             treeSitterClient={treeSitterClient}
             showLineNumbers={true}
-            addedBg={theme.colors.diffAddedBg}
-            removedBg={theme.colors.diffRemovedBg}
-            contextBg={theme.colors.diffContextBg}
-            lineNumberBg={theme.colors.diffLineNumberBg}
+            addedBg={c.diffAddedBg}
+            removedBg={c.diffRemovedBg}
+            contextBg={c.diffContextBg}
+            lineNumberBg={c.diffLineNumberBg}
           />
         </box>
       )}
@@ -247,23 +250,24 @@ function ToolCallInline({ tool, theme }: { tool: ToolCallItem; theme: Theme }) {
             paddingRight={1}
             borderStyle="single"
             border={["left"]}
-            borderColor={theme.colors.borderDim}
+            borderColor={c.borderDim}
           >
             <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={text} />
             {truncated && (
-              <text fg={theme.colors.muted}><i>… output truncated</i></text>
+              <text fg={c.subtle}><i>… output truncated</i></text>
             )}
           </box>
         );
       })()}
       {isFailed && tool.error && (
-        <text fg={theme.colors.error}>  Error: {tool.error}</text>
+        <text fg={c.error}>  Error: {tool.error}</text>
       )}
     </box>
   );
 }
 
 export function ChatPane({ transcript, streamingContent, streamingReasoning, isStreaming, height, theme }: ChatPaneProps) {
+  const c = theme.colors;
   // Only auto-scroll when actively receiving streaming content, not when user is typing
   const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning);
   
@@ -281,7 +285,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, isS
       }}
     >
       {transcript.length === 0 && !streamingContent && !streamingReasoning && (
-        <text fg={theme.colors.muted}>No messages yet</text>
+        <text fg={c.subtle}>No messages yet</text>
       )}
 
       {transcript.map((item, index) => {
@@ -307,10 +311,10 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, isS
 
       {streamingReasoning && (
         <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
-          <text fg={theme.colors.accent}>
-            <b>Thinking</b> <span fg={theme.colors.warning}>▮</span>
+          <text fg={c.accent}>
+            <b>Thinking</b> <span fg={c.warning}>▮</span>
           </text>
-          <text fg={theme.colors.muted}>
+          <text fg={c.subtle}>
             {streamingReasoning}
           </text>
         </box>
@@ -322,8 +326,8 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, isS
         return (
           <box flexDirection="column" marginBottom={1}>
             {showStreamingLabel && (
-              <text fg={theme.colors.secondary}>
-                <b>Assistant</b> <span fg={theme.colors.success}>▮</span>
+              <text fg={c.secondary}>
+                <b>Assistant</b> <span fg={c.success}>▮</span>
               </text>
             )}
             <box paddingLeft={1}>

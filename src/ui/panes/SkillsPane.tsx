@@ -20,6 +20,7 @@ export function SkillsPane({
   width,
   height,
 }: SkillsPaneProps) {
+  const c = theme.colors;
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useKeyboard((key) => {
@@ -63,17 +64,17 @@ export function SkillsPane({
         width={modalWidth}
         height={modalHeight}
         flexDirection="column"
-        backgroundColor={theme.colors.statusBarBg}
+        backgroundColor={c.mantle}
         borderStyle="double"
-        borderColor={theme.colors.primary}
+        borderColor={c.primary}
         padding={1}
       >
         {/* Header */}
         <box marginBottom={1}>
           <text>
-            <span fg={theme.colors.primary}><b>⚡ Skills</b></span>
+            <span fg={c.primary}><b>⚡ Skills</b></span>
             {skills.length > 0 && (
-              <span fg={theme.colors.muted}> - Select to invoke</span>
+              <span fg={c.subtext0}> - Select to invoke</span>
             )}
           </text>
         </box>
@@ -85,7 +86,7 @@ export function SkillsPane({
         >
           {skills.length === 0 ? (
             <box>
-              <text fg={theme.colors.muted}>No skills have been invoked yet</text>
+              <text fg={c.subtle}>No skills have been invoked yet</text>
             </box>
           ) : (
             skills.map((skill, index) => {
@@ -97,14 +98,14 @@ export function SkillsPane({
                   flexDirection="column"
                 >
                   <text>
-                    <span fg={isSelected ? theme.colors.primary : theme.colors.muted}>
+                    <span fg={isSelected ? c.primary : c.subtle}>
                       {isSelected ? '› ' : '  '}
                     </span>
-                    <span fg={isSelected ? theme.colors.success : theme.colors.muted}>
+                    <span fg={isSelected ? c.success : c.subtext0}>
                       <b>{skill.name}</b>
                     </span>
                     {skill.invokeCount > 0 && (
-                      <span fg={theme.colors.muted}>
+                      <span fg={c.subtext0}>
                         {' '}
                         (used {skill.invokeCount}x)
                       </span>
@@ -112,11 +113,11 @@ export function SkillsPane({
                   </text>
                   {isSelected && (
                     <>
-                      <text fg={theme.colors.muted}>
+                      <text fg={c.subtext0}>
                         {'  '}Path: {skill.path}
                       </text>
                       {skill.invokeCount > 0 && (
-                        <text fg={theme.colors.muted}>
+                        <text fg={c.subtext0}>
                           {'  '}Last: {skill.invokedAt.toLocaleString()}
                         </text>
                       )}
@@ -130,11 +131,11 @@ export function SkillsPane({
 
         {/* Footer */}
         <box marginTop={1}>
-          <text fg={theme.colors.muted}>
+          <text fg={c.subtle}>
             {skills.length > 0 ? (
               <span>↑↓ navigate • Enter invoke • Esc cancel</span>
             ) : (
-              <span>Press <span fg={theme.colors.primary}>esc</span> or <span fg={theme.colors.primary}>q</span> to close</span>
+              <span>Press <span fg={c.primary}>esc</span> or <span fg={c.primary}>q</span> to close</span>
             )}
           </text>
         </box>

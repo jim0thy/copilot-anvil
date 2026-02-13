@@ -32,6 +32,7 @@ const RAINBOW_COLORS = [
 ];
 
 export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, height }: StartScreenProps) {
+  const c = theme.colors;
   return (
     <box flexDirection="column" width="100%" height={height}>
       <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
@@ -41,7 +42,7 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
           </text>
         ))}
         <box marginTop={1}>
-          <text fg={theme.colors.muted}>Ask anything to get started.</text>
+          <text fg={c.subtle}>Ask anything to get started.</text>
         </box>
       </box>
       <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} />
