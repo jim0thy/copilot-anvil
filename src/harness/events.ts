@@ -249,6 +249,7 @@ export interface SessionSwitchedEvent {
   type: "session.switched";
   sessionId: string;
   sessionName: string;
+  transcript?: TranscriptItem[];
 }
 
 export interface SessionCreatedEvent {

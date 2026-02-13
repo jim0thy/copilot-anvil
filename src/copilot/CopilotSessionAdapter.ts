@@ -1,6 +1,6 @@
 import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
-import type { ModelInfo } from "@github/copilot-sdk";
-import type { HarnessEvent, SessionInfo } from "../harness/events.js";
+import type { ModelInfo, SessionEvent } from "@github/copilot-sdk";
+import type { HarnessEvent, SessionInfo, TranscriptItem, ChatMessage, ToolCallItem } from "../harness/events.js";
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 import * as path from "path";
 
@@ -647,6 +647,15 @@ export class CopilotSessionAdapter {
 
     const currentModel = this._currentModel;
 
+    if (this.planWatcher) {
+      try {
+        this.planWatcher.close();
+      } catch {
+        // Ignore
+      }
+      this.planWatcher = null;
+    }
+
     if (this.session) {
       try {
         await this.session.destroy();
@@ -660,7 +669,12 @@ export class CopilotSessionAdapter {
       model: currentModel ?? undefined,
     });
 
+    this.workspacePath = this.session.workspacePath ?? null;
     this.setupSessionEventHandlers();
+
+    if (this.workspacePath) {
+      this.setupPlanWatcher();
+    }
   }
 
   async switchModel(modelId: string): Promise<void> {
@@ -675,6 +689,15 @@ export class CopilotSessionAdapter {
     const sessionId = this._currentSessionId;
     if (!sessionId) {
       throw new Error("No active session to switch model");
+    }
+
+    if (this.planWatcher) {
+      try {
+        this.planWatcher.close();
+      } catch {
+        // Ignore
+      }
+      this.planWatcher = null;
     }
 
     if (this.session) {
@@ -707,7 +730,12 @@ export class CopilotSessionAdapter {
     }
 
     this._currentModel = modelId;
+    this.workspacePath = this.session.workspacePath ?? null;
     this.setupSessionEventHandlers();
+
+    if (this.workspacePath) {
+      this.setupPlanWatcher();
+    }
 
     this.emit({
       type: "model.changed",
@@ -794,6 +822,15 @@ export class CopilotSessionAdapter {
     }
 
     // Clean up current session
+    if (this.planWatcher) {
+      try {
+        this.planWatcher.close();
+      } catch {
+        // Ignore
+      }
+      this.planWatcher = null;
+    }
+
     if (this.session) {
       try {
         await this.session.destroy();
@@ -888,7 +925,99 @@ export class CopilotSessionAdapter {
       type: "session.switched",
       sessionId,
       sessionName,
+      transcript: await this.getSessionHistory(),
     });
+  }
+
+  /**
+   * Retrieve the conversation history from the current session and convert
+   * SDK events into TranscriptItems suitable for rendering in the UI.
+   *
+   * Only non-ephemeral user.message, assistant.message, tool.execution_start,
+   * and tool.execution_complete events are included.
+   */
+  private async getSessionHistory(): Promise<TranscriptItem[]> {
+    if (!this.session) return [];
+
+    let events: SessionEvent[];
+    try {
+      events = await this.session.getMessages();
+    } catch {
+      return [];
+    }
+
+    const transcript: TranscriptItem[] = [];
+    // Map toolCallId -> index in transcript for patching tool completions
+    const toolCallIndex = new Map<string, number>();
+
+    for (const event of events) {
+      // Skip ephemeral/streaming events — only care about persisted ones
+      if ((event as any).ephemeral) continue;
+
+      switch (event.type) {
+        case "user.message": {
+          const msg: ChatMessage = {
+            id: event.id,
+            kind: "message",
+            role: "user",
+            content: event.data.content,
+            createdAt: new Date(event.timestamp),
+          };
+          transcript.push(msg);
+          break;
+        }
+
+        case "assistant.message": {
+          // Skip tool-request-only messages (no visible content)
+          if (!event.data.content) break;
+          const msg: ChatMessage = {
+            id: event.id,
+            kind: "message",
+            role: "assistant",
+            content: event.data.content,
+            createdAt: new Date(event.timestamp),
+          };
+          transcript.push(msg);
+          break;
+        }
+
+        case "tool.execution_start": {
+          const item: ToolCallItem = {
+            id: event.id,
+            kind: "tool-call",
+            toolCallId: event.data.toolCallId,
+            toolName: event.data.toolName,
+            arguments: event.data.arguments as Record<string, unknown> | undefined,
+            progress: [],
+            status: "running",
+            startedAt: new Date(event.timestamp),
+          };
+          toolCallIndex.set(event.data.toolCallId, transcript.length);
+          transcript.push(item);
+          break;
+        }
+
+        case "tool.execution_complete": {
+          const idx = toolCallIndex.get(event.data.toolCallId);
+          if (idx !== undefined) {
+            const existing = transcript[idx] as ToolCallItem;
+            transcript[idx] = {
+              ...existing,
+              status: event.data.success ? "completed" : "failed",
+              completedAt: new Date(event.timestamp),
+              output: event.data.result?.content,
+              error: event.data.error?.message,
+            };
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+    }
+
+    return transcript;
   }
 
   /**
@@ -936,31 +1065,43 @@ export class CopilotSessionAdapter {
           : undefined,
       });
 
+      // Track accumulated streaming content for the ephemeral session,
+      // mirroring how the main session uses this.streamingBuffer.
+      let ephemeralStreamingBuffer = "";
+
       // Set up event handlers for the ephemeral session
       ephemeralSession.on((event) => {
         switch (event.type) {
           case "assistant.message_delta": {
             const deltaContent = event.data?.deltaContent ?? "";
-            if (deltaContent && onEvent) {
-              onEvent({
-                type: "assistant.delta",
-                runId,
-                text: deltaContent,
-              });
+            if (deltaContent) {
+              ephemeralStreamingBuffer += deltaContent;
+              if (onEvent) {
+                onEvent({
+                  type: "assistant.delta",
+                  runId,
+                  text: deltaContent,
+                });
+              }
             }
             break;
           }
 
           case "assistant.message": {
+            // Use content from the event if available, otherwise fall back
+            // to the streaming buffer (matches main session behavior).
             const content = event.data?.content ?? "";
-            if (content && onEvent) {
-              const message = createAssistantMessage(content);
+            const resolvedContent = content || ephemeralStreamingBuffer;
+            if (resolvedContent && onEvent) {
+              const message = createAssistantMessage(resolvedContent);
               onEvent({
                 type: "assistant.message",
                 runId,
                 message,
               });
             }
+            // Reset buffer after emitting (ready for next turn)
+            ephemeralStreamingBuffer = "";
             break;
           }
 
