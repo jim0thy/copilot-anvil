@@ -11,7 +11,7 @@ A terminal UI (TUI) for interacting with GitHub Copilot, built with TypeScript, 
 ```bash
 # Prerequisites: Bun 1.0+, GitHub Copilot CLI authenticated
 bun install
-bun run dev
+bun run dev  # or: bun run start
 ```
 
 ---
@@ -59,7 +59,9 @@ This section helps AI coding assistants understand and work with this codebase e
 | `src/harness/events.ts` | `HarnessEvent` and `UIAction` type definitions |
 | `src/harness/plugins.ts` | Plugin interface and registries |
 | `src/ui/` | OpenTUI/React components |
-| `src/ui/panes/` | Chat, Logs, Input panes |
+| `src/ui/panes/` | All UI panes (Chat, Sidebar, Input, etc.) |
+| `src/commands/` | Slash command system |
+| `src/utils/` | Utilities (git, diff, etc.) |
 | `docs/REQUIREMENTS.md` | Full requirements document |
 
 ### Event Flow
@@ -89,16 +91,44 @@ User types prompt → InputBar dispatches UIAction("submit.prompt")
 | `run.started` | Prompt submitted, SDK processing begins |
 | `assistant.delta` | Streaming token received |
 | `assistant.message` | Full response complete |
+| `reasoning.delta` | Reasoning token received (for o1 models) |
+| `reasoning.message` | Complete reasoning content |
 | `run.finished` | Run completed successfully |
 | `run.cancelled` | User cancelled with Ctrl+C |
-| `log` | Internal logging (info/warn/error) |
+| `tool.started` | Tool execution begins |
+| `tool.progress` | Tool progress update |
+| `tool.completed` | Tool execution completes |
+| `subagent.started` | Subagent invoked |
+| `subagent.completed` | Subagent finished |
+| `subagent.failed` | Subagent failed |
+| `skill.invoked` | Skill invoked |
+| `intent.updated` | Agent intent updated |
+| `todo.updated` | Task list updated |
+| `plan.updated` | Plan content updated |
+| `turn.started` | New turn begins |
+| `turn.ended` | Turn completes |
+| `question.requested` | Agent asks user a question |
+| `question.answered` | User answers question |
+| `session.switched` | Session changed |
+| `session.created` | New session created |
+| `session.list.updated` | Session list refreshed |
+| `model.changed` | AI model changed |
+| `usage.info` | Token usage information |
+| `quota.info` | Quota information |
+| `log` | Internal logging (info/warn/error/debug) |
 
 **Actions** (UI → Harness):
 
 | Action | Effect |
 |--------|--------|
-| `submit.prompt` | Send prompt to Copilot |
+| `submit.prompt` | Send prompt to Copilot (with optional images) |
 | `cancel` | Abort current run |
+| `change.model` | Switch AI model |
+| `answer.question` | Respond to agent question |
+| `session.new` | Create new session |
+| `session.switch` | Switch to different session |
+| `session.refresh` | Refresh session list |
+| `ephemeral.close` | Close ephemeral run modal |
 
 ### Plugin System
 
@@ -137,7 +167,28 @@ harness.use(myPlugin);
 
 1. Create component in `src/ui/panes/NewPane.tsx`
 2. Add to layout in `src/ui/App.tsx`
-3. (Future) Register via `ctx.panes.register()` for plugin support
+3. Subscribe to relevant harness events
+4. Dispatch actions as needed
+5. (Future) Register via `ctx.panes.register()` for plugin support
+
+**Existing panes**:
+- `ChatPane.tsx` — Conversation transcript
+- `InputBar.tsx` — Prompt input with image attachment
+- `Sidebar.tsx` — Container for sidebar panes
+- `TasksPane.tsx` — Active tasks display
+- `ContextPane.tsx` — Current context info
+- `SubagentsPane.tsx` — Subagent execution tracking
+- `FilesModifiedPane.tsx` — Git modified files
+- `PlanPane.tsx` — Plan viewer
+- `LogsPane.tsx` — System logs (unused in default layout)
+- `StartScreen.tsx` — Welcome screen
+- `ModelSelector.tsx` — Model selection modal
+- `SessionSwitcher.tsx` — Session management modal
+- `SkillsPane.tsx` — Skills browser
+- `QuestionModal.tsx` — Interactive questions
+- `ConfirmModal.tsx` — Confirmation dialogs
+- `CommandModal.tsx` — Ephemeral command display
+- `DebugOverlay.tsx` — Debug information
 
 #### Adding a new tool
 
@@ -171,18 +222,7 @@ Only touch `src/copilot/CopilotSessionAdapter.ts`. Never import SDK elsewhere.
 - Functional components with hooks
 - Keep components small and focused
 - State lives in Harness, UI is a projection
-
-### Testing
-
-```bash
-npm test
-```
-
-### Linting
-
-```bash
-npm run lint
-```
+- Use OpenTUI primitives (Box, Text, etc.) for layout
 
 ---
 
@@ -190,10 +230,9 @@ npm run lint
 
 | Script | Purpose |
 |--------|---------|
-| `npm run dev` | Start TUI in development mode |
-| `npm run build` | Compile TypeScript |
-| `npm test` | Run tests |
-| `npm run lint` | Check code style |
+| `bun run dev` | Start TUI in development mode |
+| `bun run start` | Same as dev (alias) |
+| `bun install` | Install dependencies |
 
 ---
 

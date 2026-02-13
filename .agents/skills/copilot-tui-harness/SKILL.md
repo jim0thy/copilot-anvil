@@ -59,12 +59,32 @@ src/
 │   └── plugins.ts              # Plugin system interfaces
 ├── ui/
 │   ├── App.tsx                 # Main OpenTUI app component
+│   ├── theme.ts                # Theme configuration
+│   ├── syntaxTheme.ts          # Syntax highlighting theme
 │   └── panes/
-│       ├── ChatPane.tsx        # Displays conversation transcript
-│       ├── LogsPane.tsx        # Shows system logs
-│       └── InputBar.tsx        # Prompt input interface
-├── commands/                   # User commands (future)
+│       ├── ChatPane.tsx        # Conversation transcript
+│       ├── InputBar.tsx        # Prompt input with image support
+│       ├── Sidebar.tsx         # Sidebar container
+│       ├── TasksPane.tsx       # Task tracking display
+│       ├── ContextPane.tsx     # Context information
+│       ├── SubagentsPane.tsx   # Subagent monitoring
+│       ├── FilesModifiedPane.tsx # Git modified files
+│       ├── PlanPane.tsx        # Plan viewer
+│       ├── LogsPane.tsx        # System logs
+│       ├── StartScreen.tsx     # Welcome screen
+│       ├── ModelSelector.tsx   # Model selection modal
+│       ├── SessionSwitcher.tsx # Session management
+│       ├── SkillsPane.tsx      # Skills browser
+│       ├── QuestionModal.tsx   # Interactive questions
+│       ├── ConfirmModal.tsx    # Confirmation dialogs
+│       ├── CommandModal.tsx    # Ephemeral run display
+│       └── DebugOverlay.tsx    # Debug overlay
+├── commands/                   # Slash command system
+│   └── CommandLoader.ts        # Command registry
 └── utils/                      # Shared utilities
+    ├── git.ts                  # Git operations
+    ├── gitDiff.ts              # Diff utilities
+    └── stderrCapture.ts        # Error capture
 ```
 
 ### Key Files and Responsibilities
@@ -119,16 +139,44 @@ session.on('assistant.message_delta', (event) => {
 | `run.started` | `{ runId, createdAt }` | Prompt submitted, SDK begins processing |
 | `assistant.delta` | `{ runId, text }` | Streaming token received from SDK |
 | `assistant.message` | `{ runId, message }` | Complete assistant response ready |
+| `reasoning.delta` | `{ runId, reasoningId, text }` | Reasoning token received (o1 models) |
+| `reasoning.message` | `{ runId, reasoningId, content }` | Complete reasoning content |
 | `run.finished` | `{ runId, createdAt }` | Run completed successfully |
 | `run.cancelled` | `{ runId, createdAt }` | User cancelled with Ctrl+C |
+| `tool.started` | `{ runId, toolCallId, toolName, arguments }` | Tool execution begins |
+| `tool.progress` | `{ runId, toolCallId, message }` | Tool progress update |
+| `tool.completed` | `{ runId, toolCallId, success, output, error }` | Tool execution completes |
+| `subagent.started` | `{ runId, toolCallId, agentName, ... }` | Subagent invoked |
+| `subagent.completed` | `{ runId, toolCallId, agentName }` | Subagent finished |
+| `subagent.failed` | `{ runId, toolCallId, agentName, error }` | Subagent failed |
+| `skill.invoked` | `{ runId, name, path }` | Skill invoked |
+| `intent.updated` | `{ runId, intent }` | Agent intent updated |
+| `todo.updated` | `{ runId, todos }` | Task list updated |
+| `plan.updated` | `{ content }` | Plan content updated |
+| `turn.started` | `{ runId, turnId }` | New turn begins |
+| `turn.ended` | `{ runId, turnId }` | Turn completes |
+| `question.requested` | `{ requestId, question, choices, allowFreeform }` | Agent asks question |
+| `question.answered` | `{ requestId, answer, wasFreeform }` | User answers question |
+| `session.switched` | `{ sessionId, sessionName, transcript }` | Session changed |
+| `session.created` | `{ sessionId, sessionName }` | New session created |
+| `session.list.updated` | `{ sessions }` | Session list refreshed |
+| `model.changed` | `{ model }` | AI model changed |
+| `usage.info` | `{ tokenLimit, currentTokens, messagesLength }` | Token usage info |
+| `quota.info` | `{ remainingPremiumRequests, consumedRequests }` | Quota info |
 | `log` | `{ runId?, level, message, data? }` | System or plugin log message |
 
 **UIAction Types**:
 
 | Action | Payload | Effect |
 |--------|---------|--------|
-| `submit.prompt` | `{ text }` | Send prompt to Copilot SDK |
+| `submit.prompt` | `{ text, images? }` | Send prompt to Copilot SDK (with optional images) |
 | `cancel` | `{}` | Abort current run |
+| `change.model` | `{ modelId }` | Switch AI model |
+| `answer.question` | `{ requestId, answer, wasFreeform }` | Answer agent question |
+| `session.new` | `{}` | Create new session |
+| `session.switch` | `{ sessionId }` | Switch to session |
+| `session.refresh` | `{}` | Refresh session list |
+| `ephemeral.close` | `{}` | Close ephemeral run modal |
 
 #### `src/harness/plugins.ts`
 
@@ -175,32 +223,140 @@ interface PluginContext {
 **Responsibilities**:
 - Render user and assistant messages
 - Show streaming draft during active run
+- Display tool calls inline in transcript
 - Handle scrolling and layout
+- Support syntax highlighting for code blocks
 
 **Key Pattern**: Separate committed messages from streaming buffer:
 ```typescript
-{messages.map(msg => <Message {...msg} />)}
+{transcript.map(item => 
+  item.kind === "message" ? <Message {...item} /> : <ToolCall {...item} />
+)}
 {streamingBuffer && <StreamingMessage text={streamingBuffer} />}
 ```
 
-#### `src/ui/panes/LogsPane.tsx`
-
-**Purpose**: Display system logs
-
-**Responsibilities**:
-- Subscribe to `log` events
-- Show recent logs (capped for performance)
-- Format log levels (info/warn/error)
-
 #### `src/ui/panes/InputBar.tsx`
 
-**Purpose**: Handle prompt input
+**Purpose**: Handle prompt input with image attachment support
 
 **Responsibilities**:
 - Provide text input field
 - Dispatch `submit.prompt` action on Enter
 - Disable input during active run
+- Handle image attachment (Ctrl+I)
 - Show input hints
+
+#### `src/ui/panes/Sidebar.tsx`
+
+**Purpose**: Container for sidebar panels
+
+**Responsibilities**:
+- Layout sidebar panes vertically
+- Manage space allocation between panes
+- Show/hide panes based on content
+
+#### `src/ui/panes/TasksPane.tsx`
+
+**Purpose**: Display active tasks
+
+**Responsibilities**:
+- Show running, completed, and failed tasks
+- Display task timing and status
+- Update in real-time via events
+
+#### `src/ui/panes/ContextPane.tsx`
+
+**Purpose**: Display current context information
+
+**Responsibilities**:
+- Show git information (branch, repo, commit)
+- Display active tools
+- Show token usage and quota
+
+#### `src/ui/panes/SubagentsPane.tsx`
+
+**Purpose**: Monitor subagent execution
+
+**Responsibilities**:
+- Display active and completed subagents
+- Show subagent status and timing
+- Track subagent failures
+
+#### `src/ui/panes/FilesModifiedPane.tsx`
+
+**Purpose**: Show git modified files
+
+**Responsibilities**:
+- List unstaged and staged changes
+- Display file change types (modified, added, deleted)
+- Update periodically from git status
+
+#### `src/ui/panes/PlanPane.tsx`
+
+**Purpose**: Display execution plan
+
+**Responsibilities**:
+- Show current plan content
+- Support markdown rendering
+- Track plan updates
+
+#### `src/ui/panes/ModelSelector.tsx`
+
+**Purpose**: Model selection modal
+
+**Responsibilities**:
+- Display available models
+- Allow model switching
+- Show current model
+- Handle keyboard navigation
+
+#### `src/ui/panes/SessionSwitcher.tsx`
+
+**Purpose**: Session management modal
+
+**Responsibilities**:
+- List all sessions
+- Allow session switching
+- Support creating new sessions
+- Show session metadata
+
+#### `src/ui/panes/SkillsPane.tsx`
+
+**Purpose**: Skills browser
+
+**Responsibilities**:
+- List available skills
+- Show skill descriptions
+- Allow skill invocation
+- Display skill metadata
+
+#### `src/ui/panes/QuestionModal.tsx`
+
+**Purpose**: Interactive user questions
+
+**Responsibilities**:
+- Display agent questions
+- Show choices (if provided)
+- Support freeform input
+- Handle keyboard navigation
+
+#### `src/ui/panes/CommandModal.tsx`
+
+**Purpose**: Ephemeral run display
+
+**Responsibilities**:
+- Show ephemeral run output
+- Display status and progress
+- Allow closing modal
+
+#### `src/ui/panes/StartScreen.tsx`
+
+**Purpose**: Welcome screen
+
+**Responsibilities**:
+- Show before first interaction
+- Display keybind hints
+- Provide getting started info
 
 ## Event Flow Patterns
 
@@ -295,10 +451,24 @@ harness.use(myPlugin);
 **2. Design state needs**:
 - What events does it subscribe to?
 - What actions does it dispatch?
+- What data does it display?
 
 **3. Add to layout**: Update `src/ui/App.tsx`
+- Import the pane
+- Add to the appropriate section (main area, sidebar, or modal)
+- Connect to harness state
 
-**4. (Future) Register via plugin**: Use `ctx.panes.register()`
+**4. Handle keyboard shortcuts** (if needed):
+- Add keybind in `App.tsx`
+- Update state to show/hide pane
+
+**5. (Future) Register via plugin**: Use `ctx.panes.register()`
+
+**Existing panes for reference**:
+- Main area: `ChatPane`, `InputBar`
+- Sidebar: `TasksPane`, `ContextPane`, `SubagentsPane`, `FilesModifiedPane`, `PlanPane`
+- Modals: `ModelSelector`, `SessionSwitcher`, `SkillsPane`, `QuestionModal`, `ConfirmModal`, `CommandModal`
+- Overlays: `StartScreen`, `DebugOverlay`
 
 ### When Modifying SDK Integration
 
@@ -529,13 +699,25 @@ onEvent(event) {
 | File | What to Change |
 |------|----------------|
 | `CopilotSessionAdapter.ts` | SDK integration, event translation |
-| `Harness.ts` | State management, orchestration |
+| `Harness.ts` | State management, orchestration, sessions |
 | `events.ts` | Add new event/action types |
 | `plugins.ts` | Extend plugin system |
 | `App.tsx` | Layout, top-level UI structure |
-| `ChatPane.tsx` | Conversation display logic |
-| `LogsPane.tsx` | Log display logic |
-| `InputBar.tsx` | Prompt input handling |
+| `ChatPane.tsx` | Conversation display with tool calls |
+| `LogsPane.tsx` | Log display (optional, not in default layout) |
+| `Sidebar.tsx` | Sidebar container and layout |
+| `TasksPane.tsx` | Task tracking display |
+| `ContextPane.tsx` | Context information display |
+| `SubagentsPane.tsx` | Subagent monitoring |
+| `FilesModifiedPane.tsx` | Git status display |
+| `PlanPane.tsx` | Plan viewer |
+| `ModelSelector.tsx` | Model selection modal |
+| `SessionSwitcher.tsx` | Session management |
+| `SkillsPane.tsx` | Skills browser |
+| `QuestionModal.tsx` | Interactive questions |
+| `theme.ts` | Theme configuration |
+| `syntaxTheme.ts` | Syntax highlighting |
+| `InputBar.tsx` | Prompt input with image support |
 
 ## Troubleshooting
 
@@ -574,11 +756,16 @@ copilot auth login
 
 Architecture supports these additions:
 
-1. **Tasks**: Task state slice, tools, dedicated pane
+1. **Tasks**: ✅ Implemented — Task tracking and status display
 2. **Memory**: Memory provider interface, context injection
-3. **Git & Diffs**: Git tools, diff resources, approval gating
+3. **Git & Diffs**: ✅ Partially implemented — Diff viewing, modified files; approval gating pending
 4. **GitHub PR**: PR tools, PR resources, PR pane
 5. **File Browser**: File selection pane, context injection
+6. **Sessions**: ✅ Implemented — Multi-session support with persistence
+7. **Skills**: ✅ Implemented — Skills browser and invocation
+8. **Image Support**: ✅ Implemented — Image attachment for vision models
+9. **Plans**: ✅ Implemented — Plan tracking and display
+10. **Subagents**: ✅ Implemented — Subagent monitoring and status
 
 ## Summary
 
