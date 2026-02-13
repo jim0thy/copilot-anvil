@@ -6,12 +6,15 @@ import type {
   UIAction,
 } from "./events.js";
 import {
+  createAssistantMessage,
   createLogEvent,
   createUserMessage,
   generateId,
 } from "./events.js";
 import { HarnessPlugin, PluginManager } from "./plugins.js";
 import type { CopilotSessionAdapter, ModelDescription } from "../copilot/CopilotSessionAdapter.js";
+import { CommandRegistry, parseSlashCommand } from "../commands/CommandLoader.js";
+import type { CommandDefinition } from "../commands/CommandLoader.js";
 
 export type HarnessStatus = "idle" | "running" | "error";
 
@@ -127,9 +130,11 @@ export class Harness {
   private pluginManager: PluginManager;
   private adapter: CopilotSessionAdapter | null = null;
   private questionResolvers: Map<string, (answer: { answer: string; wasFreeform: boolean }) => void> = new Map();
+  private commandRegistry: CommandRegistry;
 
   constructor() {
     this.pluginManager = new PluginManager((event) => this.emit(event));
+    this.commandRegistry = new CommandRegistry();
   }
 
   setAdapter(adapter: CopilotSessionAdapter): void {
@@ -146,6 +151,23 @@ export class Harness {
 
   use(plugin: HarnessPlugin): void {
     this.pluginManager.use(plugin);
+  }
+
+  getCommands(): CommandDefinition[] {
+    return this.commandRegistry.list();
+  }
+
+  private emitCommandList(): void {
+    const commands = this.commandRegistry.list();
+    if (commands.length === 0) {
+      this.emit(createLogEvent("info", "No skill commands installed. Add command files to .agents/skills/<name>/command/"));
+      return;
+    }
+
+    const lines = commands.map(
+      (cmd) => `  /${cmd.name} — ${cmd.description || cmd.skillName + " skill"}`
+    );
+    this.emit(createLogEvent("info", `Available commands:\n${lines.join("\n")}`));
   }
 
   getState(): Readonly<HarnessState> {
@@ -178,6 +200,9 @@ export class Harness {
           currentRunId: event.runId,
           streamingContent: "",
           streamingReasoning: "",
+          currentIntent: null,
+          currentTodo: null,
+          currentPlan: null,
         };
         break;
 
@@ -227,22 +252,47 @@ export class Harness {
           currentRunId: null,
           streamingContent: "",
           streamingReasoning: "",
+          currentIntent: null,
+          currentTodo: null,
+          currentPlan: null,
         };
         break;
 
-      case "run.finished":
+      case "run.finished": {
+        // Flush any remaining streaming content to transcript as a safety measure
+        // This ensures the final message is visible even if assistant.message wasn't emitted
+        let newTranscript = this.state.transcript;
+        if (this.state.streamingContent) {
+          const finalMessage: ChatMessage = {
+            ...createAssistantMessage(this.state.streamingContent),
+            reasoning: this.state.streamingReasoning || undefined,
+          };
+          newTranscript = [...newTranscript, finalMessage];
+        }
+        
         this.state = {
           ...this.state,
           status: "idle",
           currentRunId: null,
+          transcript: newTranscript,
+          streamingContent: "",
+          streamingReasoning: "",
           currentIntent: null,
+          currentTodo: null,
+          currentPlan: null,
           contextInfo: {
             ...this.state.contextInfo,
             consumedRequests: this.state.contextInfo.consumedRequests + 1,
           },
         };
-        this.processNextQueuedMessage();
+        // Process next queued message in next tick to avoid blocking event handler
+        setTimeout(() => {
+          this.processNextQueuedMessage().catch((err) => {
+            this.emit(createLogEvent("error", `Queue processing failed: ${err instanceof Error ? err.message : String(err)}`));
+          });
+        }, 0);
         break;
+      }
 
       case "tool.started": {
         const newTask: Task = {
@@ -538,7 +588,6 @@ export class Harness {
 
   private async handleSubmitPrompt(text: string): Promise<void> {
     if (this.state.status === "running") {
-      // Queue the message for later processing
       this.state = {
         ...this.state,
         messageQueue: [...this.state.messageQueue, text],
@@ -554,13 +603,32 @@ export class Harness {
       return;
     }
 
+    const parsed = parseSlashCommand(text);
+    if (parsed) {
+      if (parsed.name === "commands" || parsed.name === "help") {
+        this.emitCommandList();
+        return;
+      }
+
+      if (this.commandRegistry.has(parsed.name)) {
+        const enhancedPrompt = this.commandRegistry.buildPrompt(parsed.name, parsed.args);
+        if (enhancedPrompt) {
+          this.emit(
+            createLogEvent("info", `Invoking command: /${parsed.name}`)
+          );
+          await this.executePrompt(enhancedPrompt, text);
+          return;
+        }
+      }
+    }
+
     await this.executePrompt(text);
   }
 
-  private async executePrompt(text: string): Promise<void> {
+  private async executePrompt(text: string, displayText?: string): Promise<void> {
     const runId = generateId();
 
-    const userMessage = createUserMessage(text);
+    const userMessage = createUserMessage(displayText ?? text);
     this.state = {
       ...this.state,
       transcript: [...this.state.transcript, userMessage],
