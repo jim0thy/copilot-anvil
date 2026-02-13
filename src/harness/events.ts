@@ -351,6 +351,10 @@ export interface RefreshSessionsAction {
   type: "session.refresh";
 }
 
+export interface CloseEphemeralAction {
+  type: "ephemeral.close";
+}
+
 export type UIAction =
   | SubmitPromptAction
   | CancelAction
@@ -361,7 +365,8 @@ export type UIAction =
   | AnswerQuestionAction
   | NewSessionAction
   | SwitchSessionAction
-  | RefreshSessionsAction;
+  | RefreshSessionsAction
+  | CloseEphemeralAction;
 
 // ============================================================
 // Helper functions
