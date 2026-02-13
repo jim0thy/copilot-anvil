@@ -111,6 +111,7 @@ const MAX_LOGS = 100;
 const MAX_TASKS = 50;
 const MAX_SUBAGENTS = 50;
 const MAX_SKILLS = 50;
+const MAX_TRANSCRIPT = 500;
 
 export class Harness {
   private state: HarnessState = {
@@ -148,6 +149,8 @@ export class Harness {
   private adapter: CopilotSessionAdapter | null = null;
   private questionResolvers: Map<string, (answer: { answer: string; wasFreeform: boolean }) => void> = new Map();
   private commandRegistry: CommandRegistry;
+  // Maps toolCallId -> transcript array index for O(1) lookup during tool.progress/tool.completed
+  private toolCallTranscriptIndex: Map<string, number> = new Map();
 
   constructor() {
     this.pluginManager = new PluginManager((event) => this.emit(event));
@@ -258,9 +261,11 @@ export class Harness {
           kind: "message",
           reasoning: this.state.streamingReasoning || undefined,
         };
+        const newTranscript = [...this.state.transcript, messageWithReasoning];
+        this.trimTranscript(newTranscript);
         this.state = {
           ...this.state,
-          transcript: [...this.state.transcript, messageWithReasoning],
+          transcript: newTranscript,
           streamingContent: "",
           streamingReasoning: "",
         };
@@ -340,9 +345,12 @@ export class Harness {
           status: "running",
           startedAt: new Date(),
         };
+        const newTranscript = [...this.state.transcript, toolItem];
+        this.toolCallTranscriptIndex.set(event.toolCallId, newTranscript.length - 1);
+        this.trimTranscript(newTranscript);
         this.state = {
           ...this.state,
-          transcript: [...this.state.transcript, toolItem],
+          transcript: newTranscript,
           activeTools: [
             ...this.state.activeTools,
             { 
@@ -369,12 +377,17 @@ export class Harness {
           }
           return tool;
         });
-        const updatedTranscript = this.state.transcript.map((item) => {
+
+        const idx = this.toolCallTranscriptIndex.get(event.toolCallId);
+        let updatedTranscript = this.state.transcript;
+        if (idx !== undefined && idx < updatedTranscript.length) {
+          const item = updatedTranscript[idx];
           if (item.kind === "tool-call" && item.toolCallId === event.toolCallId) {
-            return { ...item, progress: [...item.progress, event.message] };
+            updatedTranscript = [...updatedTranscript];
+            updatedTranscript[idx] = { ...item, progress: [...item.progress, event.message] };
           }
-          return item;
-        });
+        }
+
         this.state = {
           ...this.state,
           activeTools: updatedTools,
@@ -409,9 +422,13 @@ export class Harness {
           return task;
         });
 
-        const updatedTranscript = this.state.transcript.map((item) => {
+        const idx = this.toolCallTranscriptIndex.get(event.toolCallId);
+        let updatedTranscript = this.state.transcript;
+        if (idx !== undefined && idx < updatedTranscript.length) {
+          const item = updatedTranscript[idx];
           if (item.kind === "tool-call" && item.toolCallId === event.toolCallId) {
-            return {
+            updatedTranscript = [...updatedTranscript];
+            updatedTranscript[idx] = {
               ...item,
               status: event.success ? ("completed" as const) : ("failed" as const),
               completedAt: new Date(),
@@ -419,8 +436,7 @@ export class Harness {
               error: event.error,
             };
           }
-          return item;
-        });
+        }
 
         this.state = {
           ...this.state,
@@ -594,11 +610,11 @@ export class Harness {
         break;
 
       case "session.switched":
+        this.toolCallTranscriptIndex.clear();
         this.state = {
           ...this.state,
           currentSessionId: event.sessionId,
-          // Clear transcript when switching sessions (SDK restores conversation internally)
-          transcript: [],
+          transcript: event.transcript ?? [],
           streamingContent: "",
           streamingReasoning: "",
           activeTools: [],
@@ -609,6 +625,7 @@ export class Harness {
         break;
 
       case "session.created":
+        this.toolCallTranscriptIndex.clear();
         this.state = {
           ...this.state,
           currentSessionId: event.sessionId,
@@ -629,6 +646,20 @@ export class Harness {
           availableSessions: event.sessions,
         };
         break;
+    }
+  }
+
+  private trimTranscript(transcript: TranscriptItem[]): void {
+    if (transcript.length <= MAX_TRANSCRIPT) return;
+    const excess = transcript.length - MAX_TRANSCRIPT;
+    transcript.splice(0, excess);
+    // Rebuild the index map after trimming since indices shifted
+    this.toolCallTranscriptIndex.clear();
+    for (let i = 0; i < transcript.length; i++) {
+      const item = transcript[i];
+      if (item.kind === "tool-call") {
+        this.toolCallTranscriptIndex.set(item.toolCallId, i);
+      }
     }
   }
 
@@ -1019,12 +1050,11 @@ export class Harness {
     try {
       await this.adapter.switchToSession(sessionId);
       
-      // Reset state when switching sessions: clear transcript and context info
-      // The SDK will emit usage.info with the correct values for the resumed session
+      // Reset context info — transcript is already set by the session.switched event handler.
+      // The SDK will emit usage.info with the correct values for the resumed session.
       this.state = {
         ...this.state,
         currentSessionId: sessionId,
-        transcript: [],
         currentTodo: null,
         currentPlan: null,
         currentIntent: null,
