@@ -1,7 +1,23 @@
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import { memo, useState, useEffect, useRef, useCallback } from "react";
+import { existsSync } from "node:fs";
 import type { Theme } from "../theme.js";
 import type { PasteEvent } from "@opentui/core";
+
+const IMAGE_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif",
+]);
+
+function isImageFilePath(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/") && !trimmed.startsWith("./") && !trimmed.startsWith("~/") && !trimmed.startsWith("..")) {
+    return false;
+  }
+  const ext = trimmed.slice(trimmed.lastIndexOf(".")).toLowerCase();
+  if (!IMAGE_EXTENSIONS.has(ext)) return false;
+  const resolved = trimmed.startsWith("~") ? trimmed.replace("~", process.env.HOME || "") : trimmed;
+  return existsSync(resolved);
+}
 
 // Blinking cursor interval in ms
 const CURSOR_BLINK_INTERVAL = 530;
@@ -123,15 +139,20 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
         setPastedContent(text);
         setPastedLineCount(lines.length);
       } else {
-        // Single line paste - check if it's an /attach command
         const attachMatch = text.match(/^\/attach\s+(.+)$/);
         if (attachMatch) {
           const imagePath = attachMatch[1].trim();
           if (!attachedImagesRef.current.includes(imagePath)) {
             setAttachedImages((prev) => [...prev, imagePath]);
           }
+        } else if (isImageFilePath(text)) {
+          const resolved = text.trim().startsWith("~")
+            ? text.trim().replace("~", process.env.HOME || "")
+            : text.trim();
+          if (!attachedImagesRef.current.includes(resolved)) {
+            setAttachedImages((prev) => [...prev, resolved]);
+          }
         } else {
-          // Regular single line paste - insert at cursor position
           const pos = cursorPosRef.current;
           setValue((v) => {
             const newValue = v.slice(0, pos) + text + v.slice(pos);
