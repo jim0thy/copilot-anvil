@@ -237,6 +237,31 @@ export interface QuestionAnsweredEvent {
   wasFreeform: boolean;
 }
 
+export interface SessionInfo {
+  id: string;
+  name: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+  isCurrentProject: boolean;
+}
+
+export interface SessionSwitchedEvent {
+  type: "session.switched";
+  sessionId: string;
+  sessionName: string;
+}
+
+export interface SessionCreatedEvent {
+  type: "session.created";
+  sessionId: string;
+  sessionName: string;
+}
+
+export interface SessionListUpdatedEvent {
+  type: "session.list.updated";
+  sessions: SessionInfo[];
+}
+
 export type HarnessEvent =
   | RunStartedEvent
   | AssistantDeltaEvent
@@ -265,7 +290,10 @@ export type HarnessEvent =
   | TurnStartedEvent
   | TurnEndedEvent
   | QuestionRequestedEvent
-  | QuestionAnsweredEvent;
+  | QuestionAnsweredEvent
+  | SessionSwitchedEvent
+  | SessionCreatedEvent
+  | SessionListUpdatedEvent;
 
 // ============================================================
 // UI Actions (dispatched from UI to harness)
@@ -274,6 +302,7 @@ export type HarnessEvent =
 export interface SubmitPromptAction {
   type: "submit.prompt";
   text: string;
+  images?: string[]; // File paths to attached images
 }
 
 export interface CancelAction {
@@ -309,6 +338,19 @@ export interface AnswerQuestionAction {
   wasFreeform: boolean;
 }
 
+export interface NewSessionAction {
+  type: "session.new";
+}
+
+export interface SwitchSessionAction {
+  type: "session.switch";
+  sessionId: string;
+}
+
+export interface RefreshSessionsAction {
+  type: "session.refresh";
+}
+
 export type UIAction =
   | SubmitPromptAction
   | CancelAction
@@ -316,7 +358,10 @@ export type UIAction =
   | PermissionRespondAction
   | ApprovePatchAction
   | ChangeModelAction
-  | AnswerQuestionAction;
+  | AnswerQuestionAction
+  | NewSessionAction
+  | SwitchSessionAction
+  | RefreshSessionsAction;
 
 // ============================================================
 // Helper functions

@@ -1,7 +1,8 @@
 import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
 import type { ModelInfo } from "@github/copilot-sdk";
-import type { HarnessEvent } from "../harness/events.js";
+import type { HarnessEvent, SessionInfo } from "../harness/events.js";
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
+import * as path from "path";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -31,6 +32,13 @@ export class CopilotSessionAdapter {
   private planWatcher: any = null;
   private workspacePath: string | null = null;
   private userInputHandler: UserInputHandler | null = null;
+  private _currentSessionId: string | null = null;
+  private _projectPrefix: string;
+
+  constructor() {
+    // Generate project prefix from current working directory
+    this._projectPrefix = path.basename(process.cwd()) + "-";
+  }
 
   onEvent(handler: AdapterEventHandler): void {
     this.eventHandler = handler;
@@ -46,6 +54,14 @@ export class CopilotSessionAdapter {
 
   get availableModels(): ModelDescription[] {
     return this._availableModels;
+  }
+
+  get currentSessionId(): string | null {
+    return this._currentSessionId;
+  }
+
+  get projectPrefix(): string {
+    return this._projectPrefix;
   }
 
   private emit(event: HarnessEvent): void {
@@ -69,7 +85,11 @@ export class CopilotSessionAdapter {
         name: m.name,
       }));
 
+      // Generate a project-scoped session ID
+      const sessionId = this._projectPrefix + Date.now().toString(36);
+      
       this.session = await this.client.createSession({
+        sessionId,
         streaming: true,
         model,
         onUserInputRequest: this.userInputHandler
@@ -79,6 +99,7 @@ export class CopilotSessionAdapter {
           : undefined,
       });
 
+      this._currentSessionId = sessionId;
       this._currentModel = model ?? this._availableModels[0]?.id ?? null;
       this.workspacePath = this.session.workspacePath ?? null;
 
@@ -531,7 +552,7 @@ export class CopilotSessionAdapter {
     });
   }
 
-  async sendPrompt(prompt: string, runId: string): Promise<void> {
+  async sendPrompt(prompt: string, runId: string, images?: string[]): Promise<void> {
     if (!this.session) {
       throw new Error("Session not initialized");
     }
@@ -545,8 +566,17 @@ export class CopilotSessionAdapter {
     this.isProcessing = true;
     this.hasEmittedContentForTurn = false;
 
+    // Build attachments from images
+    const attachments = images?.map((imagePath) => ({
+      type: "file" as const,
+      path: imagePath,
+    }));
+
     try {
-      await this.session.send({ prompt });
+      await this.session.send({ 
+        prompt, 
+        attachments: attachments && attachments.length > 0 ? attachments : undefined 
+      });
     } catch (error) {
       // Check if the error is due to an expired/invalid session
       const message = error instanceof Error ? error.message : String(error);
@@ -571,7 +601,10 @@ export class CopilotSessionAdapter {
         this.emit(createLogEvent("info", "Session renewed, retrying prompt...", runId));
         
         // Retry the prompt with the new session
-        await this.session!.send({ prompt });
+        await this.session!.send({ 
+          prompt, 
+          attachments: attachments && attachments.length > 0 ? attachments : undefined 
+        });
       } else {
         // Re-throw if it's not a session-related error
         throw error;
@@ -639,6 +672,11 @@ export class CopilotSessionAdapter {
       throw new Error("Cannot switch model while processing");
     }
 
+    const sessionId = this._currentSessionId;
+    if (!sessionId) {
+      throw new Error("No active session to switch model");
+    }
+
     if (this.session) {
       try {
         await this.session.destroy();
@@ -647,10 +685,26 @@ export class CopilotSessionAdapter {
       }
     }
 
-    this.session = await this.client.createSession({
-      streaming: true,
+    const sessionOpts = {
+      sessionId,
+      streaming: true as const,
       model: modelId,
-    });
+      onUserInputRequest: this.userInputHandler
+        ? async (request: any) => {
+            return this.userInputHandler!(request);
+          }
+        : undefined,
+    };
+
+    try {
+      this.session = await this.client.resumeSession(sessionId, {
+        streaming: true,
+        model: modelId,
+        onUserInputRequest: sessionOpts.onUserInputRequest,
+      });
+    } catch {
+      this.session = await this.client.createSession(sessionOpts);
+    }
 
     this._currentModel = modelId;
     this.setupSessionEventHandlers();
@@ -665,8 +719,8 @@ export class CopilotSessionAdapter {
     if (!this.workspacePath) return;
 
     const fs = require("fs");
-    const path = require("path");
-    const planPath = path.join(this.workspacePath, "plan.md");
+    const pathModule = require("path");
+    const planPath = pathModule.join(this.workspacePath, "plan.md");
 
     const readAndEmitPlan = () => {
       try {
@@ -695,6 +749,146 @@ export class CopilotSessionAdapter {
     } catch {
       // Directory doesn't exist or can't be watched
     }
+  }
+
+  async listSessions(): Promise<SessionInfo[]> {
+    if (!this.client) {
+      return [];
+    }
+
+    try {
+      const sessions = await this.client.listSessions();
+      
+      return sessions.map((s: any) => {
+        const isCurrentProject = s.sessionId.startsWith(this._projectPrefix);
+        
+        // Use summary if available, otherwise extract name from session ID
+        let name = s.summary || "";
+        if (!name) {
+          name = isCurrentProject 
+            ? s.sessionId.slice(this._projectPrefix.length)
+            : s.sessionId;
+        }
+        
+        return {
+          id: s.sessionId,
+          name,
+          createdAt: s.startTime ? new Date(s.startTime) : undefined,
+          lastUsedAt: s.modifiedTime ? new Date(s.modifiedTime) : undefined,
+          isCurrentProject,
+        };
+      });
+    } catch (error) {
+      this.emit(createLogEvent("error", `Failed to list sessions: ${error}`));
+      return [];
+    }
+  }
+
+  async createNewSession(): Promise<string> {
+    if (!this.client) {
+      throw new Error("Client not initialized");
+    }
+
+    if (this.isProcessing) {
+      throw new Error("Cannot create new session while processing");
+    }
+
+    // Clean up current session
+    if (this.session) {
+      try {
+        await this.session.destroy();
+      } catch {
+        // Ignore destroy errors
+      }
+    }
+
+    // Generate new project-scoped session ID
+    const sessionId = this._projectPrefix + Date.now().toString(36);
+
+    this.session = await this.client.createSession({
+      sessionId,
+      streaming: true,
+      model: this._currentModel ?? undefined,
+      onUserInputRequest: this.userInputHandler
+        ? async (request: any) => {
+            return this.userInputHandler!(request);
+          }
+        : undefined,
+    });
+
+    this._currentSessionId = sessionId;
+    this.workspacePath = this.session.workspacePath ?? null;
+    this.setupSessionEventHandlers();
+
+    if (this.workspacePath) {
+      this.setupPlanWatcher();
+    }
+
+    this.emit({
+      type: "session.created",
+      sessionId,
+      sessionName: sessionId.slice(this._projectPrefix.length),
+    });
+
+    return sessionId;
+  }
+
+  async switchToSession(sessionId: string): Promise<void> {
+    if (!this.client) {
+      throw new Error("Client not initialized");
+    }
+
+    if (this.isProcessing) {
+      throw new Error("Cannot switch session while processing");
+    }
+
+    // Clean up current session
+    if (this.planWatcher) {
+      try {
+        this.planWatcher.close();
+      } catch {
+        // Ignore
+      }
+      this.planWatcher = null;
+    }
+
+    if (this.session) {
+      try {
+        await this.session.destroy();
+      } catch {
+        // Ignore destroy errors
+      }
+    }
+
+    // Resume the target session
+    this.session = await this.client.resumeSession(sessionId, {
+      streaming: true,
+      model: this._currentModel ?? undefined,
+      onUserInputRequest: this.userInputHandler
+        ? async (request: any) => {
+            return this.userInputHandler!(request);
+          }
+        : undefined,
+    });
+
+    this._currentSessionId = sessionId;
+    this.workspacePath = this.session.workspacePath ?? null;
+    this.setupSessionEventHandlers();
+
+    if (this.workspacePath) {
+      this.setupPlanWatcher();
+    }
+
+    const isCurrentProject = sessionId.startsWith(this._projectPrefix);
+    const sessionName = isCurrentProject 
+      ? sessionId.slice(this._projectPrefix.length)
+      : sessionId;
+
+    this.emit({
+      type: "session.switched",
+      sessionId,
+      sessionName,
+    });
   }
 
   async shutdown(): Promise<void> {

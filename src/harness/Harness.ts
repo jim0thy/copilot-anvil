@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   HarnessEvent,
   LogEvent,
+  SessionInfo,
   TranscriptItem,
   UIAction,
 } from "./events.js";
@@ -84,6 +85,8 @@ export interface HarnessState {
   currentPlan: string | null;
   currentIntent: string | null;
   pendingQuestion: PendingQuestion | null;
+  currentSessionId: string | null;
+  availableSessions: SessionInfo[];
   contextInfo: {
     currentTokens: number;
     tokenLimit: number;
@@ -117,6 +120,8 @@ export class Harness {
     currentPlan: null,
     currentIntent: null,
     pendingQuestion: null,
+    currentSessionId: null,
+    availableSessions: [],
     contextInfo: {
       currentTokens: 0,
       tokenLimit: 0,
@@ -563,13 +568,50 @@ export class Harness {
           pendingQuestion: null,
         };
         break;
+
+      case "session.switched":
+        this.state = {
+          ...this.state,
+          currentSessionId: event.sessionId,
+          // Clear transcript when switching sessions (SDK restores conversation internally)
+          transcript: [],
+          streamingContent: "",
+          streamingReasoning: "",
+          activeTools: [],
+          currentIntent: null,
+          currentTodo: null,
+          currentPlan: null,
+        };
+        break;
+
+      case "session.created":
+        this.state = {
+          ...this.state,
+          currentSessionId: event.sessionId,
+          // Clear transcript for new session
+          transcript: [],
+          streamingContent: "",
+          streamingReasoning: "",
+          activeTools: [],
+          currentIntent: null,
+          currentTodo: null,
+          currentPlan: null,
+        };
+        break;
+
+      case "session.list.updated":
+        this.state = {
+          ...this.state,
+          availableSessions: event.sessions,
+        };
+        break;
     }
   }
 
   async dispatch(action: UIAction): Promise<void> {
     switch (action.type) {
       case "submit.prompt":
-        await this.handleSubmitPrompt(action.text);
+        await this.handleSubmitPrompt(action.text, action.images);
         break;
 
       case "cancel":
@@ -583,10 +625,22 @@ export class Harness {
       case "answer.question":
         this.handleAnswerQuestion(action.requestId, action.answer, action.wasFreeform);
         break;
+
+      case "session.new":
+        await this.handleNewSession();
+        break;
+
+      case "session.switch":
+        await this.handleSwitchSession(action.sessionId);
+        break;
+
+      case "session.refresh":
+        await this.handleRefreshSessions();
+        break;
     }
   }
 
-  private async handleSubmitPrompt(text: string): Promise<void> {
+  private async handleSubmitPrompt(text: string, images?: string[]): Promise<void> {
     if (this.state.status === "running") {
       this.state = {
         ...this.state,
@@ -616,16 +670,16 @@ export class Harness {
           this.emit(
             createLogEvent("info", `Invoking command: /${parsed.name}`)
           );
-          await this.executePrompt(enhancedPrompt, text);
+          await this.executePrompt(enhancedPrompt, text, images);
           return;
         }
       }
     }
 
-    await this.executePrompt(text);
+    await this.executePrompt(text, undefined, images);
   }
 
-  private async executePrompt(text: string, displayText?: string): Promise<void> {
+  private async executePrompt(text: string, displayText?: string, images?: string[]): Promise<void> {
     const runId = generateId();
 
     const userMessage = createUserMessage(displayText ?? text);
@@ -643,7 +697,7 @@ export class Harness {
     this.emit(createLogEvent("info", `Run started: ${runId}`, runId));
 
     try {
-      await this.adapter!.sendPrompt(text, runId);
+      await this.adapter!.sendPrompt(text, runId, images);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -698,6 +752,7 @@ export class Harness {
         ...this.state,
         currentModel: this.adapter.currentModel,
         availableModels: this.adapter.availableModels,
+        currentSessionId: this.adapter.currentSessionId,
       };
       
       this.emit(createLogEvent("info", "Copilot session ready"));
@@ -705,6 +760,9 @@ export class Harness {
       if (this.adapter.currentModel) {
         this.emit(createLogEvent("info", `Using model: ${this.adapter.currentModel}`));
       }
+
+      // Load available sessions
+      await this.handleRefreshSessions();
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -731,6 +789,7 @@ export class Harness {
       
       this.state = {
         ...this.state,
+        currentModel: this.adapter.currentModel,
         availableModels: this.adapter.availableModels,
       };
       
@@ -791,6 +850,112 @@ export class Harness {
     return new Promise((resolve) => {
       this.questionResolvers.set(requestId, resolve);
     });
+  }
+
+  private async handleNewSession(): Promise<void> {
+    if (this.state.status === "running") {
+      this.emit(createLogEvent("warn", "Cannot create new session while a run is in progress"));
+      return;
+    }
+
+    if (!this.adapter) {
+      this.emit(createLogEvent("error", "Copilot adapter not initialized"));
+      return;
+    }
+
+    this.emit(createLogEvent("info", "Creating new session..."));
+
+    try {
+      const sessionId = await this.adapter.createNewSession();
+      
+      // Reset state for new session: clear transcript, context info, and related state
+      this.state = {
+        ...this.state,
+        currentSessionId: sessionId,
+        transcript: [],
+        currentTodo: null,
+        currentPlan: null,
+        currentIntent: null,
+        contextInfo: {
+          currentTokens: 0,
+          tokenLimit: 0,
+          conversationLength: 0,
+          remainingPremiumRequests: this.state.contextInfo.remainingPremiumRequests,
+          consumedRequests: this.state.contextInfo.consumedRequests,
+        },
+      };
+
+      await this.handleRefreshSessions();
+      
+      this.emit(createLogEvent("info", `New session created: ${sessionId}`));
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.emit(createLogEvent("error", `Failed to create session: ${errorMessage}`));
+    }
+  }
+
+  private async handleSwitchSession(sessionId: string): Promise<void> {
+    if (this.state.status === "running") {
+      this.emit(createLogEvent("warn", "Cannot switch session while a run is in progress"));
+      return;
+    }
+
+    if (!this.adapter) {
+      this.emit(createLogEvent("error", "Copilot adapter not initialized"));
+      return;
+    }
+
+    if (sessionId === this.state.currentSessionId) {
+      return;
+    }
+
+    this.emit(createLogEvent("info", `Switching to session: ${sessionId}...`));
+
+    try {
+      await this.adapter.switchToSession(sessionId);
+      
+      // Reset state when switching sessions: clear transcript and context info
+      // The SDK will emit usage.info with the correct values for the resumed session
+      this.state = {
+        ...this.state,
+        currentSessionId: sessionId,
+        transcript: [],
+        currentTodo: null,
+        currentPlan: null,
+        currentIntent: null,
+        contextInfo: {
+          currentTokens: 0,
+          tokenLimit: 0,
+          conversationLength: 0,
+          remainingPremiumRequests: this.state.contextInfo.remainingPremiumRequests,
+          consumedRequests: this.state.contextInfo.consumedRequests,
+        },
+      };
+
+      this.emit(createLogEvent("info", `Switched to session: ${sessionId}`));
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.emit(createLogEvent("error", `Failed to switch session: ${errorMessage}`));
+    }
+  }
+
+  private async handleRefreshSessions(): Promise<void> {
+    if (!this.adapter) {
+      return;
+    }
+
+    try {
+      const sessions = await this.adapter.listSessions();
+      
+      this.emit({
+        type: "session.list.updated",
+        sessions,
+      });
+    } catch (error) {
+      this.emit(createLogEvent("error", `Failed to load sessions: ${error}`));
+    }
   }
 
   async shutdown(): Promise<void> {
