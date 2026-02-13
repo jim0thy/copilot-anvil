@@ -52,8 +52,9 @@ export const ContextPane = memo(function ContextPane({
         </text>
         <box flexDirection="row" gap={2}>
           <text>
-            <span fg={theme.colors.muted}>Requests: </span>
+            <span fg={theme.colors.muted}>Session: </span>
             <span fg={theme.colors.info}><b>{consumedRequests}</b></span>
+            <span fg={theme.colors.muted}> premium</span>
           </text>
           <text fg={theme.colors.muted}>│</text>
           <text>
@@ -61,12 +62,13 @@ export const ContextPane = memo(function ContextPane({
             <span fg={theme.colors.accent}>
               <b>{remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}</b>
             </span>
+            <span fg={theme.colors.muted}> premium</span>
           </text>
         </box>
       </box>
 
-      {/* Token usage display */}
-      <box flexDirection="column" gap={1} marginTop={1}>
+      {/* Token usage display with progress bar on same line as percentage */}
+      <box flexDirection="column" marginTop={1}>
         <box flexDirection="row" justifyContent="space-between" alignItems="center">
           <text>
             <span fg={theme.colors.info}><b>{currentTokens.toLocaleString()}</b></span>
@@ -74,12 +76,10 @@ export const ContextPane = memo(function ContextPane({
             <span fg={theme.colors.muted}>{tokenLimit.toLocaleString()}</span>
             <span fg={theme.colors.muted}> tokens</span>
           </text>
-          <text fg={percentColor}><b>{contextPercent}%</b></text>
-        </box>
-
-        {/* Progress bar */}
-        <box>
-          <text fg={percentColor}>{progressBar}</text>
+          <text>
+            <span fg={percentColor}>{progressBar}</span>
+            <span fg={percentColor}> <b>{contextPercent}%</b></span>
+          </text>
         </box>
       </box>
     </box>
