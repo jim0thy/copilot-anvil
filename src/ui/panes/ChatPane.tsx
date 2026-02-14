@@ -4,6 +4,7 @@ import { memo } from "react";
 import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
 import { getSyntaxStyle } from "../syntaxTheme.js";
+import { formatRole, getRoleColor, formatDuration } from "../formatters.js";
 
 // Singleton tree-sitter client for syntax highlighting
 const treeSitterClient = getTreeSitterClient();
@@ -27,39 +28,6 @@ interface ChatPaneProps {
   isStreaming: boolean;
   height: number;
   theme: Theme;
-}
-
-function formatRole(role: ChatMessage["role"]): string {
-  switch (role) {
-    case "user":
-      return "You";
-    case "assistant":
-      return "Assistant";
-    case "tool":
-      return "Tool";
-    case "system":
-      return "System";
-  }
-}
-
-function getRoleColor(role: ChatMessage["role"], theme: Theme): string {
-  const c = theme.colors;
-  switch (role) {
-    case "user":
-      return c.info;
-    case "assistant":
-      return c.secondary;
-    case "tool":
-      return c.warning;
-    case "system":
-      return c.subtle;
-  }
-}
-
-function formatDuration(startedAt: Date, completedAt?: Date): string {
-  const end = completedAt || new Date();
-  const duration = end.getTime() - startedAt.getTime();
-  return duration > 1000 ? `${(duration / 1000).toFixed(1)}s` : `${duration}ms`;
 }
 
 function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boolean {

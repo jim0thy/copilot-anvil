@@ -157,6 +157,28 @@ export class Harness {
     this.commandRegistry = new CommandRegistry();
   }
 
+  /** Common state subset cleared at the end of every run or session switch. */
+  private resetRunState(): Partial<HarnessState> {
+    return {
+      streamingContent: "",
+      streamingReasoning: "",
+      currentIntent: null,
+      currentTodo: null,
+      currentPlan: null,
+    };
+  }
+
+  /** Fresh context info preserving request counts across session switches. */
+  private freshContextInfo(): HarnessState["contextInfo"] {
+    return {
+      currentTokens: 0,
+      tokenLimit: 0,
+      conversationLength: 0,
+      remainingPremiumRequests: this.state.contextInfo.remainingPremiumRequests,
+      consumedRequests: this.state.contextInfo.consumedRequests,
+    };
+  }
+
   setAdapter(adapter: CopilotSessionAdapter): void {
     this.adapter = adapter;
     
@@ -230,11 +252,7 @@ export class Harness {
           ...this.state,
           status: "running",
           currentRunId: event.runId,
-          streamingContent: "",
-          streamingReasoning: "",
-          currentIntent: null,
-          currentTodo: null,
-          currentPlan: null,
+          ...this.resetRunState(),
         };
         break;
 
@@ -284,11 +302,7 @@ export class Harness {
           ...this.state,
           status: "idle",
           currentRunId: null,
-          streamingContent: "",
-          streamingReasoning: "",
-          currentIntent: null,
-          currentTodo: null,
-          currentPlan: null,
+          ...this.resetRunState(),
         };
         break;
 
@@ -309,11 +323,7 @@ export class Harness {
           status: "idle",
           currentRunId: null,
           transcript: newTranscript,
-          streamingContent: "",
-          streamingReasoning: "",
-          currentIntent: null,
-          currentTodo: null,
-          currentPlan: null,
+          ...this.resetRunState(),
           contextInfo: {
             ...this.state.contextInfo,
             consumedRequests: this.state.contextInfo.consumedRequests + 1,
@@ -615,12 +625,8 @@ export class Harness {
           ...this.state,
           currentSessionId: event.sessionId,
           transcript: event.transcript ?? [],
-          streamingContent: "",
-          streamingReasoning: "",
           activeTools: [],
-          currentIntent: null,
-          currentTodo: null,
-          currentPlan: null,
+          ...this.resetRunState(),
         };
         break;
 
@@ -629,14 +635,9 @@ export class Harness {
         this.state = {
           ...this.state,
           currentSessionId: event.sessionId,
-          // Clear transcript for new session
           transcript: [],
-          streamingContent: "",
-          streamingReasoning: "",
           activeTools: [],
-          currentIntent: null,
-          currentTodo: null,
-          currentPlan: null,
+          ...this.resetRunState(),
         };
         break;
 
@@ -1008,16 +1009,8 @@ export class Harness {
         ...this.state,
         currentSessionId: sessionId,
         transcript: [],
-        currentTodo: null,
-        currentPlan: null,
-        currentIntent: null,
-        contextInfo: {
-          currentTokens: 0,
-          tokenLimit: 0,
-          conversationLength: 0,
-          remainingPremiumRequests: this.state.contextInfo.remainingPremiumRequests,
-          consumedRequests: this.state.contextInfo.consumedRequests,
-        },
+        ...this.resetRunState(),
+        contextInfo: this.freshContextInfo(),
       };
 
       await this.handleRefreshSessions();
@@ -1055,16 +1048,8 @@ export class Harness {
       this.state = {
         ...this.state,
         currentSessionId: sessionId,
-        currentTodo: null,
-        currentPlan: null,
-        currentIntent: null,
-        contextInfo: {
-          currentTokens: 0,
-          tokenLimit: 0,
-          conversationLength: 0,
-          remainingPremiumRequests: this.state.contextInfo.remainingPremiumRequests,
-          consumedRequests: this.state.contextInfo.consumedRequests,
-        },
+        ...this.resetRunState(),
+        contextInfo: this.freshContextInfo(),
       };
 
       this.emit(createLogEvent("info", `Switched to session: ${sessionId}`));

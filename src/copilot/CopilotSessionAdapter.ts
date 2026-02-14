@@ -3,6 +3,7 @@ import type { ModelInfo, SessionEvent } from "@github/copilot-sdk";
 import type { HarnessEvent, SessionInfo, TranscriptItem, ChatMessage, ToolCallItem } from "../harness/events.js";
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 import * as path from "path";
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -13,6 +14,32 @@ export type UserInputHandler = (
 export interface ModelDescription {
   id: string;
   name: string;
+}
+
+// ── Static helpers ───────────────────────────────────────────────
+
+/** Try to JSON-parse a string argument; return the original value on failure. */
+function parseToolArgs(args: unknown): unknown {
+  if (typeof args === "string") {
+    try {
+      return JSON.parse(args);
+    } catch {
+      return args;
+    }
+  }
+  return args;
+}
+
+/** Extract a human-readable output string from a tool execution result. */
+function extractToolOutput(result: unknown): string | undefined {
+  if (!result) return undefined;
+  if (typeof result === "string") return result;
+  if (typeof result === "object" && result !== null) {
+    const obj = result as Record<string, unknown>;
+    if (typeof obj.textResultForLlm === "string") return obj.textResultForLlm;
+    if (typeof obj.sessionLog === "string") return obj.sessionLog;
+  }
+  return undefined;
 }
 
 export class CopilotSessionAdapter {
@@ -29,16 +56,17 @@ export class CopilotSessionAdapter {
   private _currentModel: string | null = null;
   private _availableModels: ModelDescription[] = [];
   private hasEmittedContentForTurn = false;
-  private planWatcher: any = null;
+  private planWatcher: FSWatcher | null = null;
   private workspacePath: string | null = null;
   private userInputHandler: UserInputHandler | null = null;
   private _currentSessionId: string | null = null;
   private _projectPrefix: string;
 
   constructor() {
-    // Generate project prefix from current working directory
     this._projectPrefix = path.basename(process.cwd()) + "-";
   }
+
+  // ── Public accessors ─────────────────────────────────────────
 
   onEvent(handler: AdapterEventHandler): void {
     this.eventHandler = handler;
@@ -64,11 +92,58 @@ export class CopilotSessionAdapter {
     return this._projectPrefix;
   }
 
+  // ── Internal helpers ─────────────────────────────────────────
+
   private emit(event: HarnessEvent): void {
-    if (this.eventHandler) {
-      this.eventHandler(event);
+    this.eventHandler?.(event);
+  }
+
+  /** Returns true when an event should be discarded (cancelled, not processing, or stale generation). */
+  private isEventStale(gen: number): boolean {
+    return this.isCancelled || !this.isProcessing || gen !== this.expectedRunGeneration;
+  }
+
+  /** Reset streaming / reasoning buffers and the content-emitted flag. */
+  private resetStreamingState(): void {
+    this.streamingBuffer = "";
+    this.reasoningBuffer = "";
+    this.hasEmittedContentForTurn = false;
+  }
+
+  /** Tear down the current session and its plan watcher. Does not throw. */
+  private async teardownSession(): Promise<void> {
+    if (this.planWatcher) {
+      try { this.planWatcher.close(); } catch { /* ignore */ }
+      this.planWatcher = null;
+    }
+    if (this.session) {
+      try { await this.session.destroy(); } catch { /* ignore */ }
     }
   }
+
+  /** Wire up a newly created/resumed session: extract workspace, register handlers, start plan watcher. */
+  private activateSession(session: CopilotSession): void {
+    this.session = session;
+    this.workspacePath = session.workspacePath ?? null;
+    this.setupSessionEventHandlers();
+    if (this.workspacePath) {
+      this.setupPlanWatcher();
+    }
+  }
+
+  /** Build the `onUserInputRequest` callback suitable for SDK session options. */
+  private getUserInputCallback(): ((request: any) => Promise<{ answer: string; wasFreeform: boolean }>) | undefined {
+    return this.userInputHandler
+      ? async (request: any) => this.userInputHandler!(request)
+      : undefined;
+  }
+
+  /** Generate a new project-scoped session ID. */
+  private generateSessionId(): string {
+    return this._projectPrefix + Date.now().toString(36);
+  }
+
+  // ── Lifecycle ────────────────────────────────────────────────
 
   async initialize(model?: string): Promise<void> {
     try {
@@ -85,34 +160,22 @@ export class CopilotSessionAdapter {
         name: m.name,
       }));
 
-      // Generate a project-scoped session ID
-      const sessionId = this._projectPrefix + Date.now().toString(36);
-      
-      this.session = await this.client.createSession({
+      const sessionId = this.generateSessionId();
+
+      const session = await this.client.createSession({
         sessionId,
         streaming: true,
         model,
-        onUserInputRequest: this.userInputHandler
-          ? async (request: any) => {
-              return this.userInputHandler!(request);
-            }
-          : undefined,
+        onUserInputRequest: this.getUserInputCallback(),
       });
 
       this._currentSessionId = sessionId;
       this._currentModel = model ?? this._availableModels[0]?.id ?? null;
-      this.workspacePath = this.session.workspacePath ?? null;
-
-      this.setupSessionEventHandlers();
-      
-      // Setup plan.md watcher if workspace exists
-      if (this.workspacePath) {
-        this.setupPlanWatcher();
-      }
+      this.activateSession(session);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const lowerMessage = message.toLowerCase();
-      
+
       if (lowerMessage.includes("enoent") || lowerMessage.includes("spawn")) {
         throw new Error(
           "Copilot CLI not found. Please install GitHub Copilot CLI:\n" +
@@ -121,8 +184,8 @@ export class CopilotSessionAdapter {
             "  github-copilot-cli auth"
         );
       }
-      
-      if (lowerMessage.includes("auth") || lowerMessage.includes("unauthorized") || 
+
+      if (lowerMessage.includes("auth") || lowerMessage.includes("unauthorized") ||
           lowerMessage.includes("401") || lowerMessage.includes("not logged in") ||
           lowerMessage.includes("token")) {
         throw new Error(
@@ -130,10 +193,12 @@ export class CopilotSessionAdapter {
             "  github-copilot-cli auth"
         );
       }
-      
+
       throw error;
     }
   }
+
+  // ── Session event translation ────────────────────────────────
 
   private setupSessionEventHandlers(): void {
     if (!this.session) return;
@@ -143,14 +208,9 @@ export class CopilotSessionAdapter {
 
       switch (event.type) {
         case "assistant.turn_start": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
-          // Reset per-turn state
-          this.streamingBuffer = "";
-          this.reasoningBuffer = "";
-          this.hasEmittedContentForTurn = false;
+          this.resetStreamingState();
 
           if (this.currentRunId) {
             this.emit({
@@ -163,9 +223,7 @@ export class CopilotSessionAdapter {
         }
 
         case "assistant.message_delta": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
           const deltaContent = event.data?.deltaContent ?? "";
           if (!deltaContent) return;
@@ -183,45 +241,32 @@ export class CopilotSessionAdapter {
         }
 
         case "assistant.message": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
-          // The SDK fires assistant.message at the end of each LLM call.
-          // It may contain content, toolRequests, or both.
-          // We use the content from this event if available, otherwise
-          // fall back to the streaming buffer.
           const content = event.data?.content ?? "";
           const resolvedContent = content || this.streamingBuffer;
 
           if (resolvedContent && this.currentRunId) {
-            const message = createAssistantMessage(resolvedContent);
             this.emit({
               type: "assistant.message",
               runId: this.currentRunId,
-              message,
+              message: createAssistantMessage(resolvedContent),
             });
             this.hasEmittedContentForTurn = true;
           }
 
-          // Reset streaming buffer after emitting (ready for next turn)
           this.streamingBuffer = "";
           break;
         }
 
         case "assistant.turn_end": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
-          // If there's leftover streaming content that wasn't captured
-          // by an assistant.message event, emit it now
           if (!this.hasEmittedContentForTurn && this.streamingBuffer && this.currentRunId) {
-            const message = createAssistantMessage(this.streamingBuffer);
             this.emit({
               type: "assistant.message",
               runId: this.currentRunId,
-              message,
+              message: createAssistantMessage(this.streamingBuffer),
             });
           }
 
@@ -233,48 +278,26 @@ export class CopilotSessionAdapter {
             });
           }
 
-          // Reset for next turn
-          this.streamingBuffer = "";
-          this.reasoningBuffer = "";
-          this.hasEmittedContentForTurn = false;
+          this.resetStreamingState();
           break;
         }
 
         case "tool.execution_start": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
           const toolName = event.data?.toolName;
-          let args = event.data?.arguments;
-
-          // Parse args if they're a JSON string
-          if (typeof args === "string") {
-            try {
-              args = JSON.parse(args);
-            } catch {
-              // Not valid JSON, keep as string
-            }
-          }
+          const args = parseToolArgs(event.data?.arguments);
 
           // Handle special tool calls
           if (toolName === "report_intent" && args && typeof args === "object") {
             const intentArg = (args as any).intent;
             if (intentArg && this.currentRunId) {
-              this.emit({
-                type: "intent.updated",
-                runId: this.currentRunId,
-                intent: intentArg,
-              });
+              this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg });
             }
           } else if (toolName === "update_todo" && args && typeof args === "object") {
             const todosArg = (args as any).todos;
             if (todosArg && this.currentRunId) {
-              this.emit({
-                type: "todo.updated",
-                runId: this.currentRunId,
-                todos: todosArg,
-              });
+              this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todosArg });
             }
           }
 
@@ -291,25 +314,17 @@ export class CopilotSessionAdapter {
         }
 
         case "assistant.intent": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
           const intent = event.data?.intent;
           if (intent && this.currentRunId) {
-            this.emit({
-              type: "intent.updated",
-              runId: this.currentRunId,
-              intent,
-            });
+            this.emit({ type: "intent.updated", runId: this.currentRunId, intent });
           }
           break;
         }
 
         case "tool.execution_progress": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
           if (this.currentRunId) {
             this.emit({
@@ -323,32 +338,15 @@ export class CopilotSessionAdapter {
         }
 
         case "tool.execution_complete": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
           if (this.currentRunId) {
-            let output: string | undefined;
-            const result = event.data?.result;
-            if (result) {
-              if (typeof result === "string") {
-                output = result;
-              } else if (typeof result === "object" && result !== null) {
-                const resultObj = result as Record<string, unknown>;
-                if (typeof resultObj.textResultForLlm === "string") {
-                  output = resultObj.textResultForLlm;
-                } else if (typeof resultObj.sessionLog === "string") {
-                  output = resultObj.sessionLog;
-                }
-              }
-            }
-
             this.emit({
               type: "tool.completed",
               runId: this.currentRunId,
               toolCallId: event.data?.toolCallId ?? "",
               success: event.data?.success ?? false,
-              output,
+              output: extractToolOutput(event.data?.result),
               error: event.data?.error?.message,
             });
           }
@@ -356,12 +354,9 @@ export class CopilotSessionAdapter {
         }
 
         case "assistant.reasoning_delta": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
           const reasoningDelta = event.data?.deltaContent ?? "";
-          const reasoningId = event.data?.reasoningId ?? "";
           if (!reasoningDelta) return;
 
           this.reasoningBuffer += reasoningDelta;
@@ -370,7 +365,7 @@ export class CopilotSessionAdapter {
             this.emit({
               type: "reasoning.delta",
               runId: this.currentRunId,
-              reasoningId,
+              reasoningId: event.data?.reasoningId ?? "",
               text: reasoningDelta,
             });
           }
@@ -378,18 +373,14 @@ export class CopilotSessionAdapter {
         }
 
         case "assistant.reasoning": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
+          if (this.isEventStale(gen)) return;
 
           const reasoningContent = event.data?.content ?? "";
-          const rId = event.data?.reasoningId ?? "";
-
           if (this.currentRunId && reasoningContent) {
             this.emit({
               type: "reasoning.message",
               runId: this.currentRunId,
-              reasoningId: rId,
+              reasoningId: event.data?.reasoningId ?? "",
               content: reasoningContent,
             });
           }
@@ -402,51 +393,34 @@ export class CopilotSessionAdapter {
           if (this.currentRunId) {
             const runId = this.currentRunId;
 
-            // Emit any remaining streaming content that wasn't captured by turn events.
-            // Guard with hasEmittedContentForTurn to avoid duplicating content
-            // that was already flushed by assistant.message or turn_end handlers.
             if (this.streamingBuffer && !this.hasEmittedContentForTurn) {
-              const message = createAssistantMessage(this.streamingBuffer);
               this.emit({
                 type: "assistant.message",
                 runId,
-                message,
+                message: createAssistantMessage(this.streamingBuffer),
               });
             }
 
-            this.emit({
-              type: "run.finished",
-              runId,
-              createdAt: new Date(),
-            });
+            this.emit({ type: "run.finished", runId, createdAt: new Date() });
+            this.emit(createLogEvent("info", "Response complete", runId));
 
-            this.emit(
-              createLogEvent("info", "Response complete", runId)
-            );
-
-            this.streamingBuffer = "";
-            this.reasoningBuffer = "";
+            this.resetStreamingState();
             this.currentRunId = null;
             this.isProcessing = false;
-            this.hasEmittedContentForTurn = false;
           }
           break;
         }
 
         case "session.error": {
-          const errorMsg = event.data?.message || "Unknown session error";
           this.emit(
-            createLogEvent("error", `Session error: ${errorMsg}`, this.currentRunId)
+            createLogEvent("error", `Session error: ${event.data?.message || "Unknown session error"}`, this.currentRunId)
           );
           break;
         }
 
         case "session.model_change": {
           this._currentModel = event.data?.newModel ?? null;
-          this.emit({
-            type: "model.changed",
-            model: this._currentModel,
-          });
+          this.emit({ type: "model.changed", model: this._currentModel });
           break;
         }
 
@@ -461,19 +435,16 @@ export class CopilotSessionAdapter {
         }
 
         case "assistant.usage": {
-          // Extract remaining premium requests from quota snapshots if available
           const quotaSnapshots = event.data?.quotaSnapshots;
           let remainingPremiumRequests: number | null = null;
-          
+
           if (quotaSnapshots && Object.keys(quotaSnapshots).length > 0) {
             for (const [, quota] of Object.entries(quotaSnapshots)) {
-              // Use SDK-reported remaining if available
               remainingPremiumRequests = Math.max(0, quota.entitlementRequests - quota.usedRequests);
               break;
             }
           }
-          
-          // Emit remaining quota info (consumedRequests tracked by harness)
+
           this.emit({
             type: "quota.info",
             remainingPremiumRequests,
@@ -483,10 +454,7 @@ export class CopilotSessionAdapter {
         }
 
         case "subagent.started": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
-
+          if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             this.emit({
               type: "subagent.started",
@@ -501,10 +469,7 @@ export class CopilotSessionAdapter {
         }
 
         case "subagent.completed": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
-
+          if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             this.emit({
               type: "subagent.completed",
@@ -517,10 +482,7 @@ export class CopilotSessionAdapter {
         }
 
         case "subagent.failed": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
-
+          if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             this.emit({
               type: "subagent.failed",
@@ -534,10 +496,7 @@ export class CopilotSessionAdapter {
         }
 
         case "skill.invoked": {
-          if (this.isCancelled) return;
-          if (!this.isProcessing) return;
-          if (gen !== this.expectedRunGeneration) return;
-
+          if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             this.emit({
               type: "skill.invoked",
@@ -552,6 +511,8 @@ export class CopilotSessionAdapter {
     });
   }
 
+  // ── Prompt execution ─────────────────────────────────────────
+
   async sendPrompt(prompt: string, runId: string, images?: string[]): Promise<void> {
     if (!this.session) {
       throw new Error("Session not initialized");
@@ -560,53 +521,41 @@ export class CopilotSessionAdapter {
     this.expectedRunGeneration++;
     this.currentRunGeneration = this.expectedRunGeneration;
     this.currentRunId = runId;
-    this.streamingBuffer = "";
-    this.reasoningBuffer = "";
     this.isCancelled = false;
     this.isProcessing = true;
-    this.hasEmittedContentForTurn = false;
+    this.resetStreamingState();
 
-    // Build attachments from images
     const attachments = images?.map((imagePath) => ({
       type: "file" as const,
       path: imagePath,
     }));
+    const sendPayload = {
+      prompt,
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
+    };
 
     try {
-      await this.session.send({ 
-        prompt, 
-        attachments: attachments && attachments.length > 0 ? attachments : undefined 
-      });
+      await this.session.send(sendPayload);
     } catch (error) {
-      // Check if the error is due to an expired/invalid session
       const message = error instanceof Error ? error.message : String(error);
       const lowerMessage = message.toLowerCase();
-      
-      if (lowerMessage.includes("session") || 
+
+      if (lowerMessage.includes("session") ||
           lowerMessage.includes("expired") ||
           lowerMessage.includes("invalid") ||
           lowerMessage.includes("closed") ||
           lowerMessage.includes("terminated")) {
-        // Attempt to renew the session
         this.emit(createLogEvent("warn", "Session expired, renewing...", runId));
         await this.renewSession();
-        
-        // Bump generation to invalidate any stale events from the old session
+
+        // Bump generation to invalidate stale events from the old session
         this.expectedRunGeneration++;
         this.currentRunGeneration = this.expectedRunGeneration;
-        this.streamingBuffer = "";
-        this.reasoningBuffer = "";
-        this.hasEmittedContentForTurn = false;
+        this.resetStreamingState();
 
         this.emit(createLogEvent("info", "Session renewed, retrying prompt...", runId));
-        
-        // Retry the prompt with the new session
-        await this.session!.send({ 
-          prompt, 
-          attachments: attachments && attachments.length > 0 ? attachments : undefined 
-        });
+        await this.session!.send(sendPayload);
       } else {
-        // Re-throw if it's not a session-related error
         throw error;
       }
     }
@@ -618,186 +567,157 @@ export class CopilotSessionAdapter {
     this.isCancelled = true;
     this.isProcessing = false;
     this.expectedRunGeneration++;
-    
+
     if (this.session) {
-      try {
-        await this.session.abort();
-      } catch {
-        // Best-effort abort
-      }
+      try { await this.session.abort(); } catch { /* best-effort */ }
     }
 
-    this.streamingBuffer = "";
-    this.reasoningBuffer = "";
+    this.resetStreamingState();
     this.currentRunId = null;
 
     if (runId) {
-      this.emit({
-        type: "run.cancelled",
-        runId,
-        createdAt: new Date(),
-      });
+      this.emit({ type: "run.cancelled", runId, createdAt: new Date() });
     }
   }
 
+  // ── Session management ───────────────────────────────────────
+
   private async renewSession(): Promise<void> {
-    if (!this.client) {
-      throw new Error("Client not initialized");
-    }
+    if (!this.client) throw new Error("Client not initialized");
 
-    const currentModel = this._currentModel;
+    await this.teardownSession();
 
-    if (this.planWatcher) {
-      try {
-        this.planWatcher.close();
-      } catch {
-        // Ignore
-      }
-      this.planWatcher = null;
-    }
-
-    if (this.session) {
-      try {
-        await this.session.destroy();
-      } catch {
-        // Ignore destroy errors
-      }
-    }
-
-    this.session = await this.client.createSession({
+    const session = await this.client.createSession({
       streaming: true,
-      model: currentModel ?? undefined,
+      model: this._currentModel ?? undefined,
     });
 
-    this.workspacePath = this.session.workspacePath ?? null;
-    this.setupSessionEventHandlers();
-
-    if (this.workspacePath) {
-      this.setupPlanWatcher();
-    }
+    this.activateSession(session);
   }
 
   async switchModel(modelId: string): Promise<void> {
-    if (!this.client) {
-      throw new Error("Client not initialized");
-    }
-
-    if (this.isProcessing) {
-      throw new Error("Cannot switch model while processing");
-    }
+    if (!this.client) throw new Error("Client not initialized");
+    if (this.isProcessing) throw new Error("Cannot switch model while processing");
 
     const sessionId = this._currentSessionId;
-    if (!sessionId) {
-      throw new Error("No active session to switch model");
-    }
+    if (!sessionId) throw new Error("No active session to switch model");
 
-    if (this.planWatcher) {
-      try {
-        this.planWatcher.close();
-      } catch {
-        // Ignore
-      }
-      this.planWatcher = null;
-    }
+    await this.teardownSession();
 
-    if (this.session) {
-      try {
-        await this.session.destroy();
-      } catch {
-        // Ignore destroy errors
-      }
-    }
-
-    const sessionOpts = {
-      sessionId,
+    const opts = {
       streaming: true as const,
       model: modelId,
-      onUserInputRequest: this.userInputHandler
-        ? async (request: any) => {
-            return this.userInputHandler!(request);
-          }
-        : undefined,
+      onUserInputRequest: this.getUserInputCallback(),
     };
 
     try {
-      this.session = await this.client.resumeSession(sessionId, {
-        streaming: true,
-        model: modelId,
-        onUserInputRequest: sessionOpts.onUserInputRequest,
-      });
+      this.session = await this.client.resumeSession(sessionId, opts);
     } catch {
-      this.session = await this.client.createSession(sessionOpts);
+      this.session = await this.client.createSession({ sessionId, ...opts });
     }
 
     this._currentModel = modelId;
+    // activateSession would overwrite this.session, so just do the post-setup directly
     this.workspacePath = this.session.workspacePath ?? null;
     this.setupSessionEventHandlers();
+    if (this.workspacePath) this.setupPlanWatcher();
 
-    if (this.workspacePath) {
-      this.setupPlanWatcher();
-    }
+    this.emit({ type: "model.changed", model: modelId });
+  }
+
+  async createNewSession(): Promise<string> {
+    if (!this.client) throw new Error("Client not initialized");
+    if (this.isProcessing) throw new Error("Cannot create new session while processing");
+
+    await this.teardownSession();
+
+    const sessionId = this.generateSessionId();
+
+    const session = await this.client.createSession({
+      sessionId,
+      streaming: true,
+      model: this._currentModel ?? undefined,
+      onUserInputRequest: this.getUserInputCallback(),
+    });
+
+    this._currentSessionId = sessionId;
+    this.activateSession(session);
 
     this.emit({
-      type: "model.changed",
-      model: modelId,
+      type: "session.created",
+      sessionId,
+      sessionName: sessionId.slice(this._projectPrefix.length),
+    });
+
+    return sessionId;
+  }
+
+  async switchToSession(sessionId: string): Promise<void> {
+    if (!this.client) throw new Error("Client not initialized");
+    if (this.isProcessing) throw new Error("Cannot switch session while processing");
+
+    await this.teardownSession();
+
+    const session = await this.client.resumeSession(sessionId, {
+      streaming: true,
+      model: this._currentModel ?? undefined,
+      onUserInputRequest: this.getUserInputCallback(),
+    });
+
+    this._currentSessionId = sessionId;
+    this.activateSession(session);
+
+    const isCurrentProject = sessionId.startsWith(this._projectPrefix);
+    this.emit({
+      type: "session.switched",
+      sessionId,
+      sessionName: isCurrentProject ? sessionId.slice(this._projectPrefix.length) : sessionId,
+      transcript: await this.getSessionHistory(),
     });
   }
+
+  // ── Plan watcher ─────────────────────────────────────────────
 
   private setupPlanWatcher(): void {
     if (!this.workspacePath) return;
 
-    const fs = require("fs");
-    const pathModule = require("path");
-    const planPath = pathModule.join(this.workspacePath, "plan.md");
+    const planPath = path.join(this.workspacePath, "plan.md");
 
     const readAndEmitPlan = () => {
       try {
-        if (fs.existsSync(planPath)) {
-          const content = fs.readFileSync(planPath, "utf-8");
-          this.emit({
-            type: "plan.updated",
-            content,
-          });
+        if (existsSync(planPath)) {
+          this.emit({ type: "plan.updated", content: readFileSync(planPath, "utf-8") });
         }
       } catch {
         // Ignore errors
       }
     };
 
-    // Read initial plan if it exists
     readAndEmitPlan();
 
-    // Watch the directory for plan.md creation/changes
     try {
-      this.planWatcher = fs.watch(this.workspacePath, (eventType: string, filename: string) => {
-        if (filename === "plan.md") {
-          readAndEmitPlan();
-        }
+      this.planWatcher = watch(this.workspacePath, (_eventType: string, filename: string | null) => {
+        if (filename === "plan.md") readAndEmitPlan();
       });
     } catch {
       // Directory doesn't exist or can't be watched
     }
   }
 
+  // ── Session history ──────────────────────────────────────────
+
   async listSessions(): Promise<SessionInfo[]> {
-    if (!this.client) {
-      return [];
-    }
+    if (!this.client) return [];
 
     try {
       const sessions = await this.client.listSessions();
-      
+
       return sessions.map((s: any) => {
         const isCurrentProject = s.sessionId.startsWith(this._projectPrefix);
-        
-        // Use summary if available, otherwise extract name from session ID
-        let name = s.summary || "";
-        if (!name) {
-          name = isCurrentProject 
-            ? s.sessionId.slice(this._projectPrefix.length)
-            : s.sessionId;
-        }
-        
+        const name = s.summary || (isCurrentProject
+          ? s.sessionId.slice(this._projectPrefix.length)
+          : s.sessionId);
+
         return {
           id: s.sessionId,
           name,
@@ -812,130 +732,6 @@ export class CopilotSessionAdapter {
     }
   }
 
-  async createNewSession(): Promise<string> {
-    if (!this.client) {
-      throw new Error("Client not initialized");
-    }
-
-    if (this.isProcessing) {
-      throw new Error("Cannot create new session while processing");
-    }
-
-    // Clean up current session
-    if (this.planWatcher) {
-      try {
-        this.planWatcher.close();
-      } catch {
-        // Ignore
-      }
-      this.planWatcher = null;
-    }
-
-    if (this.session) {
-      try {
-        await this.session.destroy();
-      } catch {
-        // Ignore destroy errors
-      }
-    }
-
-    // Generate new project-scoped session ID
-    const sessionId = this._projectPrefix + Date.now().toString(36);
-
-    this.session = await this.client.createSession({
-      sessionId,
-      streaming: true,
-      model: this._currentModel ?? undefined,
-      onUserInputRequest: this.userInputHandler
-        ? async (request: any) => {
-            return this.userInputHandler!(request);
-          }
-        : undefined,
-    });
-
-    this._currentSessionId = sessionId;
-    this.workspacePath = this.session.workspacePath ?? null;
-    this.setupSessionEventHandlers();
-
-    if (this.workspacePath) {
-      this.setupPlanWatcher();
-    }
-
-    this.emit({
-      type: "session.created",
-      sessionId,
-      sessionName: sessionId.slice(this._projectPrefix.length),
-    });
-
-    return sessionId;
-  }
-
-  async switchToSession(sessionId: string): Promise<void> {
-    if (!this.client) {
-      throw new Error("Client not initialized");
-    }
-
-    if (this.isProcessing) {
-      throw new Error("Cannot switch session while processing");
-    }
-
-    // Clean up current session
-    if (this.planWatcher) {
-      try {
-        this.planWatcher.close();
-      } catch {
-        // Ignore
-      }
-      this.planWatcher = null;
-    }
-
-    if (this.session) {
-      try {
-        await this.session.destroy();
-      } catch {
-        // Ignore destroy errors
-      }
-    }
-
-    // Resume the target session
-    this.session = await this.client.resumeSession(sessionId, {
-      streaming: true,
-      model: this._currentModel ?? undefined,
-      onUserInputRequest: this.userInputHandler
-        ? async (request: any) => {
-            return this.userInputHandler!(request);
-          }
-        : undefined,
-    });
-
-    this._currentSessionId = sessionId;
-    this.workspacePath = this.session.workspacePath ?? null;
-    this.setupSessionEventHandlers();
-
-    if (this.workspacePath) {
-      this.setupPlanWatcher();
-    }
-
-    const isCurrentProject = sessionId.startsWith(this._projectPrefix);
-    const sessionName = isCurrentProject 
-      ? sessionId.slice(this._projectPrefix.length)
-      : sessionId;
-
-    this.emit({
-      type: "session.switched",
-      sessionId,
-      sessionName,
-      transcript: await this.getSessionHistory(),
-    });
-  }
-
-  /**
-   * Retrieve the conversation history from the current session and convert
-   * SDK events into TranscriptItems suitable for rendering in the UI.
-   *
-   * Only non-ephemeral user.message, assistant.message, tool.execution_start,
-   * and tool.execution_complete events are included.
-   */
   private async getSessionHistory(): Promise<TranscriptItem[]> {
     if (!this.session) return [];
 
@@ -947,42 +743,38 @@ export class CopilotSessionAdapter {
     }
 
     const transcript: TranscriptItem[] = [];
-    // Map toolCallId -> index in transcript for patching tool completions
     const toolCallIndex = new Map<string, number>();
 
     for (const event of events) {
-      // Skip ephemeral/streaming events — only care about persisted ones
       if ((event as any).ephemeral) continue;
 
       switch (event.type) {
         case "user.message": {
-          const msg: ChatMessage = {
+          transcript.push({
             id: event.id,
             kind: "message",
             role: "user",
             content: event.data.content,
             createdAt: new Date(event.timestamp),
-          };
-          transcript.push(msg);
+          });
           break;
         }
 
         case "assistant.message": {
-          // Skip tool-request-only messages (no visible content)
           if (!event.data.content) break;
-          const msg: ChatMessage = {
+          transcript.push({
             id: event.id,
             kind: "message",
             role: "assistant",
             content: event.data.content,
             createdAt: new Date(event.timestamp),
-          };
-          transcript.push(msg);
+          });
           break;
         }
 
         case "tool.execution_start": {
-          const item: ToolCallItem = {
+          toolCallIndex.set(event.data.toolCallId, transcript.length);
+          transcript.push({
             id: event.id,
             kind: "tool-call",
             toolCallId: event.data.toolCallId,
@@ -991,9 +783,7 @@ export class CopilotSessionAdapter {
             progress: [],
             status: "running",
             startedAt: new Date(event.timestamp),
-          };
-          toolCallIndex.set(event.data.toolCallId, transcript.length);
-          transcript.push(item);
+          });
           break;
         }
 
@@ -1020,14 +810,8 @@ export class CopilotSessionAdapter {
     return transcript;
   }
 
-  /**
-   * Run a prompt in an ephemeral background session that is not stored in session history.
-   * Uses a separate session and model (Gemini 3 Flash by default) so it doesn't affect
-   * the user's current session.
-   * 
-   * IMPORTANT: This method creates a completely independent session object.
-   * It does NOT touch this.session, this._currentSessionId, or any other user session state.
-   */
+  // ── Ephemeral runs ───────────────────────────────────────────
+
   async runEphemeralPrompt(
     prompt: string,
     runId: string,
@@ -1036,19 +820,12 @@ export class CopilotSessionAdapter {
       onEvent?: (event: HarnessEvent) => void;
     }
   ): Promise<void> {
-    if (!this.client) {
-      throw new Error("Client not initialized");
-    }
+    if (!this.client) throw new Error("Client not initialized");
 
     const model = options?.model ?? "gemini-3-flash";
     const onEvent = options?.onEvent;
 
-    // Create an ephemeral session with a unique ID that won't be saved.
-    // Using underscore prefix to mark as internal/ephemeral.
-    // This is a LOCAL variable - we never assign it to this.session.
     const ephemeralSessionId = `_ephemeral_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-
-    // Store in local variable only - NOT in this.session
     let ephemeralSession: CopilotSession | null = null;
 
     try {
@@ -1056,65 +833,40 @@ export class CopilotSessionAdapter {
         sessionId: ephemeralSessionId,
         streaming: true,
         model,
-        // Disable infinite sessions to prevent persistence
         infiniteSessions: { enabled: false },
-        onUserInputRequest: this.userInputHandler
-          ? async (request: any) => {
-              return this.userInputHandler!(request);
-            }
-          : undefined,
+        onUserInputRequest: this.getUserInputCallback(),
       });
 
-      // Track accumulated streaming content for the ephemeral session,
-      // mirroring how the main session uses this.streamingBuffer.
       let ephemeralStreamingBuffer = "";
 
-      // Set up event handlers for the ephemeral session
       ephemeralSession.on((event) => {
         switch (event.type) {
           case "assistant.message_delta": {
             const deltaContent = event.data?.deltaContent ?? "";
             if (deltaContent) {
               ephemeralStreamingBuffer += deltaContent;
-              if (onEvent) {
-                onEvent({
-                  type: "assistant.delta",
-                  runId,
-                  text: deltaContent,
-                });
-              }
+              onEvent?.({ type: "assistant.delta", runId, text: deltaContent });
             }
             break;
           }
 
           case "assistant.message": {
-            // Use content from the event if available, otherwise fall back
-            // to the streaming buffer (matches main session behavior).
             const content = event.data?.content ?? "";
             const resolvedContent = content || ephemeralStreamingBuffer;
             if (resolvedContent && onEvent) {
-              const message = createAssistantMessage(resolvedContent);
               onEvent({
                 type: "assistant.message",
                 runId,
-                message,
+                message: createAssistantMessage(resolvedContent),
               });
             }
-            // Reset buffer after emitting (ready for next turn)
             ephemeralStreamingBuffer = "";
             break;
           }
 
           case "tool.execution_start": {
             if (onEvent) {
-              let args = event.data?.arguments;
-              if (typeof args === "string") {
-                try {
-                  args = JSON.parse(args);
-                } catch {
-                  // Not valid JSON, keep as string
-                }
-              }
+              const args = parseToolArgs(event.data?.arguments);
               onEvent({
                 type: "tool.started",
                 runId,
@@ -1127,100 +879,49 @@ export class CopilotSessionAdapter {
           }
 
           case "tool.execution_complete": {
-            if (onEvent) {
-              let output: string | undefined;
-              const result = event.data?.result;
-              if (result) {
-                if (typeof result === "string") {
-                  output = result;
-                } else if (typeof result === "object" && result !== null) {
-                  const resultObj = result as Record<string, unknown>;
-                  if (typeof resultObj.textResultForLlm === "string") {
-                    output = resultObj.textResultForLlm;
-                  } else if (typeof resultObj.sessionLog === "string") {
-                    output = resultObj.sessionLog;
-                  }
-                }
-              }
-              onEvent({
-                type: "tool.completed",
-                runId,
-                toolCallId: event.data?.toolCallId ?? "",
-                success: event.data?.success ?? false,
-                output,
-                error: event.data?.error?.message,
-              });
-            }
+            onEvent?.({
+              type: "tool.completed",
+              runId,
+              toolCallId: event.data?.toolCallId ?? "",
+              success: event.data?.success ?? false,
+              output: extractToolOutput(event.data?.result),
+              error: event.data?.error?.message,
+            });
             break;
           }
 
           case "session.idle": {
-            if (onEvent) {
-              onEvent({
-                type: "run.finished",
-                runId,
-                createdAt: new Date(),
-              });
-            }
+            onEvent?.({ type: "run.finished", runId, createdAt: new Date() });
             break;
           }
 
           case "assistant.intent": {
             const intent = event.data?.intent;
-            if (intent && onEvent) {
-              onEvent({
-                type: "intent.updated",
-                runId,
-                intent,
-              });
-            }
+            if (intent) onEvent?.({ type: "intent.updated", runId, intent });
             break;
           }
         }
       });
 
-      // Send the prompt
       await ephemeralSession.send({ prompt });
 
-      // Wait for the session to complete (session.idle event)
       await new Promise<void>((resolve) => {
-        const checkIdle = ephemeralSession!.on((event) => {
-          if (event.type === "session.idle") {
-            resolve();
-          }
+        ephemeralSession!.on((event) => {
+          if (event.type === "session.idle") resolve();
         });
       });
-
     } finally {
-      // Clean up ONLY the ephemeral session - user's this.session is untouched
       if (ephemeralSession) {
-        try {
-          await ephemeralSession.destroy();
-        } catch {
-          // Ignore destroy errors
-        }
+        try { await ephemeralSession.destroy(); } catch { /* ignore */ }
       }
     }
   }
 
-  async shutdown(): Promise<void> {
-    if (this.planWatcher) {
-      try {
-        this.planWatcher.close();
-      } catch {
-        // Ignore
-      }
-      this.planWatcher = null;
-    }
+  // ── Shutdown ─────────────────────────────────────────────────
 
-    if (this.session) {
-      try {
-        await this.session.destroy();
-      } catch {
-        // Ignore destroy errors during shutdown
-      }
-      this.session = null;
-    }
+  async shutdown(): Promise<void> {
+    await this.teardownSession();
+    this.session = null;
 
     if (this.client) {
       try {
