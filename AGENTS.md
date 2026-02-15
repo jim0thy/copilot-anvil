@@ -58,6 +58,11 @@ This section helps AI coding assistants understand and work with this codebase e
 | `src/harness/` | Event bus, state management, plugin system |
 | `src/harness/events.ts` | `HarnessEvent` and `UIAction` type definitions |
 | `src/harness/plugins.ts` | Plugin interface and registries |
+| `src/agents/` | Agent orchestration system |
+| `src/agents/types.ts` | AgentDefinition types |
+| `src/agents/loader.ts` | Agent discovery and loading |
+| `src/agents/builtin.ts` | Built-in agent definitions (14 agents) |
+| `src/agents/OrchestrationPlugin.ts` | Orchestration mode plugin |
 | `src/ui/` | OpenTUI/React components |
 | `src/ui/panes/` | All UI panes (Chat, Sidebar, Input, etc.) |
 | `src/commands/` | Slash command system |
@@ -112,6 +117,7 @@ User types prompt → InputBar dispatches UIAction("submit.prompt")
 | `session.switched` | Session changed |
 | `session.created` | New session created |
 | `session.list.updated` | Session list refreshed |
+| `orchestration.mode.changed` | Orchestration mode toggled |
 | `model.changed` | AI model changed |
 | `usage.info` | Token usage information |
 | `quota.info` | Quota information |
@@ -129,6 +135,68 @@ User types prompt → InputBar dispatches UIAction("submit.prompt")
 | `session.switch` | Switch to different session |
 | `session.refresh` | Refresh session list |
 | `ephemeral.close` | Close ephemeral run modal |
+| `orchestration.toggle` | Toggle or set orchestration mode |
+
+### Agent Orchestration System
+
+The TUI includes a multi-agent orchestration system based on the [vscode-agents](https://github.com/simkeyur/vscode-agents) model.
+
+#### Modes
+
+- **Direct Mode** (default): Prompts go directly to Copilot
+- **Team Mode**: Prompts route through Clarifier → Orchestrator → Specialist agents
+
+#### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Cycle through top-level agents (shown in status bar) |
+| `Shift+Tab` | Open model selector |
+| `/team` | Enable orchestrated mode |
+| `/direct` | Enable direct mode |
+| `/agents` | List available agents |
+
+#### Built-in Agents (14 total)
+
+| Agent | Tier | Domain | Description |
+|-------|------|--------|-------------|
+| Clarifier | specialist | clarification | Seeks clarification on ambiguous requests |
+| Orchestrator | specialist | orchestration | Coordinates work, delegates to specialists |
+| Planner | specialist | planning | Creates implementation plans |
+| Junior Developer | junior | general | Quick fixes, simple tasks |
+| Frontend Developer | mid | frontend | UI components, client-side logic |
+| Backend Developer | mid | backend | APIs, databases, server logic |
+| Fullstack Developer | mid | fullstack | End-to-end features |
+| Senior Frontend Developer | senior | frontend | Complex UI architecture |
+| Senior Backend Developer | senior | backend | Distributed systems |
+| Senior Fullstack Developer | senior | fullstack | Complex integrations |
+| Data Engineer | specialist | data | SQL, ETL, analytics |
+| Designer | specialist | design | UI/UX, styling |
+| Prompt Writer | specialist | prompt | LLM prompt optimization |
+| DevOps | specialist | devops | Git, dependencies, deployment |
+| Reviewer | specialist | review | Code review, security checks |
+
+#### Agent Loading Priority
+
+1. **Project agents** (`.agents/*.agent.md`) - highest priority
+2. **Global agents** (`~/.config/anvil/agents/`) - override built-ins
+3. **Built-in agents** - default definitions
+
+#### Custom Agent Format
+
+```markdown
+---
+name: My Custom Agent
+description: What this agent does
+model: claude-sonnet-4.5
+tools: ['edit', 'search']
+tier: mid
+domain: fullstack
+escalatesTo: Senior Fullstack Developer
+---
+
+System prompt content here...
+```
 
 ### Plugin System
 
