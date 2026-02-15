@@ -110,6 +110,32 @@ export class Harness {
           });
         }, 0);
       }
+      
+      // Side effect: pass loaded agents to the SDK adapter
+      if (event.type === "agents.loaded" && this.adapter) {
+        // Get full agent definitions from the plugin's state
+        const pluginCtx = this.pluginManager.getContext();
+        const orchestrationState = pluginCtx.state.get<{
+          availableAgents: Array<{
+            id: string;
+            name: string;
+            description: string;
+            systemPrompt: string;
+            tools: string[];
+          }>;
+        }>("orchestration");
+        
+        if (orchestrationState?.availableAgents) {
+          const customAgents = orchestrationState.availableAgents.map(agent => ({
+            name: agent.id,
+            displayName: agent.name,
+            description: agent.description,
+            prompt: agent.systemPrompt,
+            tools: agent.tools.length > 0 ? agent.tools : null,
+          }));
+          this.adapter.setCustomAgents(customAgents);
+        }
+      }
     }
 
     for (const handler of this.eventHandlers) {
@@ -153,6 +179,22 @@ export class Harness {
 
       case "ephemeral.close":
         this.handleCloseEphemeral();
+        break;
+
+      case "orchestration.toggle":
+        this.handleToggleOrchestration(action.mode);
+        break;
+
+      case "agent.switch":
+        this.handleSwitchAgent(action.agentId);
+        break;
+
+      case "agent.cycle":
+        await this.handleCycleAgent(action.direction);
+        break;
+      
+      case "agent.list":
+        this.emit({ type: "show.agents.modal" });
         break;
     }
   }
@@ -300,8 +342,25 @@ export class Harness {
 
     const parsed = parseSlashCommand(text);
     if (parsed) {
+      // Built-in commands
       if (parsed.name === "commands" || parsed.name === "help") {
         this.emitCommandList();
+        return;
+      }
+
+      // Orchestration mode commands
+      if (parsed.name === "team") {
+        this.handleToggleOrchestration("orchestrated");
+        return;
+      }
+
+      if (parsed.name === "direct") {
+        this.handleToggleOrchestration("direct");
+        return;
+      }
+
+      if (parsed.name === "agents") {
+        this.dispatch({ type: "agent.list" });
         return;
       }
 
@@ -560,5 +619,99 @@ export class Harness {
       ephemeralRun: null,
     };
     this.emit(createLogEvent("info", "Ephemeral run closed"));
+  }
+
+  private handleToggleOrchestration(mode?: "direct" | "orchestrated"): void {
+    const newMode = mode ?? (this.state.orchestrationMode === "direct" ? "orchestrated" : "direct");
+    
+    this.state = {
+      ...this.state,
+      orchestrationMode: newMode,
+    };
+
+    this.emit({
+      type: "orchestration.mode.changed",
+      mode: newMode,
+    });
+
+    this.emit(createLogEvent(
+      "info",
+      newMode === "orchestrated"
+        ? "🎯 Team mode enabled — prompts route through Clarifier → Orchestrator → Specialists"
+        : "⚡ Direct mode enabled — prompts go directly to Copilot"
+    ));
+  }
+
+  private async handleSwitchAgent(agentId: string | null): Promise<void> {
+    if (this.state.status === "running") {
+      this.emit(createLogEvent("warn", "Cannot switch agent while a run is in progress"));
+      return;
+    }
+
+    const agent = agentId 
+      ? this.state.availableAgents.find(a => a.id === agentId)
+      : null;
+    
+    const agentName = agent?.name ?? "Copilot";
+
+    this.state = {
+      ...this.state,
+      currentAgentId: agentId,
+    };
+
+    this.emit({
+      type: "agent.changed",
+      agentId,
+      agentName,
+    });
+
+    // Also switch to the agent's required model
+    if (agent?.model && this.adapter) {
+      const targetModel = agent.model;
+      const currentModel = this.state.currentModel;
+      
+      // Only switch if different model is required
+      if (targetModel !== currentModel) {
+        // Check if model is available
+        const modelAvailable = this.state.availableModels.some(m => m.id === targetModel);
+        if (modelAvailable) {
+          this.emit(createLogEvent("info", `Switched to agent: ${agentName} (switching to ${targetModel})`));
+          await this.handleChangeModel(targetModel);
+          return;
+        } else {
+          this.emit(createLogEvent("warn", `Agent ${agentName} requires model ${targetModel} which is not available`));
+        }
+      }
+    }
+
+    this.emit(createLogEvent("info", `Switched to agent: ${agentName}`));
+  }
+
+  private async handleCycleAgent(direction: "next" | "prev"): Promise<void> {
+    if (this.state.status === "running") {
+      return;
+    }
+
+    // Build the full list: null (SDK default) + available agents
+    const agentList: Array<{ id: string | null; name: string }> = [
+      { id: null, name: "Copilot" },
+      ...this.state.availableAgents.map(a => ({ id: a.id, name: a.name })),
+    ];
+
+    if (agentList.length <= 1) {
+      return;
+    }
+
+    const currentIndex = agentList.findIndex(a => a.id === this.state.currentAgentId);
+    let newIndex: number;
+
+    if (direction === "next") {
+      newIndex = (currentIndex + 1) % agentList.length;
+    } else {
+      newIndex = (currentIndex - 1 + agentList.length) % agentList.length;
+    }
+
+    const newAgent = agentList[newIndex];
+    await this.handleSwitchAgent(newAgent.id);
   }
 }
