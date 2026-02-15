@@ -8,6 +8,7 @@
 
 import type { LogEvent, SessionInfo, TranscriptItem } from "./events.js";
 import type { ModelDescription } from "../copilot/CopilotSessionAdapter.js";
+import type { OrchestrationMode } from "../agents/types.js";
 
 // ── Status ────────────────────────────────────────────────────
 
@@ -94,6 +95,11 @@ export interface HarnessState {
   currentSessionId: string | null;
   availableSessions: SessionInfo[];
   ephemeralRun: EphemeralRun | null;
+  orchestrationMode: OrchestrationMode;
+  /** Current agent ID (null = SDK default, or agent ID from agents module) */
+  currentAgentId: string | null;
+  /** Available top-level agents for Tab cycling */
+  availableAgents: Array<{ id: string; name: string; description: string; model: string; tier: string; domain: string }>;
   contextInfo: {
     currentTokens: number;
     tokenLimit: number;
@@ -134,6 +140,9 @@ export const INITIAL_STATE: HarnessState = {
   currentSessionId: null,
   availableSessions: [],
   ephemeralRun: null,
+  orchestrationMode: "direct",
+  currentAgentId: null,
+  availableAgents: [],
   contextInfo: {
     currentTokens: 0,
     tokenLimit: 0,

@@ -263,6 +263,26 @@ export interface SessionListUpdatedEvent {
   sessions: SessionInfo[];
 }
 
+export interface OrchestrationModeChangedEvent {
+  type: "orchestration.mode.changed";
+  mode: "direct" | "orchestrated";
+}
+
+export interface AgentChangedEvent {
+  type: "agent.changed";
+  agentId: string | null;
+  agentName: string;
+}
+
+export interface AgentsLoadedEvent {
+  type: "agents.loaded";
+  agents: Array<{ id: string; name: string; description: string; model: string; tier: string; domain: string }>;
+}
+
+export interface ShowAgentsModalEvent {
+  type: "show.agents.modal";
+}
+
 export type HarnessEvent =
   | RunStartedEvent
   | AssistantDeltaEvent
@@ -294,7 +314,11 @@ export type HarnessEvent =
   | QuestionAnsweredEvent
   | SessionSwitchedEvent
   | SessionCreatedEvent
-  | SessionListUpdatedEvent;
+  | SessionListUpdatedEvent
+  | OrchestrationModeChangedEvent
+  | AgentChangedEvent
+  | AgentsLoadedEvent
+  | ShowAgentsModalEvent;
 
 // ============================================================
 // UI Actions (dispatched from UI to harness)
@@ -356,6 +380,25 @@ export interface CloseEphemeralAction {
   type: "ephemeral.close";
 }
 
+export interface ToggleOrchestrationAction {
+  type: "orchestration.toggle";
+  mode?: "direct" | "orchestrated";
+}
+
+export interface SwitchAgentAction {
+  type: "agent.switch";
+  agentId: string | null; // null = SDK default
+}
+
+export interface CycleAgentAction {
+  type: "agent.cycle";
+  direction: "next" | "prev";
+}
+
+export interface ListAgentsAction {
+  type: "agent.list";
+}
+
 export type UIAction =
   | SubmitPromptAction
   | CancelAction
@@ -367,7 +410,11 @@ export type UIAction =
   | NewSessionAction
   | SwitchSessionAction
   | RefreshSessionsAction
-  | CloseEphemeralAction;
+  | CloseEphemeralAction
+  | ToggleOrchestrationAction
+  | SwitchAgentAction
+  | CycleAgentAction
+  | ListAgentsAction;
 
 // ============================================================
 // Helper functions

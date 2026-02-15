@@ -394,6 +394,15 @@ export function processEvent(
     case "session.list.updated":
       return { ...state, availableSessions: event.sessions };
 
+    case "orchestration.mode.changed":
+      return { ...state, orchestrationMode: event.mode };
+
+    case "agent.changed":
+      return { ...state, currentAgentId: event.agentId };
+
+    case "agents.loaded":
+      return { ...state, availableAgents: event.agents };
+
     default:
       return state;
   }
