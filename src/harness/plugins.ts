@@ -1,4 +1,4 @@
-import type { HarnessEvent, Resource } from "./events.js";
+import type { HarnessEvent } from "./events.js";
 
 export interface ToolRegistry {
   register(name: string, handler: (...args: unknown[]) => unknown): void;

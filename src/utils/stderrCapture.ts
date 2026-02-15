@@ -5,14 +5,14 @@ export interface StderrLine {
 
 const MAX_BUFFER_SIZE = 50;
 
-let buffer: StderrLine[] = [];
+const buffer: StderrLine[] = [];
 
 function addLine(text: string): void {
   const trimmed = text.trim();
   if (trimmed.length === 0) return;
   buffer.push({ text: trimmed, timestamp: Date.now() });
   if (buffer.length > MAX_BUFFER_SIZE) {
-    buffer = buffer.slice(buffer.length - MAX_BUFFER_SIZE);
+    buffer.splice(0, buffer.length - MAX_BUFFER_SIZE);
   }
 }
 
