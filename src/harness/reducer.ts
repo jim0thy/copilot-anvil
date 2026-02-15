@@ -76,19 +76,30 @@ export function processEvent(
   ctx: ReducerContext,
 ): HarnessState {
   switch (event.type) {
-    case "run.started":
+    case "run.started": {
+      // Determine the agent name for streaming display
+      // If there's an active agent selected, use its display name
+      let agentName: string | null = null;
+      if (state.currentAgentId) {
+        const agent = state.availableAgents.find(a => a.id === state.currentAgentId);
+        agentName = agent?.name ?? null;
+      }
+      
       return {
         ...state,
         status: "running",
         currentRunId: event.runId,
         ...resetRunFields(),
+        streamingAgentName: agentName, // Set initial agent name for this run
       };
+    }
 
     case "assistant.delta":
       return {
         ...state,
         streamingContent: state.streamingContent + event.text,
-        // Update streaming agent name if provided (from subagent)
+        // Update streaming agent name if provided (from subagent or active agent)
+        // This allows subagents to override the top-level agent name during their execution
         streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
