@@ -7,12 +7,16 @@ interface QuestionModalProps {
   question: PendingQuestion;
   onAnswer: (answer: string, wasFreeform: boolean) => void;
   theme: Theme;
+  width: number;
+  height: number;
 }
 
 export const QuestionModal = memo(function QuestionModal({
   question,
   onAnswer,
   theme,
+  width,
+  height,
 }: QuestionModalProps) {
   const c = theme.colors;
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -25,6 +29,10 @@ export const QuestionModal = memo(function QuestionModal({
   const hasChoices = choices.length > 0;
   const canUseFreeform = question.allowFreeform;
   const modalRef = useRef<any>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  // Total selectable items (choices + freeform option if available)
+  const totalItems = hasChoices ? (canUseFreeform ? choices.length + 1 : choices.length) : 0;
 
   // Focus modal when mounted to capture keyboard events
   useEffect(() => {
@@ -83,38 +91,81 @@ export const QuestionModal = memo(function QuestionModal({
     }
   });
 
+  // Calculate modal dimensions
+  const modalWidth = Math.min(70, width - 4);
+  // Height: question (2 lines) + choices + freeform option + footer + padding/borders
+  const contentLines = totalItems + (inputMode === "freeform" ? 3 : 0);
+  const maxListHeight = Math.max(4, height - 12); // Leave room for question, footer, borders
+  const listHeight = Math.min(totalItems, maxListHeight);
+  const modalHeight = Math.min(listHeight + 8, height - 4);
+  const modalX = Math.floor((width - modalWidth) / 2);
+  const modalY = Math.floor((height - modalHeight) / 2);
+
+  // Calculate scroll offset to keep selected item visible
+  const maxScrollOffset = Math.max(0, totalItems - listHeight);
+  useEffect(() => {
+    // Auto-scroll to keep selection visible
+    if (selectedIndex < scrollOffset) {
+      setScrollOffset(selectedIndex);
+    } else if (selectedIndex >= scrollOffset + listHeight) {
+      setScrollOffset(selectedIndex - listHeight + 1);
+    }
+  }, [selectedIndex, listHeight, scrollOffset]);
+
+  const visibleStartIndex = scrollOffset;
+  const visibleEndIndex = Math.min(scrollOffset + listHeight, totalItems);
+
   return (
-    <box ref={modalRef} flexDirection="column" width="100%" flexShrink={0} focusable={true}>
-      {/* Question text - expands above input area */}
+    <box
+      ref={modalRef}
+      position="absolute"
+      left={modalX}
+      top={modalY}
+      width={modalWidth}
+      height={modalHeight}
+      borderStyle="double"
+      borderColor={c.primary}
+      backgroundColor={c.mantle}
+      flexDirection="column"
+      padding={1}
+      focusable={true}
+    >
+      {/* Question header */}
+      <box marginBottom={1}>
+        <text>
+          <span fg={c.primary}><b>❓ Question</b></span>
+        </text>
+      </box>
+
+      {/* Question text */}
+      <box marginBottom={1}>
+        <text>
+          <span fg={c.info}>{question.question}</span>
+        </text>
+      </box>
+
       {inputMode === "choices" && hasChoices && (
-        <box
-          flexDirection="column"
-          borderStyle="single"
-          borderColor={c.borderActive}
-          backgroundColor={c.mantle}
-          paddingLeft={1}
-          paddingRight={1}
-          paddingTop={1}
-          paddingBottom={1}
-        >
-          <text>
-            <span fg={c.primary}><b>❓ </b></span>
-            <span fg={c.info}>{question.question}</span>
-          </text>
-          <box flexDirection="column" marginTop={1}>
-            {choices.map((choice, index) => (
-              <box key={index}>
-                <text>
-                  <span fg={selectedIndex === index ? c.primary : c.subtle}>
-                    {selectedIndex === index ? "› " : "  "}
-                  </span>
-                  <span fg={selectedIndex === index ? c.text : c.subtext0}>
-                    {choice}
-                  </span>
-                </text>
-              </box>
-            ))}
-            {canUseFreeform && (
+        <>
+          {/* Choices list - scrollable */}
+          <box flexDirection="column" height={listHeight} overflow="hidden">
+            {choices.slice(visibleStartIndex, visibleEndIndex).map((choice, visibleIndex) => {
+              const index = visibleStartIndex + visibleIndex;
+              const isSelected = selectedIndex === index;
+              return (
+                <box key={index}>
+                  <text>
+                    <span fg={isSelected ? c.primary : c.subtle}>
+                      {isSelected ? "› " : "  "}
+                    </span>
+                    <span fg={isSelected ? c.text : c.subtext0}>
+                      {choice}
+                    </span>
+                  </text>
+                </box>
+              );
+            })}
+            {/* Show freeform option if visible in current scroll range */}
+            {canUseFreeform && visibleEndIndex > choices.length && (
               <box>
                 <text>
                   <span fg={selectedIndex === choices.length ? c.primary : c.subtle}>
@@ -127,45 +178,62 @@ export const QuestionModal = memo(function QuestionModal({
               </box>
             )}
           </box>
+
+          {/* Scroll indicator */}
+          {maxScrollOffset > 0 && (
+            <box marginTop={1}>
+              <text>
+                <span fg={c.subtle}>
+                  {scrollOffset > 0 ? "↑ " : "  "}
+                  {scrollOffset + listHeight}/{totalItems}
+                  {scrollOffset < maxScrollOffset ? " ↓" : "  "}
+                </span>
+              </text>
+            </box>
+          )}
+
+          {/* Footer with hints */}
           <box marginTop={1}>
             <text>
               <span fg={c.subtle}>↑↓ navigate • Enter select</span>
             </text>
           </box>
-        </box>
+        </>
       )}
 
-      {/* Input area - replaces normal input bar */}
-      <box 
-        height={3} 
-        borderStyle="single" 
-        borderColor={inputMode === "freeform" ? c.borderActive : c.border}
-      >
-        <box paddingLeft={1} paddingRight={1}>
-          <text>
-            {inputMode === "freeform" ? (
-              <>
-                <span fg={c.primary}><b>{"❓ "}</b></span>
-                <span fg={c.info}>{question.question}</span>
-                <span> </span>
-                {freeformValue ? (
-                  <>
-                    <span fg={c.text}>{freeformValue}</span>
-                    <span fg={c.cursorText} bg={c.cursor}>{" "}</span>
-                  </>
-                ) : (
-                  <span fg={c.subtle}>Type answer...</span>
-                )}
-              </>
-            ) : (
-              <>
-                <span fg={c.primary}><b>{"› "}</b></span>
-                <span fg={c.subtle}>Use ↑↓ to select answer</span>
-              </>
-            )}
-          </text>
-        </box>
-      </box>
+      {inputMode === "freeform" && (
+        <>
+          {/* Freeform input */}
+          <box 
+            height={3} 
+            borderStyle="single" 
+            borderColor={c.borderActive}
+            paddingLeft={1}
+            paddingRight={1}
+          >
+            <text>
+              {freeformValue ? (
+                <>
+                  <span fg={c.text}>{freeformValue}</span>
+                  <span fg={c.cursorText} bg={c.cursor}>{" "}</span>
+                </>
+              ) : (
+                <span fg={c.subtle}>Type your answer...</span>
+              )}
+            </text>
+          </box>
+
+          {/* Footer with hints */}
+          <box marginTop={1}>
+            <text>
+              <span fg={c.subtle}>
+                Enter submit
+                {hasChoices && " • Esc back to choices"}
+              </span>
+            </text>
+          </box>
+        </>
+      )}
     </box>
   );
 });
