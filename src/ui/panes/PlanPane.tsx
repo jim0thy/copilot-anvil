@@ -1,30 +1,12 @@
 import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
+import { parseMarkdownChecklist } from "../formatters.js";
 
 interface PlanPaneProps {
   currentTodo: string | null;
   currentPlan: string | null;
   height: number;
   theme: Theme;
-}
-
-function parseMarkdownChecklist(markdown: string): Array<{ checked: boolean; text: string }> {
-  const lines = markdown.split("\n");
-  const items: Array<{ checked: boolean; text: string }> = [];
-
-  for (const line of lines) {
-    // Match checkbox patterns: - [ ] or - [x] or - [X]
-    const match = line.match(/^[\s-]*\[([xX ])\]\s*(.*)$/);
-    if (match) {
-      const checked = match[1].toLowerCase() === "x";
-      const text = match[2].trim();
-      if (text) {
-        items.push({ checked, text });
-      }
-    }
-  }
-
-  return items;
 }
 
 export const PlanPane = memo(function PlanPane({

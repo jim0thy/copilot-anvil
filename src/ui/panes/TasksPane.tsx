@@ -1,60 +1,14 @@
 import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
+import type { Task } from "../../harness/Harness.js";
+import { getStatusIcon, getStatusColor, formatTime, formatDuration } from "../formatters.js";
 
-export interface Task {
-  id: string;
-  name: string;
-  status: "running" | "completed" | "failed";
-  startedAt: Date;
-  completedAt?: Date;
-  error?: string;
-}
+export type { Task };
 
 interface TasksPaneProps {
   tasks: Task[];
   height: number;
   theme: Theme;
-}
-
-function getStatusIcon(status: Task["status"]): string {
-  switch (status) {
-    case "running":
-      return "⟳";
-    case "completed":
-      return "✓";
-    case "failed":
-      return "✗";
-  }
-}
-
-function getStatusColor(status: Task["status"], theme: Theme): string {
-  const c = theme.colors;
-  switch (status) {
-    case "running":
-      return c.warning;
-    case "completed":
-      return c.success;
-    case "failed":
-      return c.error;
-  }
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatDuration(start: Date, end: Date): string {
-  const ms = end.getTime() - start.getTime();
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${seconds % 60}s`;
 }
 
 export const TasksPane = memo(function TasksPane({ tasks, height, theme }: TasksPaneProps) {

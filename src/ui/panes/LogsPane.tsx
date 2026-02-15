@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import type { LogEvent } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
+import { formatTime } from "../formatters.js";
 
 interface LogsPaneProps {
   logs: LogEvent[];
@@ -33,15 +34,6 @@ function getLevelLabel(level: LogEvent["level"]): string {
     case "debug":
       return "DBG";
   }
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 export const LogsPane = memo(function LogsPane({ logs, height, theme }: LogsPaneProps) {

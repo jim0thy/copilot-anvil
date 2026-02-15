@@ -1,61 +1,15 @@
 import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
+import type { Subagent, Skill } from "../../harness/Harness.js";
+import { getStatusIcon, getStatusColor, formatDuration } from "../formatters.js";
 
-export interface Subagent {
-  toolCallId: string;
-  agentName: string;
-  agentDisplayName: string;
-  agentDescription: string;
-  status: "running" | "completed" | "failed";
-  startedAt: Date;
-  completedAt?: Date;
-  error?: string;
-}
-
-export interface Skill {
-  name: string;
-  path: string;
-  invokedAt: Date;
-  invokeCount: number;
-}
+export type { Subagent, Skill };
 
 interface SubagentsPaneProps {
   subagents: Subagent[];
   skills: Skill[];
   height: number;
   theme: Theme;
-}
-
-function getStatusIcon(status: Subagent["status"]): string {
-  switch (status) {
-    case "running":
-      return "⟳";
-    case "completed":
-      return "✓";
-    case "failed":
-      return "✗";
-  }
-}
-
-function getStatusColor(status: Subagent["status"], theme: Theme): string {
-  const c = theme.colors;
-  switch (status) {
-    case "running":
-      return c.warning;
-    case "completed":
-      return c.success;
-    case "failed":
-      return c.error;
-  }
-}
-
-function formatDuration(start: Date, end: Date): string {
-  const ms = end.getTime() - start.getTime();
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${seconds % 60}s`;
 }
 
 export const SubagentsPane = memo(function SubagentsPane({ 

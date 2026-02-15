@@ -2,7 +2,8 @@ import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
 import type { ContextInfo } from "./ContextPane.js";
 import type { FileChange } from "../../utils/gitDiff.js";
-import type { Subagent, Skill } from "./SubagentsPane.js";
+import type { Subagent, Skill } from "../../harness/Harness.js";
+import { getStatusIcon, getStatusColor, parseMarkdownChecklist } from "../formatters.js";
 
 interface SidebarProps {
   contextInfo: ContextInfo;
@@ -21,21 +22,21 @@ interface SidebarProps {
 function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: ContextInfo; theme: Theme; innerWidth: number }) {
   const c = theme.colors;
   const { currentTokens, tokenLimit, consumedRequests, remainingPremiumRequests } = contextInfo;
-  
-  const contextPercent = tokenLimit > 0 
-    ? Math.round((currentTokens / tokenLimit) * 100) 
+
+  const contextPercent = tokenLimit > 0
+    ? Math.round((currentTokens / tokenLimit) * 100)
     : 0;
-  
-  const percentColor = contextPercent > 80 
-    ? c.error 
-    : contextPercent > 60 
-    ? c.warning 
+
+  const percentColor = contextPercent > 80
+    ? c.error
+    : contextPercent > 60
+    ? c.warning
     : c.success;
 
   // Dynamic bar width: use available inner width, capped reasonably
   const barWidth = Math.max(10, Math.min(innerWidth, 60));
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
-  const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
+  const progressBar = "\u2588".repeat(filledWidth) + "\u2591".repeat(barWidth - filledWidth);
 
   return (
     <box flexDirection="column">
@@ -48,11 +49,11 @@ function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: Conte
             <span fg={c.subtext0}>Req: </span>
             <span fg={c.info}><b>{consumedRequests}</b></span>
           </text>
-          <text fg={c.subtle}>│</text>
+          <text fg={c.subtle}>{"\u2502"}</text>
           <text>
             <span fg={c.subtext0}>Rem: </span>
             <span fg={c.accent}>
-              <b>{remainingPremiumRequests !== null ? remainingPremiumRequests : '∞'}</b>
+              <b>{remainingPremiumRequests !== null ? remainingPremiumRequests : '\u221E'}</b>
             </span>
           </text>
         </box>
@@ -83,9 +84,29 @@ function SectionDivider({ theme, innerWidth }: { theme: Theme; innerWidth: numbe
   const dividerWidth = Math.max(1, innerWidth);
   return (
     <box marginTop={1} marginBottom={1} width="100%">
-      <text fg={c.border}>{"─".repeat(dividerWidth)}</text>
+      <text fg={c.border}>{"\u2500".repeat(dividerWidth)}</text>
     </box>
   );
+}
+
+// --- File status helpers (file-specific icons, distinct from task/subagent status) ---
+function getFileStatusIcon(status: FileChange["status"]): string {
+  switch (status) {
+    case "modified": return "\u270E"; // ✎
+    case "added": return "+";
+    case "deleted": return "\u2717"; // ✗
+    case "renamed": return "\u2192"; // →
+  }
+}
+
+function getFileStatusColor(status: FileChange["status"], theme: Theme): string {
+  const c = theme.colors;
+  switch (status) {
+    case "modified": return c.warning;
+    case "added": return c.success;
+    case "deleted": return c.error;
+    case "renamed": return c.info;
+  }
 }
 
 // --- Files Modified Section ---
@@ -93,24 +114,6 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
   const c = theme.colors;
   const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
   const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);
-
-  const getStatusIcon = (status: FileChange["status"]): string => {
-    switch (status) {
-      case "modified": return "✎";
-      case "added": return "+";
-      case "deleted": return "✗";
-      case "renamed": return "→";
-    }
-  };
-
-  const getStatusColor = (status: FileChange["status"]): string => {
-    switch (status) {
-      case "modified": return c.warning;
-      case "added": return c.success;
-      case "deleted": return c.error;
-      case "renamed": return c.info;
-    }
-  };
 
   return (
     <box flexDirection="column" gap={0}>
@@ -124,8 +127,8 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
       {files.map((file, idx) => (
         <box key={idx} flexDirection="row" justifyContent="space-between" height={1}>
           <box flexDirection="row" flexShrink={1} width="100%" height={1}>
-            <text fg={getStatusColor(file.status)}>
-              {getStatusIcon(file.status)}{" "}
+            <text fg={getFileStatusColor(file.status, theme)}>
+              {getFileStatusIcon(file.status)}{" "}
             </text>
             <text fg={c.text}>{file.path}</text>
           </box>
@@ -158,29 +161,17 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
 }
 
 // --- Plan & Progress Section ---
-function PlanSection({ 
-  currentTodo, 
-  theme 
-}: { 
-  currentTodo: string | null; 
+function PlanSection({
+  currentTodo,
+  theme
+}: {
+  currentTodo: string | null;
   theme: Theme;
 }) {
   const c = theme.colors;
   const todoItems = useMemo(() => {
     if (!currentTodo) return [];
-    const lines = currentTodo.split("\n");
-    const items: Array<{ checked: boolean; text: string }> = [];
-    for (const line of lines) {
-      const match = line.match(/^[\s-]*\[([xX ])\]\s*(.*)$/);
-      if (match) {
-        const checked = match[1].toLowerCase() === "x";
-        const text = match[2].trim();
-        if (text) {
-          items.push({ checked, text });
-        }
-      }
-    }
-    return items;
+    return parseMarkdownChecklist(currentTodo);
   }, [currentTodo]);
 
   return (
@@ -195,7 +186,7 @@ function PlanSection({
             <box key={idx} flexDirection="row" width="100%">
               <box width={2} flexShrink={0}>
                 <text fg={item.checked ? c.success : c.subtle}>
-                  {item.checked ? "✓ " : "☐ "}
+                  {item.checked ? "\u2713 " : "\u2610 "}
                 </text>
               </box>
               <box flexShrink={1} width="100%">
@@ -212,13 +203,13 @@ function PlanSection({
 }
 
 // --- Subagents & Skills Section ---
-function SubagentsSection({ 
-  subagents, 
-  skills, 
-  theme 
-}: { 
-  subagents: Subagent[]; 
-  skills: Skill[]; 
+function SubagentsSection({
+  subagents,
+  skills,
+  theme
+}: {
+  subagents: Subagent[];
+  skills: Skill[];
   theme: Theme;
 }) {
   const c = theme.colors;
@@ -232,29 +223,13 @@ function SubagentsSection({
         return bTime - aTime;
       })
       .slice(0, 3);
-    
+
     const recent = skills
       .sort((a, b) => b.invokedAt.getTime() - a.invokedAt.getTime())
       .slice(0, 3);
-    
+
     return { activeSubagents: active, completedSubagents: completed, recentSkills: recent };
   }, [subagents, skills]);
-
-  const getStatusIcon = (status: Subagent["status"]): string => {
-    switch (status) {
-      case "running": return "⟳";
-      case "completed": return "✓";
-      case "failed": return "✗";
-    }
-  };
-
-  const getStatusColor = (status: Subagent["status"]): string => {
-    switch (status) {
-      case "running": return c.warning;
-      case "completed": return c.success;
-      case "failed": return c.error;
-    }
-  };
 
   return (
     <box flexDirection="column">
@@ -266,7 +241,7 @@ function SubagentsSection({
         <box marginTop={1} flexDirection="column">
           {activeSubagents.map((agent) => (
             <box key={agent.toolCallId} flexDirection="row">
-              <text fg={getStatusColor(agent.status)}>
+              <text fg={getStatusColor(agent.status, theme)}>
                 {getStatusIcon(agent.status)}{" "}
               </text>
               <text fg={c.text}><b>{agent.agentDisplayName}</b></text>
@@ -279,7 +254,7 @@ function SubagentsSection({
         <box marginTop={activeSubagents.length > 0 ? 0 : 1} flexDirection="column">
           {completedSubagents.map((agent) => (
             <box key={agent.toolCallId} flexDirection="row">
-              <text fg={getStatusColor(agent.status)}>
+              <text fg={getStatusColor(agent.status, theme)}>
                 {getStatusIcon(agent.status)}{" "}
               </text>
               <text fg={c.subtle}>{agent.agentDisplayName}</text>
@@ -292,11 +267,11 @@ function SubagentsSection({
         <box marginTop={1} flexDirection="column">
           {recentSkills.map((skill) => (
             <box key={skill.name} flexDirection="row">
-              <text fg={c.accent}>◆ </text>
+              <text fg={c.accent}>{"\u25C6"} </text>
               <text fg={c.text}>{skill.name}</text>
               {skill.invokeCount > 1 && (
                 <text fg={c.subtext0}>
-                  {" "}(×{skill.invokeCount})
+                  {" "}(\u00D7{skill.invokeCount})
                 </text>
               )}
             </box>
@@ -323,18 +298,13 @@ export const Sidebar = memo(function Sidebar({
   const c = theme.colors;
   // Calculate inner width: total width minus border (2) and padding (2)
   const innerWidth = Math.max(1, width - 4);
-  
+
   // Determine which sections have content
   const hasFiles = files.length > 0;
-  
+
   const hasPlanContent = useMemo(() => {
-    if (currentTodo) {
-      const lines = currentTodo.split("\n");
-      for (const line of lines) {
-        if (line.match(/^[\s-]*\[([xX ])\]\s*(.+)$/)) return true;
-      }
-    }
-    return false;
+    if (!currentTodo) return false;
+    return parseMarkdownChecklist(currentTodo).length > 0;
   }, [currentTodo]);
 
   const hasSubagentsOrSkills = subagents.length > 0 || skills.length > 0;
@@ -353,7 +323,7 @@ export const Sidebar = memo(function Sidebar({
       {/* Intent Title - shown at top when active */}
       {currentIntent && currentIntent.trim().length > 0 && (
         <box marginBottom={1}>
-          <text fg={c.accent}>→ {currentIntent}</text>
+          <text fg={c.accent}>{"\u2192"} {currentIntent}</text>
         </box>
       )}
 
@@ -372,9 +342,9 @@ export const Sidebar = memo(function Sidebar({
       {hasPlanContent && (
         <>
           <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <PlanSection 
-            currentTodo={currentTodo} 
-            theme={theme} 
+          <PlanSection
+            currentTodo={currentTodo}
+            theme={theme}
           />
         </>
       )}

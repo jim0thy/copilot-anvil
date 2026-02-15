@@ -3,6 +3,7 @@ import { memo } from "react";
 import type { EphemeralRun } from "../../harness/Harness.js";
 import type { ChatMessage, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
+import { formatRole, getRoleColor } from "../formatters.js";
 
 interface CommandModalProps {
   ephemeralRun: EphemeralRun;
@@ -10,33 +11,6 @@ interface CommandModalProps {
   theme: Theme;
   width: number;
   height: number;
-}
-
-function formatRole(role: ChatMessage["role"]): string {
-  switch (role) {
-    case "user":
-      return "You";
-    case "assistant":
-      return "Assistant";
-    case "tool":
-      return "Tool";
-    case "system":
-      return "System";
-  }
-}
-
-function getRoleColor(role: ChatMessage["role"], theme: Theme): string {
-  const c = theme.colors;
-  switch (role) {
-    case "user":
-      return c.info;
-    case "assistant":
-      return c.secondary;
-    case "tool":
-      return c.warning;
-    case "system":
-      return c.subtle;
-  }
 }
 
 export const CommandModal = memo(function CommandModal({
