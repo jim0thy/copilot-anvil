@@ -16,6 +16,11 @@ export interface ChatMessage {
   content: string;
   reasoning?: string;
   createdAt: Date;
+  /** The agent that generated this message (if from a subagent) */
+  agentName?: string;
+  agentDisplayName?: string;
+  /** Tool call ID if this message is from a subagent */
+  parentToolCallId?: string;
 }
 
 export interface ToolCallItem {
@@ -59,6 +64,12 @@ export interface AssistantDeltaEvent {
   type: "assistant.delta";
   runId: string;
   text: string;
+  /** Parent tool call ID if this delta is from a subagent */
+  parentToolCallId?: string;
+  /** Agent name if this delta is from a subagent */
+  agentName?: string;
+  /** Agent display name if this delta is from a subagent */
+  agentDisplayName?: string;
 }
 
 export interface AssistantMessageEvent {
@@ -283,6 +294,11 @@ export interface ShowAgentsModalEvent {
   type: "show.agents.modal";
 }
 
+export interface ReasoningEffortChangedEvent {
+  type: "reasoning.effort.changed";
+  effort: "low" | "medium" | "high" | "xhigh";
+}
+
 export type HarnessEvent =
   | RunStartedEvent
   | AssistantDeltaEvent
@@ -318,7 +334,8 @@ export type HarnessEvent =
   | OrchestrationModeChangedEvent
   | AgentChangedEvent
   | AgentsLoadedEvent
-  | ShowAgentsModalEvent;
+  | ShowAgentsModalEvent
+  | ReasoningEffortChangedEvent;
 
 // ============================================================
 // UI Actions (dispatched from UI to harness)
@@ -399,6 +416,11 @@ export interface ListAgentsAction {
   type: "agent.list";
 }
 
+export interface ChangeReasoningEffortAction {
+  type: "change.reasoning.effort";
+  effort: "low" | "medium" | "high" | "xhigh";
+}
+
 export type UIAction =
   | SubmitPromptAction
   | CancelAction
@@ -414,7 +436,8 @@ export type UIAction =
   | ToggleOrchestrationAction
   | SwitchAgentAction
   | CycleAgentAction
-  | ListAgentsAction;
+  | ListAgentsAction
+  | ChangeReasoningEffortAction;
 
 // ============================================================
 // Helper functions

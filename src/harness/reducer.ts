@@ -37,9 +37,9 @@ function resetRunFields(): Partial<HarnessState> {
   return {
     streamingContent: "",
     streamingReasoning: "",
+    streamingAgentName: null,
     currentIntent: null,
-    currentTodo: null,
-    currentPlan: null,
+    // Keep currentTodo/currentPlan until a new message is sent
   };
 }
 
@@ -88,6 +88,8 @@ export function processEvent(
       return {
         ...state,
         streamingContent: state.streamingContent + event.text,
+        // Update streaming agent name if provided (from subagent)
+        streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
     case "reasoning.delta":
@@ -112,6 +114,7 @@ export function processEvent(
         transcript: newTranscript,
         streamingContent: "",
         streamingReasoning: "",
+        streamingAgentName: null,
       };
     }
 
@@ -272,6 +275,9 @@ export function processEvent(
 
     case "model.changed":
       return { ...state, currentModel: event.model };
+
+    case "reasoning.effort.changed":
+      return { ...state, reasoningEffort: event.effort };
 
     case "usage.info":
       return {

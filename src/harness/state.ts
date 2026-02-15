@@ -81,6 +81,8 @@ export interface HarnessState {
   currentRunId: string | null;
   streamingContent: string;
   streamingReasoning: string;
+  /** Agent display name for the currently streaming content */
+  streamingAgentName: string | null;
   activeTools: ActiveTool[];
   tasks: Task[];
   subagents: Subagent[];
@@ -100,6 +102,8 @@ export interface HarnessState {
   currentAgentId: string | null;
   /** Available top-level agents for Tab cycling */
   availableAgents: Array<{ id: string; name: string; description: string; model: string; tier: string; domain: string }>;
+  /** Current reasoning effort level */
+  reasoningEffort: "low" | "medium" | "high" | "xhigh";
   contextInfo: {
     currentTokens: number;
     tokenLimit: number;
@@ -126,6 +130,7 @@ export const INITIAL_STATE: HarnessState = {
   currentRunId: null,
   streamingContent: "",
   streamingReasoning: "",
+  streamingAgentName: null,
   activeTools: [],
   tasks: [],
   subagents: [],
@@ -143,6 +148,7 @@ export const INITIAL_STATE: HarnessState = {
   orchestrationMode: "direct",
   currentAgentId: null,
   availableAgents: [],
+  reasoningEffort: "medium",
   contextInfo: {
     currentTokens: 0,
     tokenLimit: 0,
