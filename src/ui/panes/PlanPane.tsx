@@ -64,8 +64,8 @@ export const PlanPane = memo(function PlanPane({
                   </text>
                 </box>
                 <box flexShrink={1}>
-                  <text 
-                    fg={item.checked ? c.subtle : isCurrent ? 11 : c.text}
+                  <text
+                    fg={item.checked ? c.subtle : isCurrent ? c.warning : c.text}
                   >
                     {isCurrent ? <b>{item.text}</b> : item.text}
                   </text>
