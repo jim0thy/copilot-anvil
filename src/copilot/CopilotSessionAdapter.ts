@@ -128,6 +128,13 @@ export class CopilotSessionAdapter {
     
     this._activeAgent = agent ?? null;
     
+    // Log for debugging
+    if (agentId && !agent) {
+      this.emit(createLogEvent("warn", `⚠️ Agent '${agentId}' not found in registered agents. Available: ${this._customAgents.map(a => a.name).join(", ")}`));
+    } else if (agent) {
+      this.emit(createLogEvent("debug", `✅ Active agent set: ${agent.displayName || agent.name}`));
+    }
+    
     // If we have an active session, recreate it with the new system prompt
     // (unless skipSessionRenew is true, meaning caller will handle session update)
     if (this.session && this.client && !this.isProcessing && !skipSessionRenew) {
@@ -440,6 +447,11 @@ Example: To use the "clarifier" agent:
               agentName: this._activeAgent.name,
               agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
             } : undefined);
+            
+            // Debug logging for first delta of each message
+            if (this.streamingBuffer.length === 0 && agentInfo) {
+              this.emit(createLogEvent("debug", `📤 Assistant delta starting - agent: ${agentInfo.agentDisplayName} (subagent: ${Boolean(subagent)}, parentToolCallId: ${parentToolCallId || "none"})`));
+            }
             
             this.emit({
               type: "assistant.delta",
