@@ -80,7 +80,7 @@ function formatStats(additions: number, deletions: number): { add: string; del: 
 }
 
 // Fixed-width stat column (e.g., "+999 -999" = 10 chars max)
-const STAT_COL_WIDTH = 12;
+const STAT_COL_WIDTH = 15;
 
 export const FilesModifiedPane = memo(function FilesModifiedPane({ 
   files, 
@@ -134,29 +134,20 @@ export const FilesModifiedPane = memo(function FilesModifiedPane({
       <box flexDirection="column" marginTop={0} gap={0}>
         {displayFiles.map((file, idx) => {
           const { add, del } = formatStats(file.additions, file.deletions);
+          const statsText = [add, del].filter(Boolean).join(" ");
+          const truncatedPath = truncatePath(file.path, maxFilePathLength);
           return (
-            <box key={idx} flexDirection="row" width="100%" height={1} justifyContent="space-between">
-              {/* Left: status + filename */}
-              <box flexDirection="row" flexShrink={1} overflow="hidden" height={1}>
-                <text>
-                  <span fg={getStatusColor(file.status, theme)}>
-                    <b>{getStatusLabel(file.status)}</b>
-                  </span>
-                  <span fg={c.subtle}> │ </span>
-                  <span fg={c.text}>{truncatePath(file.path, maxFilePathLength)}</span>
-                </text>
-              </box>
-              {/* Right: stats (fixed width, right-aligned) */}
-              {(file.additions > 0 || file.deletions > 0) && (
-                <box width={STAT_COL_WIDTH} height={1} justifyContent="flex-end" flexShrink={0}>
-                  <text>
-                    {add && <span fg={c.success}>{add}</span>}
-                    {add && del && <span fg={c.subtle}> </span>}
-                    {del && <span fg={c.error}>{del}</span>}
-                  </text>
-                </box>
-              )}
-            </box>
+            <text key={idx}>
+              <span fg={getStatusColor(file.status, theme)}>
+                <b>{getStatusLabel(file.status)}</b>
+              </span>
+              <span fg={c.subtle}> │ </span>
+              <span fg={c.text}>{truncatedPath}</span>
+              {statsText && <span fg={c.subtle}> </span>}
+              {add && <span fg={c.success}>{add}</span>}
+              {add && del && <span fg={c.subtle}> </span>}
+              {del && <span fg={c.error}>{del}</span>}
+            </text>
           );
         })}
       </box>

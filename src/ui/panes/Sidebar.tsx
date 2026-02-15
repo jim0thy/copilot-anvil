@@ -115,6 +115,19 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
   const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
   const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);
 
+  // Calculate max widths for alignment
+  const maxAddWidth = Math.max(
+    ...files.map(f => f.additions > 0 ? `+${f.additions}`.length : 0),
+    totalAdditions > 0 ? `+${totalAdditions}`.length : 0
+  );
+  const maxDelWidth = Math.max(
+    ...files.map(f => f.deletions > 0 ? `-${f.deletions}`.length : 0),
+    totalDeletions > 0 ? `-${totalDeletions}`.length : 0
+  );
+
+  const formatAdd = (n: number) => n > 0 ? `+${n}`.padStart(maxAddWidth) : " ".repeat(maxAddWidth);
+  const formatDel = (n: number) => n > 0 ? `-${n}`.padStart(maxDelWidth) : " ".repeat(maxDelWidth);
+
   return (
     <box flexDirection="column" gap={0}>
       <box height={1}>
@@ -126,35 +139,33 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
 
       {files.map((file, idx) => (
         <box key={idx} flexDirection="row" justifyContent="space-between" height={1}>
-          <box flexDirection="row" flexShrink={1} width="100%" height={1}>
+          <box flexDirection="row" flexShrink={1} overflow="hidden" height={1}>
             <text fg={getFileStatusColor(file.status, theme)}>
               {getFileStatusIcon(file.status)}{" "}
             </text>
             <text fg={c.text}>{file.path}</text>
           </box>
-          <text fg={c.subtext0}>
-            {file.additions > 0 && (
-              <span fg={c.success}>+{file.additions}</span>
-            )}
-            {file.additions > 0 && file.deletions > 0 && <span> </span>}
-            {file.deletions > 0 && (
-              <span fg={c.error}>-{file.deletions}</span>
-            )}
-          </text>
+          <box flexShrink={0}>
+            <text>
+              <span fg={file.additions > 0 ? c.success : c.text}>{formatAdd(file.additions)}</span>
+              <span> </span>
+              <span fg={file.deletions > 0 ? c.error : c.text}>{formatDel(file.deletions)}</span>
+            </text>
+          </box>
         </box>
       ))}
 
-      <box height={1}>
-        <text>
-          <span fg={c.subtext0}>Total: </span>
-          {totalAdditions > 0 && (
-            <span fg={c.success}>+{totalAdditions}</span>
-          )}
-          {totalAdditions > 0 && totalDeletions > 0 && <span> </span>}
-          {totalDeletions > 0 && (
-            <span fg={c.error}>-{totalDeletions}</span>
-          )}
-        </text>
+      <box flexDirection="row" justifyContent="space-between" height={1} marginTop={1}>
+        <text fg={c.subtext0}><b>Total</b></text>
+        <box flexShrink={0}>
+          <text>
+            <b>
+              <span fg={totalAdditions > 0 ? c.success : c.text}>{formatAdd(totalAdditions)}</span>
+              <span> </span>
+              <span fg={totalDeletions > 0 ? c.error : c.text}>{formatDel(totalDeletions)}</span>
+            </b>
+          </text>
+        </box>
       </box>
     </box>
   );
