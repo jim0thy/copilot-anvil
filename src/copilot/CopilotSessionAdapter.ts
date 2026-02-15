@@ -44,6 +44,14 @@ function extractToolOutput(result: unknown): string | undefined {
   return undefined;
 }
 
+export interface CustomAgentDef {
+  name: string;
+  displayName?: string;
+  description?: string;
+  tools?: string[] | null;
+  prompt: string;
+}
+
 export class CopilotSessionAdapter {
   private client: CopilotClient | null = null;
   private session: CopilotSession | null = null;
@@ -63,6 +71,7 @@ export class CopilotSessionAdapter {
   private userInputHandler: UserInputHandler | null = null;
   private _currentSessionId: string | null = null;
   private _projectPrefix: string;
+  private _customAgents: CustomAgentDef[] = [];
 
   constructor() {
     this._projectPrefix = path.basename(process.cwd()) + "-";
@@ -76,6 +85,14 @@ export class CopilotSessionAdapter {
 
   onUserInputRequest(handler: UserInputHandler): void {
     this.userInputHandler = handler;
+  }
+
+  /**
+   * Set custom agents to be registered with the SDK.
+   * These agents will be available for delegation by the orchestrator.
+   */
+  setCustomAgents(agents: CustomAgentDef[]): void {
+    this._customAgents = agents;
   }
 
   get currentModel(): string | null {
@@ -180,6 +197,7 @@ export class CopilotSessionAdapter {
         streaming: true,
         model,
         onUserInputRequest: this.getUserInputCallback(),
+        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       });
 
       this._currentSessionId = sessionId;
@@ -603,6 +621,7 @@ export class CopilotSessionAdapter {
     const session = await this.client.createSession({
       streaming: true,
       model: this._currentModel ?? undefined,
+      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
     });
 
     this.activateSession(session);
@@ -621,6 +640,7 @@ export class CopilotSessionAdapter {
       streaming: true as const,
       model: modelId,
       onUserInputRequest: this.getUserInputCallback(),
+      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
     };
 
     try {
@@ -651,6 +671,7 @@ export class CopilotSessionAdapter {
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
+      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
     });
 
     this._currentSessionId = sessionId;
@@ -675,6 +696,7 @@ export class CopilotSessionAdapter {
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
+      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
     });
 
     this._currentSessionId = sessionId;
