@@ -1,10 +1,5 @@
 import type { HarnessEvent, UIAction } from "./events.js";
-import {
-  createAssistantMessage,
-  createLogEvent,
-  createUserMessage,
-  generateId,
-} from "./events.js";
+import { createLogEvent, createUserMessage, generateId } from "./events.js";
 import type {
   HarnessState,
   ActiveTool,
@@ -18,9 +13,10 @@ import type {
 import { INITIAL_STATE } from "./state.js";
 import { processEvent, processEphemeralEvent, freshContextInfo, type ReducerContext } from "./reducer.js";
 import { HarnessPlugin, PluginManager } from "./plugins.js";
-import type { CopilotSessionAdapter, ModelDescription } from "../copilot/CopilotSessionAdapter.js";
+import type { CopilotSessionAdapter } from "../copilot/CopilotSessionAdapter.js";
 import { CommandRegistry, parseSlashCommand } from "../commands/CommandLoader.js";
 import type { CommandDefinition } from "../commands/CommandLoader.js";
+import { loadConfig, saveConfig } from "../utils/config.js";
 
 // Re-export state types so existing consumers don't need to change imports
 export type {
@@ -132,8 +128,43 @@ export class Harness {
             description: agent.description,
             prompt: agent.systemPrompt,
             tools: agent.tools.length > 0 ? agent.tools : null,
+            infer: true, // Explicitly enable agent for LLM inference
           }));
-          this.adapter.setCustomAgents(customAgents);
+          
+          // Fire and forget - session will be recreated with agents
+          this.adapter.setCustomAgents(customAgents).then(() => {
+            this.emit(createLogEvent("info", `Registered ${customAgents.length} custom agents with SDK`));
+          }).catch((err) => {
+            this.emit(createLogEvent("error", `Failed to register custom agents: ${err instanceof Error ? err.message : String(err)}`));
+          });
+        }
+      }
+      
+      // Side effect: activate agent in adapter when agent.changed event comes from plugin
+      if (event.type === "agent.changed" && this.adapter) {
+        const pluginCtx = this.pluginManager.getContext();
+        const orchestrationState = pluginCtx.state.get<{
+          availableAgents: Array<{
+            id: string;
+            name: string;
+            model: string;
+          }>;
+        }>("orchestration");
+        
+        const agent = orchestrationState?.availableAgents.find(a => a.id === event.agentId);
+        const needsModelSwitch = Boolean(
+          agent?.model && 
+          agent.model !== this.state.currentModel && 
+          this.state.availableModels.some(m => m.id === agent.model)
+        );
+        
+        this.adapter.setActiveAgent(event.agentId, needsModelSwitch).catch((err) => {
+          this.emit(createLogEvent("error", `Failed to activate agent: ${err instanceof Error ? err.message : String(err)}`));
+        });
+        
+        // Also switch model if needed
+        if (needsModelSwitch && agent?.model) {
+          this.handleChangeModel(agent.model);
         }
       }
     }
@@ -196,6 +227,10 @@ export class Harness {
       case "agent.list":
         this.emit({ type: "show.agents.modal" });
         break;
+
+      case "change.reasoning.effort":
+        this.handleChangeReasoningEffort(action.effort);
+        break;
     }
   }
 
@@ -206,16 +241,20 @@ export class Harness {
       throw new Error("Adapter not set. Call setAdapter() first.");
     }
 
+    // Load persisted config
+    const config = loadConfig();
+
     this.emit(createLogEvent("info", "Initializing Copilot session..."));
 
     try {
-      await this.adapter.initialize();
+      await this.adapter.initialize(undefined, config.reasoningEffort);
 
       this.state = {
         ...this.state,
         currentModel: this.adapter.currentModel,
         availableModels: this.adapter.availableModels,
         currentSessionId: this.adapter.currentSessionId,
+        reasoningEffort: config.reasoningEffort,
       };
 
       this.emit(createLogEvent("info", "Copilot session ready"));
@@ -386,6 +425,9 @@ export class Harness {
     this.state = {
       ...this.state,
       transcript: [...this.state.transcript, userMessage],
+      // Clear todo and plan when a new message is sent
+      currentTodo: null,
+      currentPlan: null,
     };
 
     this.emit({
@@ -665,23 +707,28 @@ export class Harness {
       agentName,
     });
 
-    // Also switch to the agent's required model
-    if (agent?.model && this.adapter) {
-      const targetModel = agent.model;
-      const currentModel = this.state.currentModel;
-      
-      // Only switch if different model is required
-      if (targetModel !== currentModel) {
-        // Check if model is available
-        const modelAvailable = this.state.availableModels.some(m => m.id === targetModel);
-        if (modelAvailable) {
-          this.emit(createLogEvent("info", `Switched to agent: ${agentName} (switching to ${targetModel})`));
-          await this.handleChangeModel(targetModel);
-          return;
-        } else {
-          this.emit(createLogEvent("warn", `Agent ${agentName} requires model ${targetModel} which is not available`));
-        }
+    // Activate the agent in the adapter - this sets the agent's system prompt
+    // as the top-level prompt for the session, making the LLM behave AS that agent
+    // If we'll also switch models, skip the session renew here and let model switch handle it
+    const needsModelSwitch = Boolean(
+      agent?.model && 
+      agent.model !== this.state.currentModel && 
+      this.state.availableModels.some(m => m.id === agent.model)
+    );
+    
+    if (this.adapter) {
+      try {
+        await this.adapter.setActiveAgent(agentId, needsModelSwitch);
+      } catch (err) {
+        this.emit(createLogEvent("error", `Failed to activate agent: ${err instanceof Error ? err.message : String(err)}`));
       }
+    }
+
+    // Also switch to the agent's required model (this will apply both agent prompt and model)
+    if (needsModelSwitch && agent?.model) {
+      this.emit(createLogEvent("info", `Switched to agent: ${agentName} (switching to ${agent.model})`));
+      await this.handleChangeModel(agent.model);
+      return;
     }
 
     this.emit(createLogEvent("info", `Switched to agent: ${agentName}`));
@@ -713,5 +760,40 @@ export class Harness {
 
     const newAgent = agentList[newIndex];
     await this.handleSwitchAgent(newAgent.id);
+  }
+
+  private handleChangeReasoningEffort(effort: "low" | "medium" | "high" | "xhigh"): void {
+    if (this.state.status === "running") {
+      this.emit(createLogEvent("warn", "Cannot change reasoning effort while a run is in progress"));
+      return;
+    }
+
+    const currentModelInfo = this.state.availableModels.find(m => m.id === this.state.currentModel);
+    if (!currentModelInfo?.supportsReasoningEffort) {
+      this.emit(createLogEvent("warn", "Current model does not support reasoning effort"));
+      return;
+    }
+
+    this.state = {
+      ...this.state,
+      reasoningEffort: effort,
+    };
+
+    // Persist to config
+    const config = loadConfig();
+    config.reasoningEffort = effort;
+    saveConfig(config);
+
+    this.emit({
+      type: "reasoning.effort.changed",
+      effort,
+    });
+
+    // Apply to adapter
+    if (this.adapter) {
+      this.adapter.setReasoningEffort(effort);
+    }
+
+    this.emit(createLogEvent("info", `Reasoning effort set to: ${effort}`));
   }
 }
