@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/react";
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
 import type { ModelDescription } from "../../copilot/CopilotSessionAdapter.js";
 
@@ -67,6 +67,15 @@ export const ModelSelector = memo(function ModelSelector({
   const [selectedIndex, setSelectedIndex] = useState(
     currentRowIndex >= 0 ? currentRowIndex : Math.max(0, firstModelIndex)
   );
+  const [manualScrollOffset, setManualScrollOffset] = useState<number | null>(null);
+  const modalRef = useRef<any>(null);
+
+  // Focus modal when mounted to capture keyboard events
+  useEffect(() => {
+    if (modalRef.current) {
+      modalRef.current.focus();
+    }
+  }, []);
 
   const handleKeyboard = useCallback((key: any) => {
     if (key.name === "escape") {
@@ -82,6 +91,8 @@ export const ModelSelector = memo(function ModelSelector({
         }
         return newIdx;
       });
+      // Reset manual scroll when using keyboard
+      setManualScrollOffset(null);
       return;
     }
     if (key.name === "down") {
@@ -93,6 +104,8 @@ export const ModelSelector = memo(function ModelSelector({
         }
         return newIdx;
       });
+      // Reset manual scroll when using keyboard
+      setManualScrollOffset(null);
       return;
     }
     if (key.name === "return") {
@@ -114,14 +127,34 @@ export const ModelSelector = memo(function ModelSelector({
 
   // Calculate scroll offset to keep selected item visible
   const maxScrollOffset = Math.max(0, rows.length - listHeight);
-  const scrollOffset = Math.min(
+  const autoScrollOffset = Math.min(
     maxScrollOffset,
     Math.max(0, selectedIndex - Math.floor(listHeight / 2))
   );
+  
+  // Use manual scroll offset if set, otherwise use auto-scroll
+  const scrollOffset = manualScrollOffset !== null 
+    ? Math.max(0, Math.min(maxScrollOffset, manualScrollOffset))
+    : autoScrollOffset;
+  
   const visibleRows = rows.slice(scrollOffset, scrollOffset + listHeight);
+
+  const handleMouseScroll = useCallback((event: any) => {
+    // Prevent scroll from propagating to background
+    event.stopPropagation?.();
+    
+    const delta = event.deltaY || 0;
+    setManualScrollOffset((current) => {
+      const baseOffset = current !== null ? current : autoScrollOffset;
+      const newOffset = baseOffset + (delta > 0 ? 1 : -1);
+      // Clamp to valid range
+      return Math.max(0, Math.min(maxScrollOffset, newOffset));
+    });
+  }, [maxScrollOffset, autoScrollOffset]);
 
   return (
     <box
+      ref={modalRef}
       position="absolute"
       left={modalX}
       top={modalY}
@@ -132,6 +165,8 @@ export const ModelSelector = memo(function ModelSelector({
       backgroundColor={c.mantle}
       flexDirection="column"
       padding={1}
+      focusable={true}
+      onMouseScroll={handleMouseScroll}
     >
         {/* Header */}
         <box marginBottom={1}>

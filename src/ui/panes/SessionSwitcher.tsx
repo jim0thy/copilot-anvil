@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/react";
-import { memo, useState } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
 import type { SessionInfo } from "../../harness/events.js";
 
@@ -134,6 +134,14 @@ export const SessionSwitcher = memo(function SessionSwitcher({
   const [selectedIndex, setSelectedIndex] = useState(
     currentIndex >= 0 ? currentIndex : 0
   );
+  const modalRef = useRef<any>(null);
+
+  // Focus modal when mounted to capture keyboard events
+  useEffect(() => {
+    if (modalRef.current) {
+      modalRef.current.focus();
+    }
+  }, []);
 
   useKeyboard((key) => {
     if (key.name === "escape") {
@@ -198,6 +206,7 @@ export const SessionSwitcher = memo(function SessionSwitcher({
 
   return (
     <box
+      ref={modalRef}
       position="absolute"
       left={modalX}
       top={modalY}
@@ -208,6 +217,7 @@ export const SessionSwitcher = memo(function SessionSwitcher({
       backgroundColor={c.mantle}
       flexDirection="column"
       padding={1}
+      focusable={true}
     >
       {/* Header */}
       <box marginBottom={1}>

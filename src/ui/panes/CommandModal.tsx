@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/react";
-import { memo } from "react";
+import { memo, useRef, useEffect } from "react";
 import type { EphemeralRun } from "../../harness/Harness.js";
 import type { ChatMessage, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
@@ -22,6 +22,14 @@ export const CommandModal = memo(function CommandModal({
 }: CommandModalProps) {
   const c = theme.colors;
   const isComplete = ephemeralRun.status === "completed" || ephemeralRun.status === "failed";
+  const modalRef = useRef<any>(null);
+
+  // Focus modal when mounted to capture keyboard events
+  useEffect(() => {
+    if (modalRef.current) {
+      modalRef.current.focus();
+    }
+  }, []);
 
   useKeyboard((key) => {
     // Only allow closing when complete
@@ -48,6 +56,7 @@ export const CommandModal = memo(function CommandModal({
 
   return (
     <box
+      ref={modalRef}
       position="absolute"
       left={modalX}
       top={modalY}
@@ -57,6 +66,7 @@ export const CommandModal = memo(function CommandModal({
       borderColor={ephemeralRun.status === "running" ? c.info : c.success}
       backgroundColor={c.mantle}
       flexDirection="column"
+      focusable={true}
     >
       {/* Header */}
       <box

@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/react";
-import { memo, useState } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
 
 interface ConfirmModalProps {
@@ -28,6 +28,14 @@ export const ConfirmModal = memo(function ConfirmModal({
   const c = theme.colors;
   const [selectedIndex, setSelectedIndex] = useState(0);
   const options = [confirmLabel, cancelLabel];
+  const modalRef = useRef<any>(null);
+
+  // Focus modal when mounted to capture keyboard events
+  useEffect(() => {
+    if (modalRef.current) {
+      modalRef.current.focus();
+    }
+  }, []);
 
   useKeyboard((key) => {
     if (key.name === "escape") {
@@ -65,6 +73,7 @@ export const ConfirmModal = memo(function ConfirmModal({
 
   return (
     <box
+      ref={modalRef}
       position="absolute"
       left={modalX}
       top={modalY}
@@ -75,6 +84,7 @@ export const ConfirmModal = memo(function ConfirmModal({
       backgroundColor={c.mantle}
       flexDirection="column"
       padding={1}
+      focusable={true}
     >
       {/* Header */}
       <box marginBottom={1}>

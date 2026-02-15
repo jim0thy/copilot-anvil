@@ -1,5 +1,5 @@
 import { useKeyboard } from '@opentui/react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Theme } from '../theme.js';
 import type { Skill } from '../../harness/Harness.js';
 
@@ -22,6 +22,14 @@ export function SkillsPane({
 }: SkillsPaneProps) {
   const c = theme.colors;
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const modalRef = useRef<any>(null);
+
+  // Focus modal when mounted to capture keyboard events
+  useEffect(() => {
+    if (modalRef.current) {
+      modalRef.current.focus();
+    }
+  }, []);
 
   useKeyboard((key) => {
     if (key.name === 'escape' || key.name === 'q') {
@@ -58,6 +66,7 @@ export function SkillsPane({
       height={height}
     >
       <box
+        ref={modalRef}
         position="absolute"
         top={top}
         left={left}
@@ -68,6 +77,7 @@ export function SkillsPane({
         borderStyle="double"
         borderColor={c.primary}
         padding={1}
+        focusable={true}
       >
         {/* Header */}
         <box marginBottom={1}>

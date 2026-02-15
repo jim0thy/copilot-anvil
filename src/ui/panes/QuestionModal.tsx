@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/react";
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
 import type { PendingQuestion } from "../../harness/Harness.js";
 
@@ -24,6 +24,14 @@ export const QuestionModal = memo(function QuestionModal({
   const choices = question.choices ?? [];
   const hasChoices = choices.length > 0;
   const canUseFreeform = question.allowFreeform;
+  const modalRef = useRef<any>(null);
+
+  // Focus modal when mounted to capture keyboard events
+  useEffect(() => {
+    if (modalRef.current) {
+      modalRef.current.focus();
+    }
+  }, []);
 
   useKeyboard((key) => {
     // Navigation between choices
@@ -76,7 +84,7 @@ export const QuestionModal = memo(function QuestionModal({
   });
 
   return (
-    <box flexDirection="column" width="100%" flexShrink={0}>
+    <box ref={modalRef} flexDirection="column" width="100%" flexShrink={0} focusable={true}>
       {/* Question text - expands above input area */}
       {inputMode === "choices" && hasChoices && (
         <box
