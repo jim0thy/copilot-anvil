@@ -78,11 +78,47 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           agents: topLevelAgents,
         } as any);
         
+        // Set Clarifier as the default agent (vscode-agents style - always entry point)
+        const clarifier = agents.find(a => a.domain === "clarification");
+        if (clarifier) {
+          // Switch to orchestrated mode
+          ctx!.state.update<OrchestrationState>(ORCHESTRATION_STATE_KEY, { mode: "orchestrated" });
+          
+          ctx!.emit({
+            type: "log",
+            runId: null,
+            level: "info",
+            message: `🎯 Team mode enabled — using ${clarifier.name} as entry point`,
+            createdAt: new Date(),
+          });
+          
+          // Emit mode change event
+          ctx!.emit({
+            type: "orchestration.mode.changed",
+            mode: "orchestrated",
+          } as any);
+          
+          // Emit agent.changed event to switch to clarifier
+          ctx!.emit({
+            type: "agent.changed",
+            agentId: clarifier.id,
+            agentName: clarifier.name,
+          } as any);
+        }
+        
         ctx!.emit({
           type: "log",
           runId: null,
           level: "info",
           message: `Loaded ${agents.length} agents (${topLevelAgents.length} top-level)`,
+          createdAt: new Date(),
+        });
+      }).catch((err) => {
+        ctx!.emit({
+          type: "log",
+          runId: null,
+          level: "error",
+          message: `Failed to load agents: ${err instanceof Error ? err.message : String(err)}`,
           createdAt: new Date(),
         });
       });
