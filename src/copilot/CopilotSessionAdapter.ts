@@ -1,6 +1,6 @@
 import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
-import type { ModelInfo, SessionEvent } from "@github/copilot-sdk";
-import type { HarnessEvent, SessionInfo, TranscriptItem, ChatMessage, ToolCallItem } from "../harness/events.js";
+import type { ModelInfo, SessionEvent, SystemMessageConfig } from "@github/copilot-sdk";
+import type { HarnessEvent, SessionInfo, TranscriptItem, ToolCallItem } from "../harness/events.js";
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 import * as path from "path";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
@@ -16,6 +16,9 @@ export interface ModelDescription {
   name: string;
   multiplier?: number;
   provider?: string;
+  supportsReasoningEffort: boolean;
+  supportedReasoningEfforts?: ("low" | "medium" | "high" | "xhigh")[];
+  defaultReasoningEffort?: "low" | "medium" | "high" | "xhigh";
 }
 
 // ── Static helpers ───────────────────────────────────────────────
@@ -50,6 +53,7 @@ export interface CustomAgentDef {
   description?: string;
   tools?: string[] | null;
   prompt: string;
+  infer?: boolean;
 }
 
 export class CopilotSessionAdapter {
@@ -72,6 +76,10 @@ export class CopilotSessionAdapter {
   private _currentSessionId: string | null = null;
   private _projectPrefix: string;
   private _customAgents: CustomAgentDef[] = [];
+  private _activeAgent: CustomAgentDef | null = null;
+  private _reasoningEffort: "low" | "medium" | "high" | "xhigh" = "medium";
+  /** Map of tool call IDs to subagent information */
+  private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
 
   constructor() {
     this._projectPrefix = path.basename(process.cwd()) + "-";
@@ -90,9 +98,96 @@ export class CopilotSessionAdapter {
   /**
    * Set custom agents to be registered with the SDK.
    * These agents will be available for delegation by the orchestrator.
+   * If a session is already active, it will be recreated with the new agents.
    */
-  setCustomAgents(agents: CustomAgentDef[]): void {
+  async setCustomAgents(agents: CustomAgentDef[]): Promise<void> {
     this._customAgents = agents;
+    this.emit(createLogEvent("info", `🤖 Setting ${agents.length} custom agents: ${agents.map(a => a.displayName || a.name).join(", ")}`));
+    
+    // If we have an active session, recreate it to include the new agents
+    if (this.session && this.client && !this.isProcessing) {
+      this.emit(createLogEvent("info", "Renewing session with custom agents..."));
+      await this.renewSessionWithAgents();
+    }
+  }
+
+  /**
+   * Set the active agent whose system prompt will be used for the session.
+   * When an agent is selected, the session uses that agent's system prompt
+   * directly, making the LLM behave AS that agent (not just delegate to it).
+   * 
+   * @param agentId - The agent ID to activate, or null for default Copilot behavior
+   * @param skipSessionRenew - If true, just sets the agent without recreating the session.
+   *                           Use when you'll be switching models immediately after.
+   */
+  async setActiveAgent(agentId: string | null, skipSessionRenew = false): Promise<void> {
+    // Find the agent from registered custom agents
+    const agent = agentId 
+      ? this._customAgents.find(a => a.name === agentId)
+      : null;
+    
+    this._activeAgent = agent ?? null;
+    
+    // If we have an active session, recreate it with the new system prompt
+    // (unless skipSessionRenew is true, meaning caller will handle session update)
+    if (this.session && this.client && !this.isProcessing && !skipSessionRenew) {
+      const agentName = agent?.displayName ?? agent?.name ?? "Copilot";
+      this.emit(createLogEvent("info", `Activating agent: ${agentName}`));
+      await this.renewSessionWithAgents();
+    }
+  }
+
+  /**
+   * Set the reasoning effort level for new sessions.
+   * Does not affect the current session - only future sessions.
+   */
+  setReasoningEffort(effort: "low" | "medium" | "high" | "xhigh"): void {
+    this._reasoningEffort = effort;
+  }
+
+  private getEffectiveReasoningEffort(): "low" | "medium" | "high" | "xhigh" | undefined {
+    const model = this._availableModels.find((m) => m.id === this._currentModel);
+    if (!model?.supportsReasoningEffort) return undefined;
+
+    if (model.supportedReasoningEfforts && !model.supportedReasoningEfforts.includes(this._reasoningEffort)) {
+      return model.defaultReasoningEffort ?? undefined;
+    }
+
+    return this._reasoningEffort;
+  }
+
+  /**
+   * Recreate the current session with updated custom agents.
+   * Preserves the current session ID to maintain conversation history.
+   */
+  private async renewSessionWithAgents(): Promise<void> {
+    if (!this.client) throw new Error("Client not initialized");
+    
+    const currentSessionId = this._currentSessionId;
+    if (!currentSessionId) return;
+
+    await this.teardownSession();
+
+    // Resume the same session with updated agents and system message
+      const opts = {
+        streaming: true as const,
+        model: this._currentModel ?? undefined,
+        onUserInputRequest: this.getUserInputCallback(),
+        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        systemMessage: this.buildSystemMessage(),
+        reasoningEffort: this.getEffectiveReasoningEffort(),
+      };
+
+    try {
+      this.session = await this.client.resumeSession(currentSessionId, opts);
+    } catch {
+      // If resume fails, create new session with same ID
+      this.session = await this.client.createSession({ sessionId: currentSessionId, ...opts });
+    }
+
+    this.workspacePath = this.session.workspacePath ?? null;
+    this.setupSessionEventHandlers();
+    if (this.workspacePath) this.setupPlanWatcher();
   }
 
   get currentModel(): string | null {
@@ -127,6 +222,7 @@ export class CopilotSessionAdapter {
     this.streamingBuffer = "";
     this.reasoningBuffer = "";
     this.hasEmittedContentForTurn = false;
+    this.activeSubagents.clear();
   }
 
   /** Tear down the current session and its plan watcher. Does not throw. */
@@ -162,9 +258,79 @@ export class CopilotSessionAdapter {
     return this._projectPrefix + Date.now().toString(36);
   }
 
+  /** 
+   * Build system message config for the session.
+   * 
+   * If an active agent is selected, uses that agent's system prompt directly,
+   * making the LLM behave AS that agent (the top-level agent).
+   * 
+   * Additionally, advertises other available agents as potential subagents
+   * that can be delegated to via the task tool.
+   */
+  private buildSystemMessage(): SystemMessageConfig | undefined {
+    // If an active agent is selected, use its system prompt as the primary instruction
+    if (this._activeAgent) {
+      this.emit(createLogEvent("debug", `Building system message for active agent: ${this._activeAgent.displayName ?? this._activeAgent.name}`));
+      
+      // Build list of OTHER agents available for delegation (excluding the active one)
+      const otherAgents = this._customAgents.filter(a => a.name !== this._activeAgent?.name);
+      const agentList = otherAgents.length > 0
+        ? otherAgents.map(a => `- **${a.displayName || a.name}**: ${a.description || 'No description'}`).join('\n')
+        : '';
+      
+      const subagentSection = otherAgents.length > 0 ? `
+
+<available_subagents>
+You can delegate to these specialist agents via the task tool:
+
+${agentList}
+
+To delegate: use task tool with agent name as agent_type parameter.
+</available_subagents>` : '';
+
+      return {
+        mode: "replace" as const,
+        content: `${this._activeAgent.prompt}
+
+${subagentSection}
+`,
+      };
+    }
+    
+    // No active agent - just advertise all available agents as options
+    if (this._customAgents.length === 0) return undefined;
+
+    const agentList = this._customAgents
+      .map(a => `- **${a.displayName || a.name}**: ${a.description || 'No description'}`)
+      .join('\n');
+
+    return {
+      mode: "append" as const,
+      content: `
+<custom_agents>
+You have access to the following custom agents that you can delegate tasks to via the task tool:
+
+${agentList}
+
+When delegating to a custom agent:
+1. Use the task tool with the agent's name as the agent_type parameter
+2. Provide a clear, specific prompt describing what the agent should do
+3. Custom agents have specialized knowledge and should be preferred for their domain
+
+Example: To use the "clarifier" agent:
+\`\`\`json
+{"agent_type": "clarifier", "prompt": "Analyze this request for ambiguity: ..."}
+\`\`\`
+</custom_agents>
+`,
+    };
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────
 
-  async initialize(model?: string): Promise<void> {
+  async initialize(model?: string, reasoningEffort: "low" | "medium" | "high" | "xhigh" = "medium"): Promise<void> {
+    this._reasoningEffort = reasoningEffort;
+
     try {
       this.client = new CopilotClient({
         autoStart: true,
@@ -187,6 +353,9 @@ export class CopilotSessionAdapter {
           name: m.name,
           multiplier: m.billing?.multiplier,
           provider,
+          supportsReasoningEffort: m.capabilities?.supports?.reasoningEffort ?? false,
+          supportedReasoningEfforts: m.supportedReasoningEfforts,
+          defaultReasoningEffort: m.defaultReasoningEffort,
         };
       });
 
@@ -198,6 +367,8 @@ export class CopilotSessionAdapter {
         model,
         onUserInputRequest: this.getUserInputCallback(),
         customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        systemMessage: this.buildSystemMessage(),
+        reasoningEffort: this.getEffectiveReasoningEffort(),
       });
 
       this._currentSessionId = sessionId;
@@ -262,10 +433,21 @@ export class CopilotSessionAdapter {
           this.streamingBuffer += deltaContent;
 
           if (this.currentRunId) {
+            const parentToolCallId = event.data?.parentToolCallId;
+            // Check if this is from a subagent, otherwise use active agent
+            const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+            const agentInfo = subagent || (this._activeAgent ? {
+              agentName: this._activeAgent.name,
+              agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
+            } : undefined);
+            
             this.emit({
               type: "assistant.delta",
               runId: this.currentRunId,
               text: deltaContent,
+              parentToolCallId,
+              agentName: agentInfo?.agentName,
+              agentDisplayName: agentInfo?.agentDisplayName,
             });
           }
           break;
@@ -276,12 +458,35 @@ export class CopilotSessionAdapter {
 
           const content = event.data?.content ?? "";
           const resolvedContent = content || this.streamingBuffer;
+          const parentToolCallId = event.data?.parentToolCallId;
+
+          this.emit(createLogEvent("debug", `📝 Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
 
           if (resolvedContent && this.currentRunId) {
+            const message = createAssistantMessage(resolvedContent);
+            
+            // Add agent information - from subagent if available, otherwise from active agent
+            if (parentToolCallId) {
+              this.emit(createLogEvent("debug", `Looking up subagent for toolCallId: ${parentToolCallId}`));
+              const subagent = this.activeSubagents.get(parentToolCallId);
+              if (subagent) {
+                this.emit(createLogEvent("info", `✨ Message from subagent: ${subagent.agentDisplayName}`));
+                message.agentName = subagent.agentName;
+                message.agentDisplayName = subagent.agentDisplayName;
+                message.parentToolCallId = parentToolCallId;
+              } else {
+                this.emit(createLogEvent("warn", `⚠️ No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
+              }
+            } else if (this._activeAgent) {
+              // Message from top-level active agent (e.g., Clarifier)
+              message.agentName = this._activeAgent.name;
+              message.agentDisplayName = this._activeAgent.displayName || this._activeAgent.name;
+            }
+            
             this.emit({
               type: "assistant.message",
               runId: this.currentRunId,
-              message: createAssistantMessage(resolvedContent),
+              message,
             });
             this.hasEmittedContentForTurn = true;
           }
@@ -294,10 +499,12 @@ export class CopilotSessionAdapter {
           if (this.isEventStale(gen)) return;
 
           if (!this.hasEmittedContentForTurn && this.streamingBuffer && this.currentRunId) {
+            const message = createAssistantMessage(this.streamingBuffer);
+            
             this.emit({
               type: "assistant.message",
               runId: this.currentRunId,
-              message: createAssistantMessage(this.streamingBuffer),
+              message,
             });
           }
 
@@ -484,15 +691,30 @@ export class CopilotSessionAdapter {
           break;
         }
 
+        case "subagent.selected": {
+          if (this.isEventStale(gen)) return;
+          this.emit(createLogEvent("info", `🔍 Subagent selected: ${event.data?.agentName} (${event.data?.agentDisplayName})`));
+          break;
+        }
+
         case "subagent.started": {
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
+            const toolCallId = event.data?.toolCallId ?? "";
+            const agentName = event.data?.agentName ?? "";
+            const agentDisplayName = event.data?.agentDisplayName ?? "";
+            
+            this.emit(createLogEvent("info", `🚀 Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
+            
+            // Track this subagent so we can attribute its messages
+            this.activeSubagents.set(toolCallId, { agentName, agentDisplayName });
+            
             this.emit({
               type: "subagent.started",
               runId: this.currentRunId,
-              toolCallId: event.data?.toolCallId ?? "",
-              agentName: event.data?.agentName ?? "",
-              agentDisplayName: event.data?.agentDisplayName ?? "",
+              toolCallId,
+              agentName,
+              agentDisplayName,
               agentDescription: event.data?.agentDescription ?? "",
             });
           }
@@ -502,10 +724,15 @@ export class CopilotSessionAdapter {
         case "subagent.completed": {
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
+            const toolCallId = event.data?.toolCallId ?? "";
+            
+            // Remove from active tracking
+            this.activeSubagents.delete(toolCallId);
+            
             this.emit({
               type: "subagent.completed",
               runId: this.currentRunId,
-              toolCallId: event.data?.toolCallId ?? "",
+              toolCallId,
               agentName: event.data?.agentName ?? "",
             });
           }
@@ -515,10 +742,15 @@ export class CopilotSessionAdapter {
         case "subagent.failed": {
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
+            const toolCallId = event.data?.toolCallId ?? "";
+            
+            // Remove from active tracking
+            this.activeSubagents.delete(toolCallId);
+            
             this.emit({
               type: "subagent.failed",
               runId: this.currentRunId,
-              toolCallId: event.data?.toolCallId ?? "",
+              toolCallId,
               agentName: event.data?.agentName ?? "",
               error: event.data?.error ?? "Unknown error",
             });
@@ -621,7 +853,10 @@ export class CopilotSessionAdapter {
     const session = await this.client.createSession({
       streaming: true,
       model: this._currentModel ?? undefined,
+      onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      systemMessage: this.buildSystemMessage(),
+      reasoningEffort: this.getEffectiveReasoningEffort(),
     });
 
     this.activateSession(session);
@@ -641,6 +876,8 @@ export class CopilotSessionAdapter {
       model: modelId,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      systemMessage: this.buildSystemMessage(),
+      reasoningEffort: this.getEffectiveReasoningEffort(),
     };
 
     try {
@@ -672,6 +909,8 @@ export class CopilotSessionAdapter {
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      systemMessage: this.buildSystemMessage(),
+      reasoningEffort: this.getEffectiveReasoningEffort(),
     });
 
     this._currentSessionId = sessionId;
@@ -697,6 +936,8 @@ export class CopilotSessionAdapter {
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      systemMessage: this.buildSystemMessage(),
+      reasoningEffort: this.getEffectiveReasoningEffort(),
     });
 
     this._currentSessionId = sessionId;
@@ -870,6 +1111,7 @@ export class CopilotSessionAdapter {
         model,
         infiniteSessions: { enabled: false },
         onUserInputRequest: this.getUserInputCallback(),
+        reasoningEffort: this.getEffectiveReasoningEffort(),
       });
 
       let ephemeralStreamingBuffer = "";
