@@ -4,6 +4,7 @@ import { createRoot } from "@opentui/react";
 import { App } from "./ui/App.js";
 import { Harness } from "./harness/Harness.js";
 import { CopilotSessionAdapter } from "./copilot/CopilotSessionAdapter.js";
+import { createOrchestrationPlugin } from "./agents/index.js";
 
 // The Copilot SDK spawns its CLI .js file using process.execPath.
 // Under Bun this points to the bun binary, but the CLI requires Node.js.
@@ -21,6 +22,9 @@ async function main() {
   const adapter = new CopilotSessionAdapter();
 
   harness.setAdapter(adapter);
+  
+  // Register the orchestration plugin for multi-agent support
+  harness.use(createOrchestrationPlugin());
 
   try {
     await harness.initialize();

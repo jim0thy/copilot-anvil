@@ -8,6 +8,7 @@ import { StartScreen } from './panes/StartScreen.js'
 import { QuestionModal } from './panes/QuestionModal.js'
 import { ModelSelector } from './panes/ModelSelector.js'
 import { SessionSwitcher } from './panes/SessionSwitcher.js'
+import { AgentsModal } from './panes/AgentsModal.js'
 import { SkillsPane } from './panes/SkillsPane.js'
 import { ConfirmModal } from './panes/ConfirmModal.js'
 import { CommandModal } from './panes/CommandModal.js'
@@ -48,18 +49,24 @@ export function App({ harness, renderer }: AppProps) {
   const [showSessionSwitcher, setShowSessionSwitcher] = useState(false);
   const [showSkillsPane, setShowSkillsPane] = useState(false);
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
+  const [showAgentsModal, setShowAgentsModal] = useState(false);
   const [inputBarHeight, setInputBarHeight] = useState(MIN_INPUT_BAR_HEIGHT);
   const spinner = useSpinner(state.status === "running");
 
   // Coalesce rapid events into a single setState per microtask
   const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    return harness.subscribe(() => {
+    return harness.subscribe((event) => {
       if (rafRef.current === null) {
         rafRef.current = setTimeout(() => {
           rafRef.current = null;
           setState(harness.getState());
         }, 0);
+      }
+      
+      // Handle show agents modal event
+      if (event.type === "show.agents.modal") {
+        setShowAgentsModal(true);
       }
     });
   }, [harness]);
@@ -110,6 +117,15 @@ export function App({ harness, renderer }: AppProps) {
 
   const handleCloseModelSelector = useCallback(() => {
     setShowModelSelector(false);
+  }, []);
+
+  const handleSelectAgent = useCallback((agentId: string | null) => {
+    harness.dispatch({ type: "agent.switch", agentId });
+    setShowAgentsModal(false);
+  }, [harness]);
+
+  const handleCloseAgentsModal = useCallback(() => {
+    setShowAgentsModal(false);
   }, []);
 
   const handleSelectSkill = useCallback((skillName: string) => {
@@ -180,7 +196,7 @@ export function App({ harness, renderer }: AppProps) {
   }, [harness]);
 
   useKeyboard((key) => {
-    if (state.pendingQuestion || showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || state.ephemeralRun) return;
+    if (state.pendingQuestion || showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || state.ephemeralRun) return;
 
     if (key.name === "escape") {
       renderer.destroy();
@@ -189,6 +205,13 @@ export function App({ harness, renderer }: AppProps) {
     if (key.ctrl && key.name === "c") {
       handleCancel();
     }
+    // Tab cycles through agents
+    if (key.name === "tab" && !key.shift && !key.ctrl) {
+      if (state.status !== "running") {
+        harness.dispatch({ type: "agent.cycle", direction: "next" });
+      }
+    }
+    // Shift+Tab opens model selector
     if (key.shift && key.name === "tab") {
       if (state.status !== "running" && state.availableModels.length > 0) {
         setShowModelSelector(true);
@@ -227,6 +250,12 @@ export function App({ harness, renderer }: AppProps) {
     ? state.currentModel.split("/").pop() || state.currentModel
     : "loading...";
 
+  // Get current agent name for status bar
+  const currentAgent = state.currentAgentId
+    ? state.availableAgents.find(a => a.id === state.currentAgentId)
+    : null;
+  const agentDisplay = currentAgent?.name ?? "Copilot";
+
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
 
   return (
@@ -245,7 +274,7 @@ export function App({ harness, renderer }: AppProps) {
             <InputBar
               onSubmit={handleSubmit}
               disabled={state.status === "running" || !!state.pendingQuestion}
-              suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || !!state.ephemeralRun || !!state.pendingQuestion}
+              suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || !!state.pendingQuestion}
               queuedCount={state.messageQueue.length}
               theme={theme}
               onHeightChange={handleInputHeightChange}
@@ -254,6 +283,7 @@ export function App({ harness, renderer }: AppProps) {
           <box flexDirection="column" width="17.5%">
             <Sidebar
               contextInfo={state.contextInfo}
+              orchestrationMode={state.orchestrationMode}
               files={modifiedFiles}
               currentIntent={state.currentIntent}
               currentTodo={state.currentTodo}
@@ -271,7 +301,7 @@ export function App({ harness, renderer }: AppProps) {
           <StartScreen
             onSubmit={handleSubmit}
             disabled={state.status === "running"}
-            suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || !!state.ephemeralRun}
+            suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
             theme={theme}
             height={contentHeight}
           />
@@ -293,6 +323,8 @@ export function App({ harness, renderer }: AppProps) {
           )}
           <span fg={statusColor}>{statusText}</span>
           <span>  </span>
+          <span fg={c.accent}>{agentDisplay}</span>
+          <span fg={c.subtle}> · </span>
           <span fg={c.link}>{modelDisplay}</span>
           {gitInfo.branch && (
             <>
@@ -310,6 +342,7 @@ export function App({ harness, renderer }: AppProps) {
           )}
         </text>
         <text>
+          <span fg={c.subtext0}>Tab</span><span fg={c.text}> agent  </span>
           <span fg={c.subtext0}>esc</span><span fg={c.text}> quit  </span>
           <span fg={c.subtext0}>^N</span><span fg={c.text}> new  </span>
           <span fg={c.subtext0}>^O</span><span fg={c.text}> sessions  </span>
@@ -354,6 +387,19 @@ export function App({ harness, renderer }: AppProps) {
           onSelect={handleSelectSession}
           onNewSession={handleNewSession}
           onClose={handleCloseSessionSwitcher}
+          theme={theme}
+          width={width}
+          height={height - 1}
+        />
+      )}
+
+      {/* Agents Modal */}
+      {showAgentsModal && (
+        <AgentsModal
+          agents={state.availableAgents}
+          currentAgentId={state.currentAgentId}
+          onSelect={handleSelectAgent}
+          onClose={handleCloseAgentsModal}
           theme={theme}
           width={width}
           height={height - 1}

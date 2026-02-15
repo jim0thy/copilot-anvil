@@ -3,10 +3,12 @@ import type { Theme } from "../theme.js";
 import type { ContextInfo } from "./ContextPane.js";
 import type { FileChange } from "../../utils/gitDiff.js";
 import type { Subagent, Skill } from "../../harness/Harness.js";
+import type { OrchestrationMode } from "../../agents/types.js";
 import { getStatusIcon, getStatusColor, parseMarkdownChecklist } from "../formatters.js";
 
 interface SidebarProps {
   contextInfo: ContextInfo;
+  orchestrationMode: OrchestrationMode;
   files: FileChange[];
   currentIntent: string | null;
   currentTodo: string | null;
@@ -19,7 +21,17 @@ interface SidebarProps {
 }
 
 // --- Context Section (always visible) ---
-function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: ContextInfo; theme: Theme; innerWidth: number }) {
+function ContextSection({ 
+  contextInfo, 
+  orchestrationMode,
+  theme, 
+  innerWidth 
+}: { 
+  contextInfo: ContextInfo; 
+  orchestrationMode: OrchestrationMode;
+  theme: Theme; 
+  innerWidth: number 
+}) {
   const c = theme.colors;
   const { currentTokens, tokenLimit, consumedRequests, remainingPremiumRequests } = contextInfo;
 
@@ -38,12 +50,21 @@ function ContextSection({ contextInfo, theme, innerWidth }: { contextInfo: Conte
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "\u2588".repeat(filledWidth) + "\u2591".repeat(barWidth - filledWidth);
 
+  const modeLabel = orchestrationMode === "orchestrated" ? "🎯 Team" : "⚡ Direct";
+  const modeColor = orchestrationMode === "orchestrated" ? c.accent : c.primary;
+
   return (
     <box flexDirection="column">
       <box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <text fg={c.primary}>
-          <b>Context</b>
-        </text>
+        <box flexDirection="row" gap={1}>
+          <text fg={c.primary}>
+            <b>Context</b>
+          </text>
+          <text fg={c.subtle}>{"\u2502"}</text>
+          <text fg={modeColor}>
+            <b>{modeLabel}</b>
+          </text>
+        </box>
         <box flexDirection="row" gap={2}>
           <text>
             <span fg={c.subtext0}>Req: </span>
@@ -296,6 +317,7 @@ function SubagentsSection({
 // --- Main Sidebar Component ---
 export const Sidebar = memo(function Sidebar({
   contextInfo,
+  orchestrationMode,
   files,
   currentIntent,
   currentTodo,
@@ -339,7 +361,7 @@ export const Sidebar = memo(function Sidebar({
       )}
 
       {/* Context Section - Always visible */}
-      <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
+      <ContextSection contextInfo={contextInfo} orchestrationMode={orchestrationMode} theme={theme} innerWidth={innerWidth} />
 
       {/* Files Modified Section - Only when files exist */}
       {hasFiles && (
