@@ -93,13 +93,17 @@ export const QuestionModal = memo(function QuestionModal({
 
   // Calculate modal dimensions
   const modalWidth = Math.min(70, width - 4);
+  const bottomOffset = 4; // Space for status bar and input bar
+  const maxAvailableHeight = height - bottomOffset;
   // Height: question (2 lines) + choices + freeform option + footer + padding/borders
-  const contentLines = totalItems + (inputMode === "freeform" ? 3 : 0);
-  const maxListHeight = Math.max(4, height - 12); // Leave room for question, footer, borders
+  const maxListHeight = Math.max(4, maxAvailableHeight - 8);
   const listHeight = Math.min(totalItems, maxListHeight);
-  const modalHeight = Math.min(listHeight + 8, height - 4);
+  // Ensure modal doesn't exceed available space and expands upward
+  const desiredHeight = listHeight + 8;
+  const modalHeight = Math.min(desiredHeight, maxAvailableHeight);
   const modalX = Math.floor((width - modalWidth) / 2);
-  const modalY = Math.floor((height - modalHeight) / 2);
+  // Anchor bottom edge just above input bar, expand upward
+  const modalY = Math.max(0, height - bottomOffset - modalHeight);
 
   // Calculate scroll offset to keep selected item visible
   const maxScrollOffset = Math.max(0, totalItems - listHeight);
@@ -148,8 +152,9 @@ export const QuestionModal = memo(function QuestionModal({
         <>
           {/* Choices list - scrollable */}
           <box flexDirection="column" height={listHeight} overflow="hidden">
-            {choices.slice(visibleStartIndex, visibleEndIndex).map((choice, visibleIndex) => {
+            {Array.from({ length: Math.min(choices.length - visibleStartIndex, visibleEndIndex - visibleStartIndex) }, (_, visibleIndex) => {
               const index = visibleStartIndex + visibleIndex;
+              const choice = choices[index];
               const isSelected = selectedIndex === index;
               return (
                 <box key={index}>

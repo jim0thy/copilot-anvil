@@ -230,12 +230,10 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const showPlaceholder = !value && !pastedContent;
 
   // Calculate height based on wrapped text
-  // Account for: padding (top+bottom) + wrapped content + paste indicator + image indicators
-  const contentWidth = Math.max(1, Math.floor(width * 0.65) - 4); // 65% width minus padding
-  const prompt = "› ";
+  // Account for: padding (left+right) + wrapped content + paste indicator + image indicators
+  const contentWidth = Math.max(1, Math.floor(width * 0.825) - 4); // 82.5% width minus padding (matching ChatPane)
   const displayText = showPlaceholder ? placeholder : value;
-  const fullText = prompt + displayText;
-  const lines = Math.ceil(fullText.length / contentWidth) || 1;
+  const lines = Math.ceil(displayText.length / contentWidth) || 1;
   const pasteIndicatorLines = pastedContent ? 1 : 0;
   const imageIndicatorLines = attachedImages.length;
   const calculatedHeight = Math.max(3, lines + pasteIndicatorLines + imageIndicatorLines + 2); // Minimum 3, add 2 for top/bottom padding
@@ -253,11 +251,9 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       width="100%" 
       height={calculatedHeight} 
       flexShrink={0} 
-      borderStyle="single"
-      border={["left"]}
-      borderColor={c.info}
       backgroundColor={c.mantle}
-      paddingLeft={1}
+      paddingLeft={2}
+      paddingRight={2}
       justifyContent="center"
     >
       <box flexDirection="column" justifyContent="center">

@@ -25,6 +25,7 @@ interface ChatPaneProps {
   transcript: TranscriptItem[];
   streamingContent: string;
   streamingReasoning: string;
+  streamingAgentName: string | null;
   isStreaming: boolean;
   height: number;
   theme: Theme;
@@ -40,6 +41,12 @@ function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boo
 
 const MessageItem = memo(function MessageItem({ msg, showLabel, theme }: { msg: ChatMessage; showLabel: boolean; theme: Theme }) {
   const c = theme.colors;
+  
+  // Use agent display name if available, otherwise fall back to role formatting
+  const labelText = msg.role === "assistant" && msg.agentDisplayName 
+    ? msg.agentDisplayName 
+    : formatRole(msg.role);
+  
   return (
     <box flexDirection="column" marginBottom={1}>
       {msg.role === "assistant" && msg.reasoning && (
@@ -55,14 +62,14 @@ const MessageItem = memo(function MessageItem({ msg, showLabel, theme }: { msg: 
 
       {msg.role === "user" ? (
         <box borderStyle="single" border={["left"]} borderColor={c.info} backgroundColor={c.mantle} paddingLeft={1} flexDirection="column">
-          {showLabel && <text fg={c.info}><b>{formatRole(msg.role)}</b></text>}
+          {showLabel && <text fg={c.info}><b>{labelText}</b></text>}
           <text fg={c.text}>{msg.content}</text>
         </box>
       ) : (
         <box flexDirection="column">
           {showLabel && (
             <text fg={getRoleColor(msg.role, theme)}>
-              <b>{formatRole(msg.role)}</b>
+              <b>{labelText}</b>
             </text>
           )}
           <box paddingLeft={1}>
@@ -234,7 +241,7 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   );
 });
 
-export function ChatPane({ transcript, streamingContent, streamingReasoning, isStreaming, height, theme }: ChatPaneProps) {
+export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, isStreaming, height, theme }: ChatPaneProps) {
   const c = theme.colors;
   // Only auto-scroll when actively receiving streaming content, not when user is typing
   const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning);
@@ -291,11 +298,12 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, isS
       {streamingContent && (() => {
         const lastItem = transcript.length > 0 ? transcript[transcript.length - 1] : null;
         const showStreamingLabel = !lastItem || lastItem.kind === "tool-call" || (lastItem.kind === "message" && lastItem.role === "user");
+        const agentLabel = streamingAgentName || "Assistant";
         return (
           <box flexDirection="column" marginBottom={1}>
             {showStreamingLabel && (
               <text fg={c.secondary}>
-                <b>Assistant</b> <span fg={c.success}>▮</span>
+                <b>{agentLabel}</b> <span fg={c.success}>▮</span>
               </text>
             )}
             <box paddingLeft={1}>

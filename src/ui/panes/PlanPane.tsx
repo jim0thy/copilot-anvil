@@ -21,6 +21,11 @@ export const PlanPane = memo(function PlanPane({
     return parseMarkdownChecklist(currentTodo);
   }, [currentTodo]);
 
+  // Find the first unchecked item (current task)
+  const currentTaskIndex = useMemo(() => {
+    return todoItems.findIndex(item => !item.checked);
+  }, [todoItems]);
+
   const hasPlan = currentPlan && currentPlan.trim().length > 0;
   const hasTodo = todoItems.length > 0;
 
@@ -49,20 +54,25 @@ export const PlanPane = memo(function PlanPane({
           <text fg={c.secondary}>
             <b>Tasks:</b>
           </text>
-          {todoItems.map((item, idx) => (
-            <box key={idx} flexDirection="row" marginLeft={1}>
-              <box width={2} flexShrink={0}>
-                <text fg={item.checked ? c.success : c.subtle}>
-                  {item.checked ? "✓ " : "☐ "}
-                </text>
+          {todoItems.map((item, idx) => {
+            const isCurrent = idx === currentTaskIndex && !item.checked;
+            return (
+              <box key={idx} flexDirection="row" marginLeft={1}>
+                <box width={5} flexShrink={0}>
+                  <text fg={item.checked ? c.success : c.text}>
+                    {item.checked ? "[✓]" : "[ ]"}
+                  </text>
+                </box>
+                <box flexShrink={1}>
+                  <text 
+                    fg={item.checked ? c.subtle : isCurrent ? 11 : c.text}
+                  >
+                    {isCurrent ? <b>{item.text}</b> : item.text}
+                  </text>
+                </box>
               </box>
-              <box flexShrink={1}>
-                <text fg={item.checked ? c.subtle : c.text}>
-                  {item.text}
-                </text>
-              </box>
-            </box>
-          ))}
+            );
+          })}
         </box>
       )}
 

@@ -17,6 +17,7 @@ import { DebugOverlay } from './panes/DebugOverlay.js'
 import { getTheme } from './theme.js'
 import { getGitInfo, getGitInfoAsync, type GitInfo } from '../utils/git.js'
 import { getModifiedFiles, getModifiedFilesAsync, type FileChange } from '../utils/gitDiff.js'
+import { cycleReasoningEffort } from '../utils/config.js'
 
 interface AppProps {
   harness: Harness;
@@ -37,6 +38,16 @@ function useSpinner(active: boolean): string {
     return () => clearInterval(interval);
   }, [active]);
   return active ? SPINNER_FRAMES[frame] : "";
+}
+
+function getEffortColor(effort: "low" | "medium" | "high" | "xhigh", theme: ReturnType<typeof getTheme>): string {
+  const c = theme.colors;
+  switch (effort) {
+    case "low": return c.success;    // green
+    case "medium": return c.warning;  // yellow
+    case "high": return "#FFA500";    // orange
+    case "xhigh": return c.error;     // red
+  }
 }
 
 export function App({ harness, renderer }: AppProps) {
@@ -238,6 +249,19 @@ export function App({ harness, renderer }: AppProps) {
         setShowCommitConfirm(true);
       }
     }
+    // Ctrl+T cycles through reasoning effort
+    if (key.ctrl && key.name === "t") {
+      if (state.status !== "running") {
+        const currentModelInfo = state.availableModels.find(m => m.id === state.currentModel);
+        if (currentModelInfo?.supportsReasoningEffort) {
+          const newEffort = cycleReasoningEffort(
+            state.reasoningEffort,
+            currentModelInfo.supportedReasoningEfforts
+          );
+          harness.dispatch({ type: "change.reasoning.effort", effort: newEffort });
+        }
+      }
+    }
   });
 
   const theme = getTheme();
@@ -267,6 +291,7 @@ export function App({ harness, renderer }: AppProps) {
               transcript={state.transcript}
               streamingContent={state.streamingContent}
               streamingReasoning={state.streamingReasoning}
+              streamingAgentName={state.streamingAgentName}
               isStreaming={state.status === "running"}
               height={contentHeight - inputBarHeight}
               theme={theme}
@@ -280,7 +305,7 @@ export function App({ harness, renderer }: AppProps) {
               onHeightChange={handleInputHeightChange}
             />
           </box>
-          <box flexDirection="column" width="17.5%">
+          <box flexDirection="column" width="17.5%" paddingLeft={2}>
             <Sidebar
               contextInfo={state.contextInfo}
               orchestrationMode={state.orchestrationMode}
@@ -291,7 +316,7 @@ export function App({ harness, renderer }: AppProps) {
               subagents={state.subagents}
               skills={state.skills}
               height={contentHeight}
-              width={Math.floor(width * 0.175)}
+              width={Math.floor(width * 0.175) - 2}
               theme={theme}
             />
           </box>
@@ -324,6 +349,15 @@ export function App({ harness, renderer }: AppProps) {
           <span fg={statusColor}>{statusText}</span>
           <span>  </span>
           <span fg={c.accent}>{agentDisplay}</span>
+          {(() => {
+            const currentModelInfo = state.availableModels.find(m => m.id === state.currentModel);
+            return currentModelInfo?.supportsReasoningEffort ? (
+              <>
+                <span fg={c.subtle}> • </span>
+                <span fg={getEffortColor(state.reasoningEffort, theme)}>{state.reasoningEffort}</span>
+              </>
+            ) : null;
+          })()}
           <span fg={c.subtle}> · </span>
           <span fg={c.link}>{modelDisplay}</span>
           {gitInfo.branch && (
@@ -347,6 +381,11 @@ export function App({ harness, renderer }: AppProps) {
           <span fg={c.subtext0}>^N</span><span fg={c.text}> new  </span>
           <span fg={c.subtext0}>^O</span><span fg={c.text}> sessions  </span>
           <span fg={c.subtext0}>S-Tab</span><span fg={c.text}> model  </span>
+          {state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort && (
+            <>
+              <span fg={c.subtext0}>^T</span><span fg={c.text}> effort  </span>
+            </>
+          )}
           {gitInfo.hasChanges && (
             <><span fg={c.subtext0}>^G</span><span fg={c.text}> commit  </span></>
           )}

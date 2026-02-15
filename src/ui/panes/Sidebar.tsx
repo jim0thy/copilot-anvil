@@ -50,21 +50,12 @@ function ContextSection({
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "\u2588".repeat(filledWidth) + "\u2591".repeat(barWidth - filledWidth);
 
-  const modeLabel = orchestrationMode === "orchestrated" ? "🎯 Team" : "⚡ Direct";
-  const modeColor = orchestrationMode === "orchestrated" ? c.accent : c.primary;
-
   return (
     <box flexDirection="column">
       <box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <box flexDirection="row" gap={1}>
-          <text fg={c.primary}>
-            <b>Context</b>
-          </text>
-          <text fg={c.subtle}>{"\u2502"}</text>
-          <text fg={modeColor}>
-            <b>{modeLabel}</b>
-          </text>
-        </box>
+        <text fg={c.primary}>
+          <b>Context</b>
+        </text>
         <box flexDirection="row" gap={2}>
           <text>
             <span fg={c.subtext0}>Req: </span>
@@ -78,6 +69,16 @@ function ContextSection({
             </span>
           </text>
         </box>
+      </box>
+
+      {/* Orchestration mode indicator */}
+      <box marginTop={1}>
+        <text>
+          <span fg={c.subtext0}>Mode: </span>
+          <span fg={orchestrationMode === "orchestrated" ? c.accent : c.subtext1}>
+            <b>{orchestrationMode === "orchestrated" ? "Team" : "Direct"}</b>
+          </span>
+        </text>
       </box>
 
       <box flexDirection="column" marginTop={1}>
@@ -206,6 +207,11 @@ function PlanSection({
     return parseMarkdownChecklist(currentTodo);
   }, [currentTodo]);
 
+  // Find the first unchecked item (current task)
+  const currentTaskIndex = useMemo(() => {
+    return todoItems.findIndex(item => !item.checked);
+  }, [todoItems]);
+
   return (
     <box flexDirection="column">
       <text fg={c.primary}>
@@ -214,38 +220,44 @@ function PlanSection({
 
       {todoItems.length > 0 && (
         <box marginTop={1} flexDirection="column">
-          {todoItems.map((item, idx) => (
-            <box key={idx} flexDirection="row" width="100%">
-              <box width={2} flexShrink={0}>
-                <text fg={item.checked ? c.success : c.subtle}>
-                  {item.checked ? "\u2713 " : "\u2610 "}
-                </text>
+          {todoItems.map((item, idx) => {
+            const isCurrent = idx === currentTaskIndex && !item.checked;
+            return (
+              <box key={idx} flexDirection="row" width="100%">
+                <box width={5} flexShrink={0}>
+                  <text fg={item.checked ? c.success : c.text}>
+                    {item.checked ? "[✓]" : "[ ]"}
+                  </text>
+                </box>
+                <box flexShrink={1} width="100%">
+                  <text 
+                    fg={item.checked ? c.subtle : c.text}
+                    bg={isCurrent ? c.surface0 : undefined}
+                  >
+                    {isCurrent ? <b>{item.text}</b> : item.text}
+                  </text>
+                </box>
               </box>
-              <box flexShrink={1} width="100%">
-                <text fg={item.checked ? c.subtle : c.text}>
-                  {item.text}
-                </text>
-              </box>
-            </box>
-          ))}
+            );
+          })}
         </box>
       )}
     </box>
   );
 }
 
-// --- Subagents & Skills Section ---
+// --- Subagents Section ---
 function SubagentsSection({
   subagents,
-  skills,
+  orchestrationMode,
   theme
 }: {
   subagents: Subagent[];
-  skills: Skill[];
+  orchestrationMode: OrchestrationMode;
   theme: Theme;
 }) {
   const c = theme.colors;
-  const { activeSubagents, completedSubagents, recentSkills } = useMemo(() => {
+  const { activeSubagents, completedSubagents } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents
       .filter(s => s.status !== "running")
@@ -254,20 +266,24 @@ function SubagentsSection({
         const bTime = b.completedAt?.getTime() ?? b.startedAt.getTime();
         return bTime - aTime;
       })
-      .slice(0, 3);
+      .slice(0, 5);
 
-    const recent = skills
-      .sort((a, b) => b.invokedAt.getTime() - a.invokedAt.getTime())
-      .slice(0, 3);
+    return { activeSubagents: active, completedSubagents: completed };
+  }, [subagents]);
 
-    return { activeSubagents: active, completedSubagents: completed, recentSkills: recent };
-  }, [subagents, skills]);
+  const hasAnySubagents = activeSubagents.length > 0 || completedSubagents.length > 0;
 
   return (
     <box flexDirection="column">
       <text fg={c.primary}>
-        <b>Subagents & Skills</b>
+        <b>Subagents</b>
       </text>
+
+      {!hasAnySubagents && orchestrationMode === "orchestrated" && (
+        <box marginTop={1}>
+          <text fg={c.subtle}>Ready to delegate tasks</text>
+        </box>
+      )}
 
       {activeSubagents.length > 0 && (
         <box marginTop={1} flexDirection="column">
@@ -294,6 +310,30 @@ function SubagentsSection({
           ))}
         </box>
       )}
+    </box>
+  );
+}
+
+// --- Skills Section ---
+function SkillsSection({
+  skills,
+  theme
+}: {
+  skills: Skill[];
+  theme: Theme;
+}) {
+  const c = theme.colors;
+  const recentSkills = useMemo(() => {
+    return skills
+      .sort((a, b) => b.invokedAt.getTime() - a.invokedAt.getTime())
+      .slice(0, 5);
+  }, [skills]);
+
+  return (
+    <box flexDirection="column">
+      <text fg={c.secondary}>
+        <b>Skills</b>
+      </text>
 
       {recentSkills.length > 0 && (
         <box marginTop={1} flexDirection="column">
@@ -340,7 +380,8 @@ export const Sidebar = memo(function Sidebar({
     return parseMarkdownChecklist(currentTodo).length > 0;
   }, [currentTodo]);
 
-  const hasSubagentsOrSkills = subagents.length > 0 || skills.length > 0;
+  const hasSubagents = subagents.length > 0;
+  const hasSkills = skills.length > 0;
 
   return (
     <box
@@ -382,11 +423,19 @@ export const Sidebar = memo(function Sidebar({
         </>
       )}
 
-      {/* Subagents & Skills Section - Only when there's content */}
-      {hasSubagentsOrSkills && (
+      {/* Subagents Section - Show when in orchestration mode OR when there are subagents */}
+      {(orchestrationMode === "orchestrated" || hasSubagents) && (
         <>
           <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <SubagentsSection subagents={subagents} skills={skills} theme={theme} />
+          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} theme={theme} />
+        </>
+      )}
+
+      {/* Skills Section - Only when there are skills */}
+      {hasSkills && (
+        <>
+          <SectionDivider theme={theme} innerWidth={innerWidth} />
+          <SkillsSection skills={skills} theme={theme} />
         </>
       )}
     </box>
