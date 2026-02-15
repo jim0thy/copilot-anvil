@@ -242,22 +242,14 @@ export function App({ harness, renderer }: AppProps) {
               height={contentHeight - inputBarHeight}
               theme={theme}
             />
-            {state.pendingQuestion ? (
-              <QuestionModal
-                question={state.pendingQuestion}
-                onAnswer={handleAnswerQuestion}
-                theme={theme}
-              />
-            ) : (
-              <InputBar
-                onSubmit={handleSubmit}
-                disabled={state.status === "running"}
-                suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || !!state.ephemeralRun}
-                queuedCount={state.messageQueue.length}
-                theme={theme}
-                onHeightChange={handleInputHeightChange}
-              />
-            )}
+            <InputBar
+              onSubmit={handleSubmit}
+              disabled={state.status === "running" || !!state.pendingQuestion}
+              suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || !!state.ephemeralRun || !!state.pendingQuestion}
+              queuedCount={state.messageQueue.length}
+              theme={theme}
+              onHeightChange={handleInputHeightChange}
+            />
           </box>
           <box flexDirection="column" width="17.5%">
             <Sidebar
@@ -388,6 +380,17 @@ export function App({ harness, renderer }: AppProps) {
         <CommandModal
           ephemeralRun={state.ephemeralRun}
           onClose={handleCloseCommandModal}
+          theme={theme}
+          width={width}
+          height={height - 1}
+        />
+      )}
+
+      {/* Question Modal */}
+      {state.pendingQuestion && (
+        <QuestionModal
+          question={state.pendingQuestion}
+          onAnswer={handleAnswerQuestion}
           theme={theme}
           width={width}
           height={height - 1}
