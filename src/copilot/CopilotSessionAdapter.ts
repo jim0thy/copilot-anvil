@@ -14,6 +14,8 @@ export type UserInputHandler = (
 export interface ModelDescription {
   id: string;
   name: string;
+  multiplier?: number;
+  provider?: string;
 }
 
 // ── Static helpers ───────────────────────────────────────────────
@@ -155,10 +157,21 @@ export class CopilotSessionAdapter {
       await this.client.start();
 
       const models = await this.client.listModels();
-      this._availableModels = models.map((m: ModelInfo) => ({
-        id: m.id,
-        name: m.name,
-      }));
+      this._availableModels = models.map((m: ModelInfo) => {
+        // Extract provider from model ID (e.g., "claude-sonnet-4.5" -> "Claude")
+        let provider = "Other";
+        if (m.id.startsWith("claude")) provider = "Claude";
+        else if (m.id.startsWith("gpt")) provider = "OpenAI";
+        else if (m.id.startsWith("gemini")) provider = "Google";
+        else if (m.id.startsWith("o1") || m.id.startsWith("o3")) provider = "OpenAI";
+        
+        return {
+          id: m.id,
+          name: m.name,
+          multiplier: m.billing?.multiplier,
+          provider,
+        };
+      });
 
       const sessionId = this.generateSessionId();
 
