@@ -1,12 +1,13 @@
 /**
- * Custom tool definitions for the Copilot SDK integration.
+ * Custom tool definitions for the Anvil Copilot SDK integration.
  *
- * These tools extend the SDK's built-in tools with capabilities
- * inspired by oh-my-opencode's tool system:
+ * These tools extend the SDK's built-in tools with Anvil-specific
+ * capabilities:
  *
  * - enforce_checklist: prevents agents from abandoning incomplete work
  * - summarize_context: compresses conversation context for lean delegation
  * - check_conventions: validates code against project conventions
+ * - project_overview: quick structural overview of the project
  *
  * All tools are defined using the SDK's `defineTool` helper and can
  * be passed directly to `createSession({ tools: [...] })`.
@@ -19,7 +20,7 @@ import * as path from "node:path";
 /**
  * Tool: enforce_checklist
  *
- * Inspired by oh-my-opencode's todo enforcement hooks. Agents call this
+ * Agents call this
  * tool to register a checklist of tasks they intend to complete. If the
  * agent tries to finish without completing all items, the tool reminds
  * them of outstanding work.
@@ -106,7 +107,7 @@ export const enforceChecklist = defineTool("enforce_checklist", {
 /**
  * Tool: summarize_context
  *
- * Inspired by oh-my-opencode's lean delegation approach. Before
+ * Before
  * delegating to a subagent, the orchestrator can use this tool to
  * compress the relevant context into a concise summary, keeping
  * subagent prompts lean and token-efficient.
@@ -178,7 +179,7 @@ export const summarizeContext = defineTool("summarize_context", {
  *
  * Scans the project for convention files (CONVENTIONS.md, .editorconfig,
  * eslint configs, etc.) and returns a summary of project conventions
- * that agents should follow. Inspired by oh-my-opencode's convention
+ * that agents should follow. Used by agents to ensure project conventions
  * awareness in its hooks system.
  */
 export const checkConventions = defineTool("check_conventions", {
@@ -345,6 +346,6 @@ export const projectOverview = defineTool("project_overview", {
 /**
  * Returns all custom tools for the CLI integration.
  */
-export function getOpenCodeTools() {
+export function getAnvilTools() {
   return [enforceChecklist, summarizeContext, checkConventions, projectOverview];
 }

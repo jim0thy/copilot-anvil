@@ -2,7 +2,7 @@
  * Orchestration Plugin for the Harness.
  * 
  * This plugin adds orchestrated mode support where prompts are routed through
- * the Clarifier → Orchestrator → Specialist agents pipeline instead of going
+ * the Intake → Tech Lead → Specialist agents pipeline instead of going
  * directly to the default Copilot agent.
  * 
  * The plugin:
@@ -64,9 +64,9 @@ export function createOrchestrationPlugin(): HarnessPlugin {
         
         // Emit agents.loaded event so harness can update its state
         // Top-level agents are specialists that users can directly select:
-        // - Clarifier: first point of contact for ambiguous requests
-        // - Orchestrator: coordinates work delegation
-        // - Planner: creates implementation plans
+        // - Intake: first point of contact for ambiguous requests
+        // - Tech Lead: coordinates work delegation
+        // - Strategist: creates implementation plans
         // - Reviewer: code review and security checks
         const topLevelAgents = agents
           .filter(a => a.tier === "specialist" && 
@@ -78,7 +78,7 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           agents: topLevelAgents,
         } as any);
         
-        // Set Clarifier as the default agent (vscode-agents style - always entry point)
+        // Set Intake as the default agent (always entry point in team mode)
         const clarifier = agents.find(a => a.domain === "clarification");
         if (clarifier) {
           // Switch to orchestrated mode
@@ -98,7 +98,7 @@ export function createOrchestrationPlugin(): HarnessPlugin {
             mode: "orchestrated",
           } as any);
           
-          // Emit agent.changed event to switch to clarifier
+          // Emit agent.changed event to switch to intake
           ctx!.emit({
             type: "agent.changed",
             agentId: clarifier.id,
@@ -147,7 +147,7 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           runId: null,
           level: "info",
           message: mode === "orchestrated" 
-            ? "🎯 Team mode enabled — prompts will be routed through Clarifier → Orchestrator"
+            ? "🎯 Team mode enabled — prompts will be routed through Intake → Tech Lead"
             : "⚡ Direct mode enabled — prompts go directly to Copilot",
           createdAt: new Date(),
         });
@@ -289,7 +289,7 @@ export function buildOrchestrationContext(
 You are operating in TEAM MODE with access to specialized agents.
 
 ## Your Role
-You are the Orchestrator. Break down complex requests into tasks and delegate to specialist agents.
+You are the Tech Lead. Break down complex requests into tasks and delegate to specialist agents.
 Do NOT implement anything yourself - coordinate work through subagents.
 
 ## Available Agents

@@ -69,8 +69,8 @@ function inferTier(name: string): AgentTier {
   if (lowerName.includes("junior") || lowerName.includes("jr-") || lowerName.includes("jr ")) {
     return "junior";
   }
-  if (lowerName.includes("orchestrator") || lowerName.includes("planner") || 
-      lowerName.includes("clarifier") || lowerName.includes("reviewer")) {
+  if (lowerName.includes("orchestrator") || lowerName.includes("planner") ||
+      lowerName.includes("clarifier") || lowerName.includes("intake") || lowerName.includes("reviewer")) {
     return "specialist";
   }
   return "mid";
@@ -91,7 +91,7 @@ function inferDomain(name: string): AgentDomain {
   if (lowerName.includes("review")) return "review";
   if (lowerName.includes("plan")) return "planning";
   if (lowerName.includes("orchestrat")) return "orchestration";
-  if (lowerName.includes("clarif")) return "clarification";
+  if (lowerName.includes("clarif") || lowerName.includes("intake")) return "clarification";
   return "general";
 }
 

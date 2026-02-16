@@ -1,10 +1,9 @@
 /**
- * Session hooks for the Copilot SDK integration.
+ * Session hooks for the Anvil Copilot SDK integration.
  *
- * Inspired by oh-my-opencode's 41 lifecycle hooks, these hooks add
- * guardrails and intelligence to the agent execution pipeline.
- * They run within the SDK's hook system and do NOT consume additional
- * premium requests.
+ * These hooks add guardrails and intelligence to the agent execution
+ * pipeline. They run within the SDK's hook system and do NOT consume
+ * additional premium requests.
  *
  * Hooks:
  * - onPreToolUse:  convention awareness, dangerous-command guardrails

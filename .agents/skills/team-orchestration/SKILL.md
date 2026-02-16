@@ -1,5 +1,5 @@
 ---
-description: Multi-agent orchestration system inspired by oh-my-opencode. Provides specialist agents (Sisyphus, Hephaestus, Oracle, Librarian, Prometheus, Metis) that coordinate complex coding tasks within a single premium request.
+description: Multi-agent orchestration system modeled after a real dev team. Provides specialist agents (Tech Lead, Staff Engineer, Architect, Navigator, Strategist, Advisor, Scout) that coordinate complex coding tasks within a single premium request.
 allowed-tools:
   - task
   - read
@@ -11,28 +11,28 @@ allowed-tools:
   - ask_user
 ---
 
-# OpenCode Orchestration
+# Team Orchestration
 
-This skill provides a multi-agent orchestration system for complex coding tasks. It coordinates specialist agents to break down, plan, implement, and review work efficiently.
+This skill provides a multi-agent orchestration system for complex coding tasks. It coordinates specialist agents — modeled after a well-run engineering team — to break down, plan, implement, and review work efficiently.
 
 ## Agents
 
 | Agent | Role | Best For |
 |-------|------|----------|
-| **Sisyphus** | Main orchestrator | Coordinating complex multi-step tasks |
-| **Hephaestus** | Deep worker | Large implementations spanning 5+ files |
-| **Oracle** | Analyst | Debugging, architecture review, root-cause analysis |
-| **Librarian** | Navigator | Finding code, explaining patterns, documentation |
-| **Explore** | Fast search | Quick read-only codebase searches |
-| **Prometheus** | Planner | Creating implementation plans with phases |
-| **Metis** | Critic | Validating plans before execution |
+| **Tech Lead** | Orchestrator | Coordinating complex multi-step tasks |
+| **Staff Engineer** | Deep worker | Large implementations spanning 5+ files |
+| **Architect** | Systems analyst | Debugging, architecture review, root-cause analysis |
+| **Navigator** | Codebase expert | Finding code, explaining patterns, documentation |
+| **Scout** | Fast search | Quick read-only codebase searches |
+| **Strategist** | Planner | Creating implementation plans with phases |
+| **Advisor** | Plan critic | Validating plans before execution |
 
 ## How It Works
 
 1. All agents are registered as `customAgents` in the Copilot SDK session.
 2. The SDK's built-in `task` tool enables agent-to-agent delegation.
 3. All orchestration happens within a **single premium request** — subagent invocations are free.
-4. The orchestrator (Sisyphus) coordinates specialists based on task complexity.
+4. The Tech Lead coordinates specialists based on task complexity.
 
 ## Usage
 
@@ -56,7 +56,7 @@ await session.destroy();
 ### Via TUI
 The agents are automatically loaded when Anvil starts in TUI mode. Use:
 - `Ctrl+A` or `/agents` to see available agents
-- `/team` to enable orchestrated mode (Clarifier → Orchestrator → Specialists)
+- `/team` to enable orchestrated mode (Intake → Tech Lead → Specialists)
 - `/direct` to go back to single-agent mode
 
 ## Single-Request Guarantee
@@ -70,6 +70,6 @@ The critical design constraint: **1 user message = 1 premium request**. This is 
 
 This means even a complex flow like:
 ```
-User → Sisyphus → Prometheus (plan) → Metis (validate) → Hephaestus (implement) → Reviewer (check) → User
+User → Tech Lead → Strategist (plan) → Advisor (validate) → Staff Engineer (implement) → Reviewer (check) → User
 ```
 ...consumes exactly **1 premium request**.

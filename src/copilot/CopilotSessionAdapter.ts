@@ -4,8 +4,8 @@ import type { HarnessEvent, SessionInfo, TranscriptItem, ToolCallItem } from "..
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 import * as path from "path";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { getOpenCodeAgents } from "../cli/agents.js";
-import { getOpenCodeTools } from "../cli/tools.js";
+import { getOrchestrationAgents } from "../cli/agents.js";
+import { getAnvilTools } from "../cli/tools.js";
 import { createSessionHooks } from "../cli/hooks.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
@@ -84,8 +84,8 @@ export class CopilotSessionAdapter {
   /** Map of tool call IDs to subagent information */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
 
-  /** Pre-built tools from the CLI integration (oh-my-opencode inspired) */
-  private _openCodeTools: Tool<any>[] = getOpenCodeTools();
+  /** Pre-built Anvil tools for the SDK integration */
+  private _anvilTools: Tool<any>[] = getAnvilTools();
   /** Session hooks for guardrails and context enrichment */
   private _sessionHooks = createSessionHooks();
   /** Skill directories discovered from the project */
@@ -100,9 +100,9 @@ export class CopilotSessionAdapter {
     if (existsSync(projectSkillDir)) {
       this._skillDirectories.push(projectSkillDir);
     }
-    const dotOpenCodeSkills = path.join(cwd, ".opencode", "skills");
-    if (existsSync(dotOpenCodeSkills)) {
-      this._skillDirectories.push(dotOpenCodeSkills);
+    const dotAnvilSkills = path.join(cwd, ".anvil", "skills");
+    if (existsSync(dotAnvilSkills)) {
+      this._skillDirectories.push(dotAnvilSkills);
     }
   }
 
@@ -122,23 +122,22 @@ export class CopilotSessionAdapter {
    * If a session is already active, it will be recreated with the new agents.
    */
   async setCustomAgents(agents: CustomAgentDef[]): Promise<void> {
-    // Merge opencode agents with existing agents.
-    // OpenCode agents supersede existing agents that serve the same role:
-    //   sisyphus replaces orchestrator, prometheus replaces planner,
-    //   metis replaces reviewer (as plan critic — reviewer stays for code review).
+    // Merge orchestration agents with existing builtin agents.
+    // Orchestration agents supersede existing agents that serve the same role:
+    //   tech-lead replaces orchestrator, strategist replaces planner.
     // All other existing agents (developers, specialists) are kept as-is
-    // since the opencode orchestrator references them by name.
-    const openCodeAgents = getOpenCodeAgents();
-    const openCodeNames = new Set(openCodeAgents.map(a => a.name));
+    // since the tech-lead references them by name in its delegation table.
+    const orchestrationAgents = getOrchestrationAgents();
+    const orchestrationNames = new Set(orchestrationAgents.map(a => a.name));
 
-    // Agents whose role is superseded by an opencode agent
+    // Agents whose role is superseded by an orchestration agent
     const superseded = new Set(["orchestrator", "planner"]);
 
     const userAgents = agents.filter(
-      (a) => !openCodeNames.has(a.name) && !superseded.has(a.name)
+      (a) => !orchestrationNames.has(a.name) && !superseded.has(a.name)
     );
-    this._customAgents = [...openCodeAgents, ...userAgents];
-    this.emit(createLogEvent("info", `🤖 Setting ${this._customAgents.length} agents (${openCodeAgents.length} opencode + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
+    this._customAgents = [...orchestrationAgents, ...userAgents];
+    this.emit(createLogEvent("info", `🤖 Setting ${this._customAgents.length} agents (${orchestrationAgents.length} orchestration + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
     
     // If we have an active session, recreate it to include the new agents
     if (this.session && this.client && !this.isProcessing) {
@@ -217,7 +216,7 @@ export class CopilotSessionAdapter {
         model: this._currentModel ?? undefined,
         onUserInputRequest: this.getUserInputCallback(),
         customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
-        tools: this._openCodeTools,
+        tools: this._anvilTools,
         hooks: this._sessionHooks,
         skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
         systemMessage: this.buildSystemMessage(),
@@ -363,9 +362,9 @@ When delegating to a custom agent:
 2. Provide a clear, specific prompt describing what the agent should do
 3. Custom agents have specialized knowledge and should be preferred for their domain
 
-Example: To use the "clarifier" agent:
+Example: To use the "intake" agent:
 \`\`\`json
-{"agent_type": "clarifier", "prompt": "Analyze this request for ambiguity: ..."}
+{"agent_type": "intake", "prompt": "Analyze this request for ambiguity: ..."}
 \`\`\`
 </custom_agents>
 `,
@@ -407,9 +406,9 @@ Example: To use the "clarifier" agent:
 
       const sessionId = this.generateSessionId();
 
-      // Pre-load opencode agents as defaults
+      // Pre-load orchestration agents as defaults
       if (this._customAgents.length === 0) {
-        this._customAgents = getOpenCodeAgents();
+        this._customAgents = getOrchestrationAgents();
       }
 
       const session = await this.client.createSession({
@@ -418,7 +417,7 @@ Example: To use the "clarifier" agent:
         model,
         onUserInputRequest: this.getUserInputCallback(),
         customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
-        tools: this._openCodeTools,
+        tools: this._anvilTools,
         hooks: this._sessionHooks,
         skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
         systemMessage: this.buildSystemMessage(),
@@ -537,7 +536,7 @@ Example: To use the "clarifier" agent:
                 this.emit(createLogEvent("warn", `⚠️ No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
               }
             } else if (this._activeAgent) {
-              // Message from top-level active agent (e.g., Clarifier)
+              // Message from top-level active agent (e.g., Intake)
               message.agentName = this._activeAgent.name;
               message.agentDisplayName = this._activeAgent.displayName || this._activeAgent.name;
             }
@@ -914,7 +913,7 @@ Example: To use the "clarifier" agent:
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
-      tools: this._openCodeTools,
+      tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
@@ -938,7 +937,7 @@ Example: To use the "clarifier" agent:
       model: modelId,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
-      tools: this._openCodeTools,
+      tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
@@ -974,7 +973,7 @@ Example: To use the "clarifier" agent:
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
-      tools: this._openCodeTools,
+      tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
@@ -1004,7 +1003,7 @@ Example: To use the "clarifier" agent:
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
-      tools: this._openCodeTools,
+      tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),

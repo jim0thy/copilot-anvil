@@ -679,7 +679,7 @@ export class Harness {
     this.emit(createLogEvent(
       "info",
       newMode === "orchestrated"
-        ? "🎯 Team mode enabled — prompts route through Clarifier → Orchestrator → Specialists"
+        ? "🎯 Team mode enabled — prompts route through Intake → Tech Lead → Specialists"
         : "⚡ Direct mode enabled — prompts go directly to Copilot"
     ));
   }

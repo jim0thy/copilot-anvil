@@ -145,16 +145,16 @@ export class AgentLoader {
   }
   
   /**
-   * Get the clarifier agent.
+   * Get the intake agent (first point of contact).
    */
-  getClarifier(): AgentDefinition | undefined {
+  getIntake(): AgentDefinition | undefined {
     return this.agents.find(a => a.domain === "clarification");
   }
   
   /**
-   * Get the planner agent.
+   * Get the strategist agent (implementation planner).
    */
-  getPlanner(): AgentDefinition | undefined {
+  getStrategist(): AgentDefinition | undefined {
     return this.agents.find(a => a.domain === "planning");
   }
   

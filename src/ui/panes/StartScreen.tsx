@@ -54,7 +54,7 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
         <box flexDirection="column" marginBottom={2}>
           <text>
             <span fg={c.info}>● </span>
-            <span fg={c.info}><b>Clarifier</b></span>
+            <span fg={c.info}><b>Intake</b></span>
             <span fg={c.subtext0}> analyzes your request and asks clarifying questions</span>
           </text>
           <text>

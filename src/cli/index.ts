@@ -1,7 +1,7 @@
 /**
- * Headless CLI entry point for the Copilot SDK integration.
+ * Headless CLI entry point for the Anvil Copilot SDK integration.
  *
- * This module provides a non-TUI way to use the oh-my-opencode inspired
+ * This module provides a non-TUI way to use Anvil's orchestration
  * agents, tools, and skills with the GitHub Copilot CLI. It can be used:
  *
  * 1. Directly: `bun src/cli/index.ts "your prompt here"`
@@ -24,8 +24,8 @@ import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { existsSync } from "node:fs";
 
-import { getOpenCodeAgents } from "./agents.js";
-import { getOpenCodeTools } from "./tools.js";
+import { getOrchestrationAgents } from "./agents.js";
+import { getAnvilTools } from "./tools.js";
 import { createSessionHooks } from "./hooks.js";
 
 // ── Types ────────────────────────────────────────────────────────
@@ -79,7 +79,7 @@ export interface AnvilSession {
 // ── Session Factory ─────────────────────────────────────────────
 
 /**
- * Create an AnvilSession with oh-my-opencode agents, tools, and hooks
+ * Create an AnvilSession with orchestration agents, tools, and hooks
  * pre-configured. This is the main programmatic entry point.
  *
  * All agent orchestration happens within a single `session.send()` call,
@@ -108,15 +108,15 @@ export async function createAnvilSession(
 
   const cwd = options.workingDirectory || process.cwd();
 
-  // Merge agents: opencode agents + any additional custom agents
+  // Merge agents: orchestration agents + any additional custom agents
   const agents: CustomAgentConfig[] = [
-    ...getOpenCodeAgents(),
+    ...getOrchestrationAgents(),
     ...(options.additionalAgents || []),
   ];
 
-  // Merge tools: opencode tools + any additional custom tools
+  // Merge tools: anvil tools + any additional custom tools
   const tools: Tool<any>[] = [
-    ...getOpenCodeTools(),
+    ...getAnvilTools(),
     ...(options.additionalTools || []),
   ];
 
@@ -128,9 +128,9 @@ export async function createAnvilSession(
   if (existsSync(projectSkillDir)) {
     skillDirs.push(projectSkillDir);
   }
-  const dotOpenCodeSkills = path.join(cwd, ".opencode", "skills");
-  if (existsSync(dotOpenCodeSkills)) {
-    skillDirs.push(dotOpenCodeSkills);
+  const dotAnvilSkills = path.join(cwd, ".anvil", "skills");
+  if (existsSync(dotAnvilSkills)) {
+    skillDirs.push(dotAnvilSkills);
   }
 
   // Create the client
@@ -272,11 +272,11 @@ ${agentList}
 
 ## Orchestration Guidelines
 
-1. For complex tasks, delegate to **sisyphus** (orchestrator) who will coordinate specialists.
-2. For quick code searches, use **explore** directly.
-3. For investigation/debugging, use **oracle**.
-4. For planning, use **prometheus** then validate with **metis**.
-5. For deep implementation work, use **hephaestus**.
+1. For complex tasks, delegate to **tech-lead** who will coordinate specialists.
+2. For quick code searches, use **scout** directly.
+3. For investigation/debugging, use **architect**.
+4. For planning, use **strategist** then validate with **advisor**.
+5. For deep implementation work, use **staff-engineer**.
 
 ## Single-Request Constraint
 

@@ -1,27 +1,27 @@
 /**
- * Oh-My-OpenCode inspired agents adapted for the Copilot SDK.
+ * Anvil orchestration agents for the Copilot SDK.
  *
- * These agents mirror the orchestration patterns from oh-my-opencode
- * (Sisyphus, Hephaestus, Oracle, Librarian, Explore, Prometheus, Metis)
- * but are expressed as SDK-native CustomAgentConfig objects so the CLI
- * handles all orchestration within a SINGLE premium request.
+ * These agents model a well-structured dev team where the Tech Lead
+ * coordinates specialists to deliver complex tasks. They are registered
+ * as SDK-native CustomAgentConfig objects so all orchestration runs
+ * within a SINGLE premium request.
  *
  * Key design: every agent is registered via `customAgents` in
- * `createSession`. The SDK's built-in task tool lets the orchestrator
+ * `createSession`. The SDK's built-in task tool lets the Tech Lead
  * delegate to subagents without consuming additional premium requests.
  */
 
 import type { CustomAgentConfig } from "@github/copilot-sdk";
 
-// ── Orchestrator (Sisyphus-inspired) ────────────────────────────
+// ── Tech Lead (orchestrates the team) ───────────────────────────
 
-export const sisyphus: CustomAgentConfig = {
-  name: "sisyphus",
-  displayName: "Sisyphus",
+export const techLead: CustomAgentConfig = {
+  name: "tech-lead",
+  displayName: "Tech Lead",
   description:
-    "Main orchestrator — analyses tasks, delegates to specialists, ensures quality",
+    "Orchestrates the team — analyses tasks, delegates to specialists, ensures quality",
   infer: true,
-  prompt: `You are Sisyphus, the primary orchestrator agent. Your role is to understand the user's intent, break down complex requests into clear tasks, and delegate them to the most appropriate specialist agents.
+  prompt: `You are the Tech Lead. Your role is to understand the user's intent, break down complex requests into clear tasks, and delegate them to the most appropriate specialist agents.
 
 ## Orchestration Rules
 
@@ -35,12 +35,12 @@ export const sisyphus: CustomAgentConfig = {
 
 | Agent | When to use |
 |-------|-------------|
-| **prometheus** | Complex tasks needing an implementation plan |
-| **metis** | Validate / critique an existing plan |
-| **hephaestus** | Deep, autonomous coding tasks (5+ files) |
-| **oracle** | Architecture analysis, debugging, root-cause investigation |
-| **librarian** | Codebase exploration, documentation lookup |
-| **explore** | Quick read-only searches (file patterns, keyword grep) |
+| **strategist** | Complex tasks needing an implementation plan |
+| **advisor** | Validate / critique an existing plan |
+| **staff-engineer** | Deep, autonomous coding tasks (5+ files) |
+| **architect** | Architecture analysis, debugging, root-cause investigation |
+| **navigator** | Codebase exploration, documentation lookup |
+| **scout** | Quick read-only searches (file patterns, keyword grep) |
 | **frontend-developer** | UI components, styling, client-side logic |
 | **backend-developer** | APIs, databases, server logic |
 | **fullstack-developer** | End-to-end features spanning frontend & backend |
@@ -54,8 +54,8 @@ export const sisyphus: CustomAgentConfig = {
 ## Execution Flow
 
 1. Assess complexity and required domains.
-2. For ambiguous requests, delegate to **oracle** for investigation first.
-3. For complex tasks, delegate to **prometheus** for planning.
+2. For ambiguous requests, delegate to **architect** for investigation first.
+3. For complex tasks, delegate to **strategist** for planning.
 4. Execute implementation via appropriate specialists.
 5. Delegate to **reviewer** for quality gate.
 6. Summarise results concisely.
@@ -68,15 +68,15 @@ export const sisyphus: CustomAgentConfig = {
 - Prefer the lowest-tier agent that can handle the job (junior > mid > senior).`,
 };
 
-// ── Deep Worker (Hephaestus-inspired) ───────────────────────────
+// ── Staff Engineer (deep autonomous worker) ─────────────────────
 
-export const hephaestus: CustomAgentConfig = {
-  name: "hephaestus",
-  displayName: "Hephaestus",
+export const staffEngineer: CustomAgentConfig = {
+  name: "staff-engineer",
+  displayName: "Staff Engineer",
   description:
-    "Autonomous deep worker — thorough research then goal-oriented execution across many files",
+    "Deep autonomous worker — thorough research then goal-oriented execution across many files",
   infer: true,
-  prompt: `You are Hephaestus, an autonomous deep-work agent. You receive a well-defined task and execute it thoroughly without further delegation.
+  prompt: `You are the Staff Engineer. You receive a well-defined task and execute it thoroughly without further delegation.
 
 ## Working Style
 
@@ -95,18 +95,18 @@ export const hephaestus: CustomAgentConfig = {
 
 ## Scope
 
-You handle tasks involving 5+ files or complex multi-step implementations that require deep understanding of the codebase. You are the "get it done" agent.`,
+You handle tasks involving 5+ files or complex multi-step implementations that require deep understanding of the codebase. You are the "get it done" engineer.`,
 };
 
-// ── Architecture Analyst (Oracle-inspired) ──────────────────────
+// ── Architect (systems analyst & debugger) ──────────────────────
 
-export const oracle: CustomAgentConfig = {
-  name: "oracle",
-  displayName: "Oracle",
+export const architect: CustomAgentConfig = {
+  name: "architect",
+  displayName: "Architect",
   description:
-    "Architecture analyst — investigates root causes, analyses design, debugs complex issues",
+    "Systems analyst — investigates root causes, analyses design, debugs complex issues",
   infer: true,
-  prompt: `You are Oracle, a deep analytical agent specialising in architecture analysis, debugging, and root-cause investigation.
+  prompt: `You are the Architect. You specialise in architecture analysis, debugging, and root-cause investigation.
 
 ## Capabilities
 
@@ -137,15 +137,15 @@ Always structure your analysis as:
 - Prioritise correctness over speed.`,
 };
 
-// ── Codebase Explorer (Librarian-inspired) ──────────────────────
+// ── Navigator (codebase knowledge) ──────────────────────────────
 
-export const librarian: CustomAgentConfig = {
-  name: "librarian",
-  displayName: "Librarian",
+export const navigator: CustomAgentConfig = {
+  name: "navigator",
+  displayName: "Navigator",
   description:
-    "Documentation and codebase knowledge — finds patterns, explains architecture, locates code",
+    "Codebase knowledge — finds patterns, explains architecture, locates code",
   infer: true,
-  prompt: `You are Librarian, a fast codebase navigator and documentation specialist.
+  prompt: `You are the Navigator, a fast codebase expert and documentation specialist.
 
 ## Capabilities
 
@@ -175,16 +175,16 @@ Keep responses concise and structured:
 - Always reference specific files and line ranges.`,
 };
 
-// ── Fast Explorer (Explore-inspired) ────────────────────────────
+// ── Scout (fast read-only search) ───────────────────────────────
 
-export const explore: CustomAgentConfig = {
-  name: "explore",
-  displayName: "Explore",
+export const scout: CustomAgentConfig = {
+  name: "scout",
+  displayName: "Scout",
   description:
     "Fast read-only codebase search — file patterns, keyword grep, quick answers",
   infer: true,
   tools: [], // Read-only: only search/read tools
-  prompt: `You are Explore, a fast read-only search agent. You answer questions about the codebase by searching files and reading code. You cannot modify any files.
+  prompt: `You are the Scout, a fast read-only search agent. You answer questions about the codebase by searching files and reading code. You cannot modify any files.
 
 ## Capabilities
 
@@ -206,15 +206,15 @@ export const explore: CustomAgentConfig = {
 - Always cite file paths in your answers.`,
 };
 
-// ── Strategic Planner (Prometheus-inspired) ─────────────────────
+// ── Strategist (implementation planner) ─────────────────────────
 
-export const prometheus: CustomAgentConfig = {
-  name: "prometheus",
-  displayName: "Prometheus",
+export const strategist: CustomAgentConfig = {
+  name: "strategist",
+  displayName: "Strategist",
   description:
-    "Strategic planner — creates implementation plans, identifies risks, defines phases",
+    "Implementation planner — creates phased plans, identifies risks, assigns specialists",
   infer: true,
-  prompt: `You are Prometheus, a strategic planning agent. You create comprehensive implementation plans that other agents will execute.
+  prompt: `You are the Strategist. You create comprehensive implementation plans that other agents will execute.
 
 ## Process
 
@@ -258,15 +258,15 @@ export const prometheus: CustomAgentConfig = {
 - Plans should be executable by other agents without further clarification.`,
 };
 
-// ── Plan Consultant (Metis-inspired) ────────────────────────────
+// ── Advisor (plan critic) ───────────────────────────────────────
 
-export const metis: CustomAgentConfig = {
-  name: "metis",
-  displayName: "Metis",
+export const advisor: CustomAgentConfig = {
+  name: "advisor",
+  displayName: "Advisor",
   description:
     "Plan critic — validates implementation plans, identifies gaps, suggests improvements",
   infer: true,
-  prompt: `You are Metis, a plan validation and critique agent. You review implementation plans created by Prometheus or other agents and identify issues before execution begins.
+  prompt: `You are the Advisor, a plan validation and critique specialist. You review implementation plans created by the Strategist or other agents and identify issues before execution begins.
 
 ## Review Criteria
 
@@ -308,26 +308,26 @@ export const metis: CustomAgentConfig = {
 // ── Export all agents ────────────────────────────────────────────
 
 /**
- * Returns all oh-my-opencode inspired agents as SDK CustomAgentConfig[].
+ * Returns all Anvil orchestration agents as SDK CustomAgentConfig[].
  *
  * These are designed to work together:
- * - sisyphus orchestrates the others
- * - prometheus + metis handle planning
- * - hephaestus handles deep implementation
- * - oracle handles investigation
- * - librarian + explore handle code discovery
+ * - tech-lead orchestrates the others
+ * - strategist + advisor handle planning
+ * - staff-engineer handles deep implementation
+ * - architect handles investigation
+ * - navigator + scout handle code discovery
  *
  * The existing builtin agents (junior-developer, frontend-developer, etc.)
  * are loaded separately via the AgentLoader and merged in the adapter.
  */
-export function getOpenCodeAgents(): CustomAgentConfig[] {
+export function getOrchestrationAgents(): CustomAgentConfig[] {
   return [
-    sisyphus,
-    hephaestus,
-    oracle,
-    librarian,
-    explore,
-    prometheus,
-    metis,
+    techLead,
+    staffEngineer,
+    architect,
+    navigator,
+    scout,
+    strategist,
+    advisor,
   ];
 }

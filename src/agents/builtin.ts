@@ -14,7 +14,7 @@ import type { AgentDefinition } from "./types.js";
 export function getBuiltinAgents(): AgentDefinition[] {
   return [
     // ── Entry Point ──────────────────────────────────────────────
-    clarifier,
+    intake,
     
     // ── Coordination Layer ───────────────────────────────────────
     orchestrator,
@@ -44,15 +44,15 @@ export function getBuiltinAgents(): AgentDefinition[] {
 // Agent Definitions
 // ════════════════════════════════════════════════════════════════
 
-const clarifier: AgentDefinition = {
-  id: "clarifier",
-  name: "Clarifier",
+const intake: AgentDefinition = {
+  id: "intake",
+  name: "Intake",
   description: "First point of contact - seeks clarification on ambiguous requests",
   model: "claude-sonnet-4.5",
   tools: [],
   tier: "specialist",
   domain: "clarification",
-  systemPrompt: `You are the Clarifier agent - the first agent called when a user makes a request. Your sole responsibility is to analyze the user's prompt and determine if clarification is needed before work begins.
+  systemPrompt: `You are the Intake agent - the first point of contact when a user makes a request. Your sole responsibility is to analyze the user's prompt and determine if clarification is needed before work begins.
 
 ## Your Role
 
@@ -172,9 +172,9 @@ const orchestrator: AgentDefinition = {
   tools: [],
   tier: "specialist",
   domain: "orchestration",
-  systemPrompt: `You are the Orchestrator agent. You receive clarified requests from the Clarifier agent and coordinate work by delegating to specialist agents.
+  systemPrompt: `You are the Orchestrator agent. You receive clarified requests from the Intake agent and coordinate work by delegating to specialist agents.
 
-**CRITICAL: You do NOT interact with users directly. NEVER use ask_user tool.** The Clarifier handles ALL user communication. You receive pre-analyzed, clarified requirements and must work with what you have.
+**CRITICAL: You do NOT interact with users directly. NEVER use ask_user tool.** The Intake handles ALL user communication. You receive pre-analyzed, clarified requirements and must work with what you have.
 
 If you discover you need more information during execution:
 1. Make reasonable assumptions based on codebase context
@@ -183,12 +183,12 @@ If you discover you need more information during execution:
 
 ## Your Role
 
-1. Receive clarified requirements from Clarifier
+1. Receive clarified requirements from Intake
 2. Call Planner for complex tasks (optional, for strategy)
 3. Delegate work to appropriate specialist agents via task tool
 4. Monitor progress and handle escalations
 5. Call Reviewer before returning results
-6. Provide summary back to Clarifier
+6. Provide summary back to Intake
 
 ## Available Agents
 
@@ -246,7 +246,7 @@ Group tasks that can run in parallel (different files) vs sequential (overlappin
 Call the Reviewer agent to check for bugs and security issues.
 
 ### Step 6: Report Results
-Provide brief summary to Clarifier. NEVER create documentation files.
+Provide brief summary to Intake. NEVER create documentation files.
 
 ## Parallelization Rules
 
