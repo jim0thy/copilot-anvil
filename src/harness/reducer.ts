@@ -5,7 +5,7 @@
  * focused on coordination (dispatch, subscribe, adapter lifecycle).
  */
 
-import type { ChatMessage, HarnessEvent, TranscriptItem } from "./events.js";
+import type { ChatMessage, HarnessEvent, TranscriptItem, ToolCallItem } from "./events.js";
 import { createAssistantMessage, generateId } from "./events.js";
 import type {
   HarnessState,
@@ -482,6 +482,80 @@ export function processEphemeralEvent(
           completedAt: new Date(),
         },
       };
+
+    // Handle tool calls in ephemeral runs
+    case "tool.started": {
+      const toolItem: ToolCallItem = {
+        id: generateId(),
+        kind: "tool-call",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        arguments: event.arguments,
+        progress: [],
+        status: "running",
+        startedAt: new Date(),
+      };
+      return {
+        ...state,
+        ephemeralRun: {
+          ...state.ephemeralRun,
+          transcript: [...state.ephemeralRun.transcript, toolItem],
+        },
+      };
+    }
+
+    case "tool.progress": {
+      const toolIndex = state.ephemeralRun.transcript.findIndex(
+        (item) => item.kind === "tool-call" && item.toolCallId === event.toolCallId
+      );
+      if (toolIndex === -1) return state;
+      
+      const tool = state.ephemeralRun.transcript[toolIndex];
+      if (tool.kind !== "tool-call") return state;
+
+      const updatedTool: ToolCallItem = {
+        ...tool,
+        progress: [...tool.progress, event.message],
+      };
+      const newTranscript = [...state.ephemeralRun.transcript];
+      newTranscript[toolIndex] = updatedTool;
+
+      return {
+        ...state,
+        ephemeralRun: {
+          ...state.ephemeralRun,
+          transcript: newTranscript,
+        },
+      };
+    }
+
+    case "tool.completed": {
+      const toolIndex = state.ephemeralRun.transcript.findIndex(
+        (item) => item.kind === "tool-call" && item.toolCallId === event.toolCallId
+      );
+      if (toolIndex === -1) return state;
+      
+      const tool = state.ephemeralRun.transcript[toolIndex];
+      if (tool.kind !== "tool-call") return state;
+
+      const updatedTool: ToolCallItem = {
+        ...tool,
+        status: event.success ? "completed" : "failed",
+        completedAt: new Date(),
+        output: event.output,
+        error: event.error,
+      };
+      const newTranscript = [...state.ephemeralRun.transcript];
+      newTranscript[toolIndex] = updatedTool;
+
+      return {
+        ...state,
+        ephemeralRun: {
+          ...state.ephemeralRun,
+          transcript: newTranscript,
+        },
+      };
+    }
 
     // Ignore reasoning events for ephemeral runs
     case "reasoning.delta":
