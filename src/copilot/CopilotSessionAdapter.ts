@@ -1,9 +1,12 @@
 import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
-import type { ModelInfo, SessionEvent, SystemMessageConfig } from "@github/copilot-sdk";
+import type { ModelInfo, SessionEvent, SystemMessageConfig, Tool } from "@github/copilot-sdk";
 import type { HarnessEvent, SessionInfo, TranscriptItem, ToolCallItem } from "../harness/events.js";
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 import * as path from "path";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { getOpenCodeAgents } from "../cli/agents.js";
+import { getOpenCodeTools } from "../cli/tools.js";
+import { createSessionHooks } from "../cli/hooks.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -81,8 +84,26 @@ export class CopilotSessionAdapter {
   /** Map of tool call IDs to subagent information */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
 
+  /** Pre-built tools from the CLI integration (oh-my-opencode inspired) */
+  private _openCodeTools: Tool<any>[] = getOpenCodeTools();
+  /** Session hooks for guardrails and context enrichment */
+  private _sessionHooks = createSessionHooks();
+  /** Skill directories discovered from the project */
+  private _skillDirectories: string[] = [];
+
   constructor() {
     this._projectPrefix = path.basename(process.cwd()) + "-";
+
+    // Auto-discover skill directories
+    const cwd = process.cwd();
+    const projectSkillDir = path.join(cwd, ".agents", "skills");
+    if (existsSync(projectSkillDir)) {
+      this._skillDirectories.push(projectSkillDir);
+    }
+    const dotOpenCodeSkills = path.join(cwd, ".opencode", "skills");
+    if (existsSync(dotOpenCodeSkills)) {
+      this._skillDirectories.push(dotOpenCodeSkills);
+    }
   }
 
   // ── Public accessors ─────────────────────────────────────────
@@ -101,8 +122,12 @@ export class CopilotSessionAdapter {
    * If a session is already active, it will be recreated with the new agents.
    */
   async setCustomAgents(agents: CustomAgentDef[]): Promise<void> {
-    this._customAgents = agents;
-    this.emit(createLogEvent("info", `🤖 Setting ${agents.length} custom agents: ${agents.map(a => a.displayName || a.name).join(", ")}`));
+    // Merge with opencode agents, avoiding duplicates by name
+    const openCodeAgents = getOpenCodeAgents();
+    const openCodeNames = new Set(openCodeAgents.map(a => a.name));
+    const userAgents = agents.filter(a => !openCodeNames.has(a.name));
+    this._customAgents = [...openCodeAgents, ...userAgents];
+    this.emit(createLogEvent("info", `🤖 Setting ${this._customAgents.length} agents (${openCodeAgents.length} opencode + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
     
     // If we have an active session, recreate it to include the new agents
     if (this.session && this.client && !this.isProcessing) {
@@ -175,12 +200,15 @@ export class CopilotSessionAdapter {
 
     await this.teardownSession();
 
-    // Resume the same session with updated agents and system message
+    // Resume the same session with updated agents, tools, hooks, and system message
       const opts = {
         streaming: true as const,
         model: this._currentModel ?? undefined,
         onUserInputRequest: this.getUserInputCallback(),
         customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        tools: this._openCodeTools,
+        hooks: this._sessionHooks,
+        skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
         systemMessage: this.buildSystemMessage(),
         reasoningEffort: this.getEffectiveReasoningEffort(),
       };
@@ -368,12 +396,20 @@ Example: To use the "clarifier" agent:
 
       const sessionId = this.generateSessionId();
 
+      // Pre-load opencode agents as defaults
+      if (this._customAgents.length === 0) {
+        this._customAgents = getOpenCodeAgents();
+      }
+
       const session = await this.client.createSession({
         sessionId,
         streaming: true,
         model,
         onUserInputRequest: this.getUserInputCallback(),
         customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        tools: this._openCodeTools,
+        hooks: this._sessionHooks,
+        skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
         systemMessage: this.buildSystemMessage(),
         reasoningEffort: this.getEffectiveReasoningEffort(),
       });
@@ -867,6 +903,9 @@ Example: To use the "clarifier" agent:
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._openCodeTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     });
@@ -888,6 +927,9 @@ Example: To use the "clarifier" agent:
       model: modelId,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._openCodeTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     };
@@ -921,6 +963,9 @@ Example: To use the "clarifier" agent:
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._openCodeTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     });
@@ -948,6 +993,9 @@ Example: To use the "clarifier" agent:
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
       customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._openCodeTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     });

@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "bun src/index.tsx",
-    "start": "bun src/index.tsx"
+    "start": "bun src/index.tsx",
+    "cli": "bun src/cli/index.ts"
   },
   "keywords": [],
   "author": "",
