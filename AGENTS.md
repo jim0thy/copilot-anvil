@@ -58,10 +58,11 @@ This section helps AI coding assistants understand and work with this codebase e
 | `src/harness/` | Event bus, state management, plugin system |
 | `src/harness/events.ts` | `HarnessEvent` and `UIAction` type definitions |
 | `src/harness/plugins.ts` | Plugin interface and registries |
+| `src/cli/` | CLI entry point, orchestration agents, tools, hooks |
 | `src/agents/` | Agent orchestration system |
 | `src/agents/types.ts` | AgentDefinition types |
 | `src/agents/loader.ts` | Agent discovery and loading |
-| `src/agents/builtin.ts` | Built-in agent definitions (14 agents) |
+| `src/agents/builtin.ts` | Built-in agent definitions (13 agents) |
 | `src/agents/OrchestrationPlugin.ts` | Orchestration mode plugin |
 | `src/ui/` | OpenTUI/React components |
 | `src/ui/panes/` | All UI panes (Chat, Sidebar, Input, etc.) |
@@ -144,7 +145,7 @@ The TUI includes a multi-agent orchestration system based on the [vscode-agents]
 #### Modes
 
 - **Direct Mode** (default): Prompts go directly to Copilot
-- **Team Mode**: Prompts route through Clarifier → Orchestrator → Specialist agents
+- **Team Mode**: Prompts route through Intake → Tech Lead → Specialist agents
 
 #### Keyboard Shortcuts
 
@@ -156,13 +157,13 @@ The TUI includes a multi-agent orchestration system based on the [vscode-agents]
 | `/direct` | Enable direct mode |
 | `/agents` | List available agents |
 
-#### Built-in Agents (14 total)
+#### Built-in Agents
+
+**Builtin agents** (loaded from `src/agents/builtin.ts`):
 
 | Agent | Tier | Domain | Description |
 |-------|------|--------|-------------|
-| Clarifier | specialist | clarification | Seeks clarification on ambiguous requests |
-| Orchestrator | specialist | orchestration | Coordinates work, delegates to specialists |
-| Planner | specialist | planning | Creates implementation plans |
+| Intake | specialist | clarification | First point of contact — clarifies ambiguous requests |
 | Junior Developer | junior | general | Quick fixes, simple tasks |
 | Frontend Developer | mid | frontend | UI components, client-side logic |
 | Backend Developer | mid | backend | APIs, databases, server logic |
@@ -175,6 +176,18 @@ The TUI includes a multi-agent orchestration system based on the [vscode-agents]
 | Prompt Writer | specialist | prompt | LLM prompt optimization |
 | DevOps | specialist | devops | Git, dependencies, deployment |
 | Reviewer | specialist | review | Code review, security checks |
+
+**Orchestration agents** (loaded from `src/cli/agents.ts`, registered as SDK `customAgents`):
+
+| Agent | Role | Description |
+|-------|------|-------------|
+| Tech Lead | Coordinator | Decomposes tasks, delegates to specialists, ensures quality |
+| Staff Engineer | Deep worker | Thorough autonomous execution across many files |
+| Architect | Analyst | Root-cause analysis, architecture review, debugging |
+| Navigator | Knowledge | Codebase exploration, pattern identification |
+| Scout | Fast search | Quick read-only codebase searches |
+| Strategist | Planner | Creates phased implementation plans |
+| Advisor | Critic | Validates plans before execution |
 
 #### Agent Loading Priority
 
