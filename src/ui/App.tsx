@@ -360,17 +360,18 @@ export function App({ harness, renderer }: AppProps) {
           })()}
           <span fg={c.subtle}> · </span>
           <span fg={c.link}>{modelDisplay}</span>
+          {/* Git status with Nerd Font icons: \uE0A0=, \uF111=, \uF44D=, \uF059=, \uF062=, \uF063=, \uF00C= */}
           {gitInfo.branch && (
             <>
               <span>  </span>
-              <span fg={c.link}> {gitInfo.branch}</span>
-              {gitInfo.staged > 0 && <span fg={c.success}> ● {gitInfo.staged}</span>}
-              {gitInfo.unstaged > 0 && <span fg={c.warning}> ✚ {gitInfo.unstaged}</span>}
-              {gitInfo.untracked > 0 && <span fg={c.subtle}> ? {gitInfo.untracked}</span>}
-              {gitInfo.ahead > 0 && <span fg={c.success}> ⇡{gitInfo.ahead}</span>}
-              {gitInfo.behind > 0 && <span fg={c.warning}> ⇣{gitInfo.behind}</span>}
+              <span fg={c.link}>{"\uE0A0"} {gitInfo.branch}</span>
+              {gitInfo.staged > 0 && <span fg={c.success}> {"\uF111"} {gitInfo.staged}</span>}
+              {gitInfo.unstaged > 0 && <span fg={c.warning}> {"\uF44D"} {gitInfo.unstaged}</span>}
+              {gitInfo.untracked > 0 && <span fg={c.subtle}> {"\uF059"} {gitInfo.untracked}</span>}
+              {gitInfo.ahead > 0 && <span fg={c.success}> {"\uF062"}{gitInfo.ahead}</span>}
+              {gitInfo.behind > 0 && <span fg={c.warning}> {"\uF063"}{gitInfo.behind}</span>}
               {!gitInfo.hasChanges && gitInfo.ahead === 0 && gitInfo.behind === 0 && (
-                <span fg={c.success}> ✓</span>
+                <span fg={c.success}> {"\uF00C"}</span>
               )}
             </>
           )}

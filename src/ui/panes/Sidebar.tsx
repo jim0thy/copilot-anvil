@@ -112,12 +112,13 @@ function SectionDivider({ theme, innerWidth }: { theme: Theme; innerWidth: numbe
 }
 
 // --- File status helpers (file-specific icons, distinct from task/subagent status) ---
+// Nerd Font icons: \uF44D= (modified), \uF067= (added), \uF068= (deleted), \uF45A= (renamed)
 function getFileStatusIcon(status: FileChange["status"]): string {
   switch (status) {
-    case "modified": return "\u270E"; // ✎
-    case "added": return "+";
-    case "deleted": return "\u2717"; // ✗
-    case "renamed": return "\u2192"; // →
+    case "modified": return "\uF44D"; // 
+    case "added": return "\uF067"; // 
+    case "deleted": return "\uF068"; // 
+    case "renamed": return "\uF45A"; // 
   }
 }
 
