@@ -122,10 +122,21 @@ export class CopilotSessionAdapter {
    * If a session is already active, it will be recreated with the new agents.
    */
   async setCustomAgents(agents: CustomAgentDef[]): Promise<void> {
-    // Merge with opencode agents, avoiding duplicates by name
+    // Merge opencode agents with existing agents.
+    // OpenCode agents supersede existing agents that serve the same role:
+    //   sisyphus replaces orchestrator, prometheus replaces planner,
+    //   metis replaces reviewer (as plan critic — reviewer stays for code review).
+    // All other existing agents (developers, specialists) are kept as-is
+    // since the opencode orchestrator references them by name.
     const openCodeAgents = getOpenCodeAgents();
     const openCodeNames = new Set(openCodeAgents.map(a => a.name));
-    const userAgents = agents.filter(a => !openCodeNames.has(a.name));
+
+    // Agents whose role is superseded by an opencode agent
+    const superseded = new Set(["orchestrator", "planner"]);
+
+    const userAgents = agents.filter(
+      (a) => !openCodeNames.has(a.name) && !superseded.has(a.name)
+    );
     this._customAgents = [...openCodeAgents, ...userAgents];
     this.emit(createLogEvent("info", `🤖 Setting ${this._customAgents.length} agents (${openCodeAgents.length} opencode + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
     
