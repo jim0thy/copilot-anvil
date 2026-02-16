@@ -304,6 +304,143 @@ Only touch `src/copilot/CopilotSessionAdapter.ts`. Never import SDK elsewhere.
 
 ---
 
+# Nerd Fonts & Icon Usage (TUI Projects)
+
+## Policy
+
+This project supports **Nerd Fonts** for enhanced iconography in terminal UIs.
+
+Icons must:
+- Be optional
+- Gracefully degrade when Nerd Fonts are unavailable
+- Never break layout, alignment, or usability
+
+Icons are an enhancement — not a dependency.
+
+---
+
+## User Requirements
+
+Users must install and configure a Nerd Font in their terminal.
+
+Recommended fonts:
+- JetBrainsMono Nerd Font
+- FiraCode Nerd Font
+- Hack Nerd Font
+
+If icons render as empty squares (□), the user likely needs to:
+
+1. Install a Nerd Font
+2. Set their terminal font to that Nerd Font
+
+The application must not attempt to install or enforce fonts.
+
+---
+
+## Configuration
+
+All TUIs must support:
+
+```
+icons: auto | on | off
+```
+
+Default: `auto`
+
+Behavior:
+
+- `off` → never render icons
+- `on` → always render icons
+- `auto` →
+    - Disable if output is not a TTY
+    - Disable if `TERM=dumb`
+    - Otherwise enable
+
+---
+
+## Implementation Rules
+
+### 1. Centralized Icon Registry
+
+Icons must be defined in one place.
+Never inline Nerd Font glyphs throughout the codebase.
+
+Example (TypeScript):
+
+```ts
+export const Icons = {
+  git: "",
+  folder: "",
+  branch: "",
+} as const
+```
+
+Provide a fallback set:
+
+```ts
+export const AsciiIcons = {
+  git: "git",
+  folder: "[dir]",
+  branch: "branch",
+} as const
+```
+
+Provide a selector helper:
+
+```ts
+export type IconMode = "auto" | "on" | "off"
+
+export function getIcons(mode: IconMode, isTTY: boolean): typeof Icons {
+  if (mode === "off") return AsciiIcons
+  if (mode === "on") return Icons
+  if (!isTTY || process.env.TERM === "dumb") return AsciiIcons
+  return Icons
+}
+```
+
+---
+
+### 2. Width Safety
+
+- Never assume glyph width.
+- Use a wcwidth-aware library when measuring layout.
+- Icons must not be embedded in structural table borders.
+- Layout must remain correct when icons are disabled.
+
+---
+
+### 3. Graceful Degradation
+
+If icons are disabled:
+
+- Use ASCII or common Unicode fallbacks
+- Maintain column alignment
+- Preserve spacing
+
+The UI must remain fully usable without icons.
+
+---
+
+## Help / Diagnostics
+
+Include in `--help` or documentation:
+
+> If icons render as empty squares, install a Nerd Font and configure your terminal to use it.
+
+Optional:
+
+Provide a `--diagnose` or `check-font` command that prints sample glyphs.
+
+---
+
+## Non-Goals
+
+- Do not auto-detect specific installed fonts.
+- Do not block startup if glyphs fail.
+- Do not require Nerd Fonts for core functionality.
+
+---
+
 ## Troubleshooting
 
 ### "Copilot not authenticated"
