@@ -9,7 +9,7 @@
 
 /**
  * Complexity level for agent selection.
- * Used by the orchestrator to pick the right agent based on task scope.
+ * Used by the tech lead to pick the right agent based on task scope.
  */
 export type AgentTier = "junior" | "mid" | "senior" | "specialist";
 
@@ -94,7 +94,7 @@ export interface AgentContext {
   /** Current working directory */
   cwd: string;
   
-  /** Available agents for delegation (for orchestrator) */
+  /** Available agents for delegation (for tech lead) */
   availableAgents: AgentDefinition[];
   
   /** Current orchestration mode */
@@ -137,7 +137,7 @@ export interface ExecutionTask {
 }
 
 /**
- * Full execution plan created by the Planner agent.
+ * Full execution plan created by the Strategist agent.
  */
 export interface ExecutionPlan {
   summary: string;

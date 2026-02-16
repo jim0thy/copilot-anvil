@@ -59,7 +59,7 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
           </text>
           <text>
             <span fg={c.accent}>● </span>
-            <span fg={c.accent}><b>Orchestrator</b></span>
+            <span fg={c.accent}><b>Tech Lead</b></span>
             <span fg={c.subtext0}> delegates work to specialist agents</span>
           </text>
         </box>

@@ -16,7 +16,7 @@
  * 
  * // Get available agents
  * const agents = loader.getAgents();
- * const orchestrator = loader.getOrchestrator();
+ * const techLead = loader.getTechLead();
  * 
  * // Use in harness
  * harness.use(createOrchestrationPlugin());

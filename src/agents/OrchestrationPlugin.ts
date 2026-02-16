@@ -79,30 +79,30 @@ export function createOrchestrationPlugin(): HarnessPlugin {
         } as any);
         
         // Set Intake as the default agent (always entry point in team mode)
-        const clarifier = agents.find(a => a.domain === "clarification");
-        if (clarifier) {
+        const intakeAgent = agents.find(a => a.domain === "clarification");
+        if (intakeAgent) {
           // Switch to orchestrated mode
           ctx!.state.update<OrchestrationState>(ORCHESTRATION_STATE_KEY, { mode: "orchestrated" });
-          
+
           ctx!.emit({
             type: "log",
             runId: null,
             level: "info",
-            message: `🎯 Team mode enabled — using ${clarifier.name} as entry point`,
+            message: `🎯 Team mode enabled — using ${intakeAgent.name} as entry point`,
             createdAt: new Date(),
           });
-          
+
           // Emit mode change event
           ctx!.emit({
             type: "orchestration.mode.changed",
             mode: "orchestrated",
           } as any);
-          
+
           // Emit agent.changed event to switch to intake
           ctx!.emit({
             type: "agent.changed",
-            agentId: clarifier.id,
-            agentName: clarifier.name,
+            agentId: intakeAgent.id,
+            agentName: intakeAgent.name,
           } as any);
         }
         
@@ -275,8 +275,8 @@ export function buildOrchestrationContext(
   const state = getOrchestrationState(ctx);
   if (state.mode !== "orchestrated") return "";
   
-  const orchestrator = loader.getOrchestrator();
-  if (!orchestrator) return "";
+  const techLead = loader.getTechLead();
+  if (!techLead) return "";
   
   const agents = loader.getAgents();
   const agentList = agents

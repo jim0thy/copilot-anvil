@@ -108,7 +108,7 @@ export const enforceChecklist = defineTool("enforce_checklist", {
  * Tool: summarize_context
  *
  * Before
- * delegating to a subagent, the orchestrator can use this tool to
+ * delegating to a subagent, the tech lead can use this tool to
  * compress the relevant context into a concise summary, keeping
  * subagent prompts lean and token-efficient.
  */

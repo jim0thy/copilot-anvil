@@ -118,13 +118,13 @@ export class CopilotSessionAdapter {
 
   /**
    * Set custom agents to be registered with the SDK.
-   * These agents will be available for delegation by the orchestrator.
+   * These agents will be available for delegation by the tech lead.
    * If a session is already active, it will be recreated with the new agents.
    */
   async setCustomAgents(agents: CustomAgentDef[]): Promise<void> {
     // Merge orchestration agents with existing builtin agents.
     // Orchestration agents supersede existing agents that serve the same role:
-    //   tech-lead replaces orchestrator, strategist replaces planner.
+    //   tech-lead and strategist are the new coordination agents.
     // All other existing agents (developers, specialists) are kept as-is
     // since the tech-lead references them by name in its delegation table.
     const orchestrationAgents = getOrchestrationAgents();

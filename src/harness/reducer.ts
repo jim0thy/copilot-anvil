@@ -1,7 +1,7 @@
 /**
  * Pure-ish state reducer for HarnessEvent → HarnessState transitions.
  *
- * Extracted from Harness.processEvent so the orchestrator class stays
+ * Extracted from Harness.processEvent so the harness class stays
  * focused on coordination (dispatch, subscribe, adapter lifecycle).
  */
 

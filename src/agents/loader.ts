@@ -138,9 +138,9 @@ export class AgentLoader {
   }
   
   /**
-   * Get the orchestrator agent.
+   * Get the tech lead agent (coordinates work delegation).
    */
-  getOrchestrator(): AgentDefinition | undefined {
+  getTechLead(): AgentDefinition | undefined {
     return this.agents.find(a => a.domain === "orchestration");
   }
   
