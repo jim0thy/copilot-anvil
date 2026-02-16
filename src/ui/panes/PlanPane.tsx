@@ -64,11 +64,15 @@ export const PlanPane = memo(function PlanPane({
                   </text>
                 </box>
                 <box flexShrink={1}>
-                  <text
-                    fg={item.checked ? c.subtle : isCurrent ? c.warning : c.text}
-                  >
-                    {isCurrent ? <b>{item.text}</b> : item.text}
-                  </text>
+                  {isCurrent ? (
+                    <text fg={c.warning}>
+                      <b>{item.text}</b>
+                    </text>
+                  ) : (
+                    <text fg={item.checked ? c.subtle : c.text}>
+                      {item.text}
+                    </text>
+                  )}
                 </box>
               </box>
             );
@@ -79,7 +83,7 @@ export const PlanPane = memo(function PlanPane({
       {/* Plan Content */}
       {hasPlan && (
         <box marginTop={1} flexDirection="column">
-          <text fg={c.subtext0}>
+          <text fg={c.secondary}>
             <b>Plan:</b>
           </text>
           <box marginLeft={1} flexDirection="column">
