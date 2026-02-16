@@ -91,17 +91,19 @@ export const QuestionModal = memo(function QuestionModal({
     }
   });
 
-  // Calculate modal dimensions
-  const modalWidth = Math.min(70, width - 4);
+  // Calculate modal dimensions - match InputBar width (82.5% of 82.5% column)
+  // InputBar is inside a 82.5% width column, so we need to match that context
+  const columnWidth = Math.floor(width * 0.825);
+  const modalWidth = columnWidth; // Full width of the column
   const bottomOffset = 4; // Space for status bar and input bar
   const maxAvailableHeight = height - bottomOffset;
-  // Height: question (2 lines) + choices + freeform option + footer + padding/borders
-  const maxListHeight = Math.max(4, maxAvailableHeight - 8);
+  // Height: question (dynamic based on wrap) + choices + freeform option + footer + padding/borders
+  const maxListHeight = Math.max(4, maxAvailableHeight - 10); // More space for wrapped question
   const listHeight = Math.min(totalItems, maxListHeight);
   // Ensure modal doesn't exceed available space and expands upward
-  const desiredHeight = listHeight + 8;
+  const desiredHeight = listHeight + 10; // More space for wrapped question
   const modalHeight = Math.min(desiredHeight, maxAvailableHeight);
-  const modalX = Math.floor((width - modalWidth) / 2);
+  const modalX = 0; // Align left, matching InputBar positioning
   // Anchor bottom edge just above input bar, expand upward
   const modalY = Math.max(0, height - bottomOffset - modalHeight);
 
@@ -127,24 +129,25 @@ export const QuestionModal = memo(function QuestionModal({
       top={modalY}
       width={modalWidth}
       height={modalHeight}
-      borderStyle="double"
-      borderColor={c.primary}
       backgroundColor={c.mantle}
       flexDirection="column"
-      padding={1}
+      paddingLeft={2}
+      paddingRight={2}
+      paddingTop={1}
+      paddingBottom={1}
       focusable={true}
     >
-      {/* Question header */}
+      {/* Question header - minimal, matching InputBar style */}
       <box marginBottom={1}>
         <text>
-          <span fg={c.primary}><b>❓ Question</b></span>
+          <span fg={c.info}><b>❓ Agent question:</b></span>
         </text>
       </box>
 
-      {/* Question text */}
-      <box marginBottom={1}>
-        <text>
-          <span fg={c.info}>{question.question}</span>
+      {/* Question text - with wrapping enabled and width constraint */}
+      <box marginBottom={1} width={modalWidth - 4}>
+        <text wrapMode="word">
+          <span fg={c.text}>{question.question}</span>
         </text>
       </box>
 
@@ -158,7 +161,7 @@ export const QuestionModal = memo(function QuestionModal({
               const isSelected = selectedIndex === index;
               return (
                 <box key={index}>
-                  <text>
+                  <text wrapMode="word">
                     <span fg={isSelected ? c.primary : c.subtle}>
                       {isSelected ? "› " : "  "}
                     </span>
