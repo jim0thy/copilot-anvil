@@ -1,11 +1,10 @@
 import { useKeyboard } from "@opentui/react";
 import { memo, useRef, useEffect } from "react";
 import type { EphemeralRun } from "../../harness/Harness.js";
-import type { ChatMessage, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
-import { formatRole, getRoleColor } from "../formatters.js";
+import { ChatPane } from "./ChatPane.js";
 
-interface CommandModalProps {
+interface EphemeralModalProps {
   ephemeralRun: EphemeralRun;
   onClose: () => void;
   theme: Theme;
@@ -13,13 +12,13 @@ interface CommandModalProps {
   height: number;
 }
 
-export const CommandModal = memo(function CommandModal({
+export const EphemeralModal = memo(function EphemeralModal({
   ephemeralRun,
   onClose,
   theme,
   width,
   height,
-}: CommandModalProps) {
+}: EphemeralModalProps) {
   const c = theme.colors;
   const isComplete = ephemeralRun.status === "completed" || ephemeralRun.status === "failed";
   const modalRef = useRef<any>(null);
@@ -46,13 +45,8 @@ export const CommandModal = memo(function CommandModal({
   const modalX = Math.floor((width - modalWidth) / 2);
   const modalY = Math.floor((height - modalHeight) / 2);
 
-  // Render transcript (messages only, no tool calls or reasoning)
-  const messages = ephemeralRun.transcript.filter(
-    (item): item is ChatMessage => item.kind === "message"
-  );
-
-  // Calculate content height for scrolling
-  const contentHeight = modalHeight - 6; // Account for header, footer, padding
+  // Calculate content height for ChatPane (subtract header + footer)
+  const chatPaneHeight = modalHeight - 6;
 
   return (
     <box
@@ -91,56 +85,17 @@ export const CommandModal = memo(function CommandModal({
         </text>
       </box>
 
-      {/* Content */}
-      <box
-        flexDirection="column"
-        paddingLeft={1}
-        paddingRight={1}
-        height={contentHeight}
-      >
-        {messages.map((message, index) => {
-          const roleColor = getRoleColor(message.role, theme);
-          const roleLabel = formatRole(message.role);
-          const lines = message.content.split("\n");
-
-          return (
-            <box key={message.id} flexDirection="column" marginBottom={1}>
-              <text>
-                <span fg={roleColor}>
-                  <b>{roleLabel}:</b>
-                </span>
-              </text>
-              {lines.map((line, lineIndex) => (
-                <text key={lineIndex}>
-                  <span fg={c.text}>{line}</span>
-                </text>
-              ))}
-            </box>
-          );
-        })}
-
-        {/* Show streaming content */}
-        {ephemeralRun.streamingContent && (
-          <box flexDirection="column" marginBottom={1}>
-            <text>
-              <span fg={c.secondary}>
-                <b>Assistant:</b>
-              </span>
-            </text>
-            {ephemeralRun.streamingContent.split("\n").map((line, index) => (
-              <text key={index}>
-                <span fg={c.text}>{line}</span>
-              </text>
-            ))}
-          </box>
-        )}
-
-        {/* Show cursor when running */}
-        {ephemeralRun.status === "running" && !ephemeralRun.streamingContent && (
-          <text>
-            <span fg={c.warning}>▊</span>
-          </text>
-        )}
+      {/* Content - Use ChatPane */}
+      <box height={chatPaneHeight}>
+        <ChatPane
+          transcript={ephemeralRun.transcript}
+          streamingContent={ephemeralRun.streamingContent}
+          streamingReasoning=""
+          streamingAgentName={null}
+          isStreaming={ephemeralRun.status === "running"}
+          height={chatPaneHeight}
+          theme={theme}
+        />
       </box>
 
       {/* Footer */}

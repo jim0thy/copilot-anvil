@@ -2,7 +2,7 @@
  * Shared formatting utilities used across UI panes.
  *
  * Consolidates helpers that were previously duplicated in
- * ChatPane, CommandModal, Sidebar, TasksPane, SubagentsPane, etc.
+ * ChatPane, EphemeralModal, Sidebar, TasksPane, SubagentsPane, etc.
  */
 
 import type { MessageRole } from "../harness/events.js";

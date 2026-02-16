@@ -11,7 +11,7 @@ import { SessionSwitcher } from './panes/SessionSwitcher.js'
 import { AgentsModal } from './panes/AgentsModal.js'
 import { SkillsPane } from './panes/SkillsPane.js'
 import { ConfirmModal } from './panes/ConfirmModal.js'
-import { CommandModal } from './panes/CommandModal.js'
+import { EphemeralModal } from './panes/EphemeralModal.js'
 import { Sidebar } from './panes/Sidebar.js'
 import { DebugOverlay } from './panes/DebugOverlay.js'
 import { getTheme } from './theme.js'
@@ -460,9 +460,9 @@ export function App({ harness, renderer }: AppProps) {
         />
       )}
 
-      {/* Command Modal (Ephemeral Run) */}
+      {/* Ephemeral Modal (Smart Commit & Push) */}
       {state.ephemeralRun && (
-        <CommandModal
+        <EphemeralModal
           ephemeralRun={state.ephemeralRun}
           onClose={handleCloseCommandModal}
           theme={theme}
