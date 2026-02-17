@@ -360,11 +360,7 @@ export class CopilotSessionAdapter {
     if (parentToolCallId && this.activeSubagents.has(parentToolCallId)) {
       return parentToolCallId;
     }
-    if (this.activeSubagents.size === 0) {
-      return undefined;
-    }
-    const entries = Array.from(this.activeSubagents.entries());
-    return entries[entries.length - 1][0];
+    return undefined;
   }
 
   /** Render checklist state as markdown for todo.updated events. */

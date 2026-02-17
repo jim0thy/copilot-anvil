@@ -65,9 +65,11 @@ const MessageItem = memo(function MessageItem({ msg, showLabel, theme }: { msg: 
       )}
 
       {msg.role === "user" ? (
-        <box borderStyle="single" border={["left"]} borderColor={c.info} backgroundColor={c.mantle} paddingLeft={1} flexDirection="column">
-          {showLabel && <text fg={c.info}><b>{labelText}</b></text>}
-          <text fg={c.text}>{msg.content}</text>
+        <box justifyContent="flex-end">
+          <box borderStyle="single" border={["right"]} borderColor={c.info} backgroundColor={c.mantle} paddingLeft={1} paddingRight={1} flexDirection="column">
+            {showLabel && <text fg={c.info}><b>{labelText}</b></text>}
+            <text fg={c.text}>{msg.content}</text>
+          </box>
         </box>
       ) : (
         <box flexDirection="column">
