@@ -50,13 +50,8 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
         </box>
         
         {/* Input Bar - positioned directly under ASCII art */}
-        <box width="60%" marginBottom={3}>
+        <box width="40%" minWidth={60} marginBottom={3}>
           <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} agentName={agentName} modelName={modelName} reasoningEffort={reasoningEffort} />
-        </box>
-
-        {/* Subtitle */}
-        <box marginBottom={3}>
-          <text fg={c.subtle}>Ask anything to get started</text>
         </box>
 
         {/* Agent info */}
