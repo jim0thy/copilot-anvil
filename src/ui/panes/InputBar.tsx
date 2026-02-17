@@ -132,7 +132,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       setResetKey((k) => k + 1);
       // Reset height to minimum when message is sent
       if (onHeightChange) {
-        onHeightChange(3);
+        onHeightChange(4);
       }
     }
   };
@@ -304,7 +304,9 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const helpTextLines = attachedImages.length > 0 && selectedAttachment === null ? 1 : 0;
   const footerLines = (agentName || modelName) ? 1 : 0;
   const footerSpacerLines = footerLines ? 1 : 0; // Blank line between input text and footer
-  const calculatedHeight = Math.max(3, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + footerSpacerLines + footerLines); // Minimum 3
+  const footerPaddingLines = footerLines ? 0.5 : 0; // 0.5 padding under footer
+  const paddingLines = 1.5; // 0.5 top + 0.5 bottom + 0.5 buffer for bottom padding visibility
+  const calculatedHeight = Math.max(4, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + footerSpacerLines + footerLines + footerPaddingLines + paddingLines); // Minimum 4
 
   // Notify parent of height change
   useEffect(() => {
@@ -325,8 +327,8 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       borderColor={c.info}
       paddingLeft={2}
       paddingRight={2}
-      paddingTop={0}
-      paddingBottom={0}
+      paddingTop={0.5}
+      paddingBottom={0.5}
     >
       <box flexDirection="column">
         {pastedContent && (
@@ -363,9 +365,9 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
             </>
           )}
         </text>
-        {(agentName || modelName) && <text> </text>}
+        {(agentName || modelName) && <box height={1} />}
         {(agentName || modelName) && (
-          <text>
+          <text paddingBottom={0.5}>
             {agentName && <span fg={c.accent}><b>{agentName}</b></span>}
             {agentName && modelName && <span fg={c.subtle}> · </span>}
             {modelName && <span fg={c.link}><b>{modelName}</b></span>}
