@@ -44,6 +44,7 @@ export interface Subagent {
   agentDescription: string;
   model?: string;
   taskTitle?: string;
+  currentIntent?: string;
   status: "running" | "completed" | "failed";
   startedAt: Date;
   completedAt?: Date;

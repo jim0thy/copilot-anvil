@@ -423,8 +423,18 @@ export function processEvent(
       return { ...state, skills: [...state.skills.slice(-MAX_SKILLS + 1), newSkill] };
     }
 
-    case "intent.updated":
+    case "intent.updated": {
+      if (event.toolCallId) {
+        const updatedSubagents = state.subagents.map((agent) => {
+          if (agent.toolCallId === event.toolCallId) {
+            return { ...agent, currentIntent: event.intent };
+          }
+          return agent;
+        });
+        return { ...state, subagents: updatedSubagents };
+      }
       return { ...state, currentIntent: event.intent };
+    }
 
     case "todo.updated":
       return { ...state, currentTodo: event.todos };

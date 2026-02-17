@@ -352,6 +352,18 @@ export class CopilotSessionAdapter {
     this.streamingBuffers.clear();
   }
 
+  /** Resolve intent attribution to a subagent tool call when possible. */
+  private resolveIntentToolCallId(parentToolCallId?: string): string | undefined {
+    if (parentToolCallId && this.activeSubagents.has(parentToolCallId)) {
+      return parentToolCallId;
+    }
+    if (this.activeSubagents.size === 0) {
+      return undefined;
+    }
+    const entries = Array.from(this.activeSubagents.entries());
+    return entries[entries.length - 1][0];
+  }
+
   /** Emit a todo.updated event with the current checklist state as markdown. */
   private emitChecklistUpdate(): void {
     if (!this.currentRunId) return;
@@ -835,10 +847,16 @@ ${agentEntries}
           const args = parseToolArgs(event.data?.arguments);
 
           // Handle special tool calls
-          if (toolName === "report_intent" && args && typeof args === "object") {
-            const intentArg = (args as any).intent;
+          if (toolName === "report_intent") {
+            const intentArg =
+              args && typeof args === "object"
+                ? (args as any).intent
+                : typeof args === "string"
+                ? args
+                : undefined;
             if (intentArg && this.currentRunId) {
-              this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg });
+              const subagentToolCallId = this.resolveIntentToolCallId(event.data?.parentToolCallId);
+              this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg, toolCallId: subagentToolCallId });
             }
           } else if (toolName === "update_todo") {
             const todosArg =
@@ -908,7 +926,8 @@ ${agentEntries}
 
           const intent = event.data?.intent;
           if (intent && this.currentRunId) {
-            this.emit({ type: "intent.updated", runId: this.currentRunId, intent });
+            const subagentToolCallId = this.resolveIntentToolCallId();
+            this.emit({ type: "intent.updated", runId: this.currentRunId, intent, toolCallId: subagentToolCallId });
           }
           break;
         }

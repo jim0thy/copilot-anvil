@@ -210,6 +210,8 @@ export interface IntentUpdatedEvent {
   type: "intent.updated";
   runId: string;
   intent: string;
+  /** If set, this intent is from a subagent and should update the subagent's entry */
+  toolCallId?: string;
 }
 
 export interface TodoUpdatedEvent {
