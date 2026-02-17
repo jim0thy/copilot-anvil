@@ -184,8 +184,8 @@ function normalizeModel(model?: string): string {
   if (lowerModel.includes("gemini 3 pro") || lowerModel.includes("gemini-3-pro")) {
     return "gemini-3-pro-preview";
   }
-  if (lowerModel.includes("gpt-5.2-codex")) {
-    return "gpt-5.2-codex";
+  if (lowerModel.includes("gpt-5.3-codex")) {
+    return "gpt-5.3-codex";
   }
   if (lowerModel.includes("gpt-5.2")) {
     return "gpt-5.2";
