@@ -105,12 +105,41 @@ export const enforceChecklist = defineTool("enforce_checklist", {
 });
 
 /**
+ * Tool: update_todo
+ *
+ * Updates the UI-visible checklist in the TUI (Plan & Progress section).
+ */
+export const updateTodo = defineTool("update_todo", {
+  description:
+    "Update the UI's Plan & Progress checklist. Provide a markdown checklist, one item per line, e.g. '- [ ] Do thing'.",
+  parameters: {
+    type: "object",
+    properties: {
+      todos: {
+        type: "string",
+        description: "Markdown checklist, e.g. '- [ ] item' and '- [x] item'",
+      },
+    },
+    required: ["todos"],
+  },
+  handler: (args: { todos: string }) => {
+    if (!args.todos || !args.todos.trim()) {
+      return {
+        textResultForLlm: "Error: 'todos' is required.",
+        resultType: "failure" as const,
+      };
+    }
+    return {
+      textResultForLlm: `Todo list updated:\n${args.todos}`,
+      resultType: "success" as const,
+    };
+  },
+});
+
+/**
  * Tool: summarize_context
  *
- * Before
- * delegating to a subagent, the tech lead can use this tool to
- * compress the relevant context into a concise summary, keeping
- * subagent prompts lean and token-efficient.
+ * Compresses context for lean subagent delegation.
  */
 export const summarizeContext = defineTool("summarize_context", {
   description:
@@ -347,5 +376,5 @@ export const projectOverview = defineTool("project_overview", {
  * Returns all custom tools for the CLI integration.
  */
 export function getAnvilTools() {
-  return [enforceChecklist, summarizeContext, checkConventions, projectOverview];
+  return [enforceChecklist, updateTodo, summarizeContext, checkConventions, projectOverview];
 }
