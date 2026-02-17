@@ -47,8 +47,8 @@ function ContextSection({
     ? c.warning
     : c.success;
 
-  // Dynamic bar width: use available inner width, capped reasonably
-  const barWidth = Math.max(10, Math.min(innerWidth, 60));
+  // Dynamic bar width: use available inner width
+  const barWidth = Math.max(10, innerWidth);
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "\u2588".repeat(filledWidth) + "\u2591".repeat(barWidth - filledWidth);
 
@@ -393,8 +393,8 @@ export const Sidebar = memo(function Sidebar({
   theme,
 }: SidebarProps) {
   const c = theme.colors;
-  // Calculate inner width: total width minus border (2) and padding (2)
-  const innerWidth = Math.max(1, width - 4);
+  // Calculate inner width: total width minus paddingLeft (1) and paddingRight (1)
+  const innerWidth = Math.max(1, width - 2);
 
   // Determine which sections have content
   const hasFiles = files.length > 0;
