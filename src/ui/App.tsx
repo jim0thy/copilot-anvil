@@ -285,6 +285,7 @@ export function App({ harness, renderer }: AppProps) {
               isStreaming={state.status === "running"}
               height={contentHeight - inputBarHeight}
               theme={theme}
+              subagentToolCallIds={state.subagents.map((s) => s.toolCallId)}
             />
             <InputBar
               onSubmit={handleSubmit}
