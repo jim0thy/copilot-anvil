@@ -82,6 +82,8 @@ export class CopilotSessionAdapter {
   private _customAgents: CustomAgentDef[] = [];
   private _activeAgent: CustomAgentDef | null = null;
   private _reasoningEffort: "low" | "medium" | "high" | "xhigh" = "medium";
+  /** True while the onUserInputRequest callback is awaiting a user response */
+  private hasPendingUserInput = false;
   /** Map of tool call IDs to subagent information */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
 
@@ -292,10 +294,20 @@ export class CopilotSessionAdapter {
     }
   }
 
-  /** Build the `onUserInputRequest` callback suitable for SDK session options. */
+  /** Build the `onUserInputRequest` callback suitable for SDK session options.
+   *  Tracks pending state so `session.idle` doesn't prematurely end the run. */
   private getUserInputCallback(): ((request: any) => Promise<{ answer: string; wasFreeform: boolean }>) | undefined {
     return this.userInputHandler
-      ? async (request: any) => this.userInputHandler!(request)
+      ? async (request: any) => {
+          this.hasPendingUserInput = true;
+          this.emit(createLogEvent("debug", "User input requested — pausing idle handling"));
+          try {
+            return await this.userInputHandler!(request);
+          } finally {
+            this.hasPendingUserInput = false;
+            this.emit(createLogEvent("debug", "User input received — resuming idle handling"));
+          }
+        }
       : undefined;
   }
 
@@ -687,6 +699,15 @@ Example: To use the "intake" agent:
         case "session.idle": {
           if (!this.isProcessing) return;
 
+          // The SDK may fire session.idle while waiting for the
+          // onUserInputRequest callback to resolve.  Ignore it —
+          // the real idle will arrive after the user answers and
+          // the agent finishes its remaining turns.
+          if (this.hasPendingUserInput) {
+            this.emit(createLogEvent("debug", "Ignoring session.idle — user input pending"));
+            return;
+          }
+
           if (this.currentRunId) {
             const runId = this.currentRunId;
 
@@ -888,6 +909,7 @@ Example: To use the "intake" agent:
 
     this.isCancelled = true;
     this.isProcessing = false;
+    this.hasPendingUserInput = false;
     this.expectedRunGeneration++;
 
     if (this.session) {

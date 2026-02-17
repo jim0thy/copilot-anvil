@@ -6,7 +6,7 @@
  */
 
 import type { ChatMessage, HarnessEvent, TranscriptItem, ToolCallItem } from "./events.js";
-import { createAssistantMessage, generateId } from "./events.js";
+import { createAssistantMessage, createUserMessage, generateId } from "./events.js";
 import type {
   HarnessState,
   Task,
@@ -385,8 +385,17 @@ export function processEvent(
         },
       };
 
-    case "question.answered":
-      return { ...state, pendingQuestion: null };
+    case "question.answered": {
+      // Show the user's answer in the transcript so the conversation flow is visible
+      const answerMessage = createUserMessage(event.answer);
+      const updatedTranscript = [...state.transcript, answerMessage];
+      trimTranscript(updatedTranscript, ctx);
+      return {
+        ...state,
+        pendingQuestion: null,
+        transcript: updatedTranscript,
+      };
+    }
 
     case "session.switched":
       ctx.toolCallTranscriptIndex.clear();
