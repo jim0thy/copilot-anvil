@@ -391,82 +391,162 @@ export class CopilotSessionAdapter {
   }
 
   /**
+   * Resolve the model ID for an agent, returning undefined if not available.
+   */
+  private resolveModelForAgent(agentName: string): string | undefined {
+    const modelConfig = loadModelConfig();
+    const override = resolveAgentModel(agentName, modelConfig);
+    if (!override.model) return undefined;
+    return this._availableModels.some(m => m.id === override.model)
+      ? override.model
+      : undefined;
+  }
+
+  /**
+   * Build a compact specialist directory listing all agents with their models.
+   * Used both in the top-level delegation guide and embedded in orchestrator prompts.
+   */
+  private buildSpecialistDirectory(agents: CustomAgentDef[], exclude?: Set<string>): string {
+    return agents
+      .filter(a => !exclude?.has(a.name))
+      .map(a => {
+        const displayName = a.displayName || a.name;
+        const model = this.resolveModelForAgent(a.name);
+        const modelStr = model ? ` | model: "${model}"` : '';
+        const preamble = a.prompt.split('\n').find(l => l.trim())?.trim() ?? '';
+        return `- **${displayName}**${modelStr}: ${a.description || 'No description'}\n  Preamble: "${preamble}"`;
+      })
+      .join('\n');
+  }
+
+  /**
    * Build a delegation guide that instructs the LLM how to delegate to specialists.
    *
    * Uses agent_type "general-purpose" for ALL delegations, with the specialist's
    * role preamble embedded in the prompt. This avoids the customAgents overwrite
    * issue while preserving specialist behavior.
    *
-   * Each specialist entry includes a `model` parameter so the subagent runs on
-   * the correct model (e.g., claude-opus-4.6 for the Tech Lead, gpt-5-mini for
-   * the Scout). The model is resolved from the central agent model config.
+   * CRITICAL DESIGN: Orchestrator agents (e.g., Tech Lead) need to sub-delegate
+   * to other specialists. Since subagents get a fresh context (no access to the
+   * top-level system message), the delegation instructions must be embedded
+   * directly in the orchestrator's prompt. This method:
+   *
+   * 1. Builds a compact specialist directory with models
+   * 2. For orchestrators, augments their prompt with inline delegation instructions
+   * 3. Instructs the top-level LLM to include the full orchestrator prompt
    *
    * The guide also includes a role marker format (## Role: Name) that we parse
    * in the event handler to extract display names for subagent UI attribution.
    */
   private buildDelegationGuide(agents: CustomAgentDef[]): string {
-    // Load model config (user overrides + built-in defaults)
-    const modelConfig = loadModelConfig();
-    const availableModelIds = new Set(this._availableModels.map(m => m.id));
+    // Identify orchestrator agents (agents that delegate but don't implement)
+    const orchestratorNames = new Set(['tech-lead']);
 
+    // Build the sub-delegation block that gets embedded in orchestrator prompts.
+    // This replaces the <delegation_guide> reference in the Tech Lead's prompt.
+    const nonOrchestrators = agents.filter(a => !orchestratorNames.has(a.name));
+    const specialistDir = this.buildSpecialistDirectory(nonOrchestrators);
+
+    const subDelegationBlock = `## Delegation Instructions
+
+To delegate to a specialist, use the task tool with these EXACT parameters:
+- **agent_type**: "general-purpose" (ALWAYS — never use specialist names as agent_type)
+- **model**: Use the specialist's model listed below
+- **prompt**: Start with "## Role: [Name]" then the task. Include enough context for the specialist to work independently.
+
+### Specialist Directory
+${specialistDir}
+
+### Delegation Format
+\`\`\`json
+{
+  "agent_type": "general-purpose",
+  "model": "[model from directory]",
+  "description": "[3-5 word summary]",
+  "prompt": "## Role: [Specialist Name]\\n\\nTask: [detailed task description with all necessary context]"
+}
+\`\`\``;
+
+    // Build agent entries for the top-level guide
     const agentEntries = agents.map(a => {
       const displayName = a.displayName || a.name;
-      // Extract the first meaningful line of the prompt as a condensed preamble
-      const preambleLines = a.prompt.split('\n').filter(l => l.trim().length > 0);
-      const preamble = preambleLines[0]?.trim() ?? '';
+      const model = this.resolveModelForAgent(a.name);
 
-      // Resolve model for this agent
-      const modelOverride = resolveAgentModel(a.name, modelConfig);
-      const model = modelOverride.model && availableModelIds.has(modelOverride.model)
-        ? modelOverride.model
-        : undefined;
+      if (orchestratorNames.has(a.name)) {
+        // For orchestrators: augment their prompt with inline sub-delegation instructions,
+        // replacing the <delegation_guide> reference with the actual content.
+        const augmentedPrompt = a.prompt.replace(
+          /Delegate to specialists using the task tool following the instructions in the <delegation_guide> section\./,
+          ''
+        ).trimEnd() + '\n\n' + subDelegationBlock;
 
+        let entry = `### ${displayName} (ORCHESTRATOR)
+- **Description**: ${a.description || 'No description'}`;
+        if (model) entry += `\n- **Model**: "${model}"`;
+        entry += `\n- **IMPORTANT**: When delegating to this agent, include its FULL prompt below verbatim.`;
+        entry += `\n  The orchestrator needs the embedded delegation instructions to sub-delegate.`;
+        entry += `\n<${a.name}_prompt>\n${augmentedPrompt}\n</${a.name}_prompt>`;
+        return entry;
+      }
+
+      // Non-orchestrator: compact entry with preamble
+      const preamble = a.prompt.split('\n').find(l => l.trim())?.trim() ?? '';
       let entry = `### ${displayName}
 - **Description**: ${a.description || 'No description'}`;
       if (model) entry += `\n- **Model**: "${model}"`;
       entry += `\n- **Preamble**: "${preamble}"`;
-
       return entry;
     }).join('\n\n');
 
-    // Pick a representative agent for the example
-    const exampleAgent = agents.find(a => a.name === 'staff-engineer') ?? agents[0];
+    // Pick a representative non-orchestrator for the simple delegation example
+    const exampleAgent = nonOrchestrators.find(a => a.name === 'staff-engineer') ?? nonOrchestrators[0];
     const exampleName = exampleAgent?.displayName || exampleAgent?.name || 'Specialist';
-    const examplePreamble = exampleAgent?.prompt.split('\n').filter(l => l.trim().length > 0)[0]?.trim() ?? 'You are a specialist.';
-    const exampleModel = resolveAgentModel(exampleAgent?.name ?? '', modelConfig);
-    const exampleModelStr = exampleModel.model && availableModelIds.has(exampleModel.model)
-      ? `\n  "model": "${exampleModel.model}",`
-      : '';
+    const exampleModel = this.resolveModelForAgent(exampleAgent?.name ?? '');
+    const exampleModelStr = exampleModel ? `\n  "model": "${exampleModel}",` : '';
+
+    // Find the orchestrator for the orchestrator example
+    const orchestrator = agents.find(a => orchestratorNames.has(a.name));
+    const orchName = orchestrator?.displayName || orchestrator?.name || 'Tech Lead';
+    const orchModel = this.resolveModelForAgent(orchestrator?.name ?? '');
+    const orchModelStr = orchModel ? `\n  "model": "${orchModel}",` : '';
 
     return `<delegation_guide>
-To delegate work to specialists, use the task tool with these parameters:
-- **agent_type**: "general-purpose"  (ALWAYS use this exact value for ALL delegations)
-- **model**: Use the specialist's listed Model value (overrides the default model)
-- **prompt**: Start with the role marker line, then the specialist's preamble, then describe the task
+## How to Delegate
+
+Use the task tool with agent_type "general-purpose" for ALL delegations.
+Each specialist runs on its own model — include the model parameter from the directory.
+Start every prompt with a role marker: ## Role: [Specialist Display Name]
 
 ## CRITICAL RULES
 1. ALWAYS use agent_type "general-purpose" — never use specialist names as agent_type
 2. ALWAYS include the specialist's model parameter if one is listed
-3. ALWAYS start the prompt with a role marker: ## Role: [Specialist Display Name]
-4. Follow the role marker with the specialist's preamble to set their persona
-5. Then describe the specific task
+3. ALWAYS start the prompt with: ## Role: [Specialist Display Name]
+4. For ORCHESTRATOR agents: include their FULL prompt (shown in the <*_prompt> block)
+5. For other specialists: include the role marker, then describe the task with full context
 
 ## Available Specialists
 
 ${agentEntries}
 
-## Delegation Format
+## Delegation Examples
 
+### Delegating to a specialist (simple):
 \`\`\`json
 {
   "agent_type": "general-purpose",${exampleModelStr}
-  "prompt": "## Role: ${exampleName}\\n${examplePreamble}\\n\\nTask: [describe the specific task here]"
+  "description": "Implement auth feature",
+  "prompt": "## Role: ${exampleName}\\n\\nTask: [detailed task with context]"
 }
 \`\`\`
 
-## Sub-delegation
-Specialists can also delegate to other specialists using the same format.
-Each specialist has access to the task tool and can use agent_type "general-purpose".
+### Delegating to an orchestrator (include full prompt):
+\`\`\`json
+{
+  "agent_type": "general-purpose",${orchModelStr}
+  "description": "Coordinate feature implementation",
+  "prompt": "## Role: ${orchName}\\n[INCLUDE THE FULL PROMPT FROM <${orchestrator?.name ?? 'tech-lead'}_prompt> ABOVE]\\n\\nTask: [describe what needs to be done]"
+}
+\`\`\`
 </delegation_guide>`;
   }
 
@@ -756,14 +836,43 @@ Each specialist has access to the task tool and can use agent_type "general-purp
           if (this.isEventStale(gen)) return;
 
           if (this.currentRunId) {
+            const completeToolCallId = event.data?.toolCallId ?? "";
+            const toolSuccess = event.data?.success ?? false;
+
             this.emit({
               type: "tool.completed",
               runId: this.currentRunId,
-              toolCallId: event.data?.toolCallId ?? "",
-              success: event.data?.success ?? false,
+              toolCallId: completeToolCallId,
+              success: toolSuccess,
               output: extractToolOutput(event.data?.result),
               error: event.data?.error?.message,
             });
+
+            // Safety net: if a task tool completes but its subagent wasn't
+            // explicitly completed/failed by the SDK, emit a synthetic event
+            // so the subagent pane shows the correct final status.
+            const pendingSubagent = this.activeSubagents.get(completeToolCallId);
+            if (pendingSubagent) {
+              this.emit(createLogEvent("debug", `${nf.warning} Subagent ${pendingSubagent.agentDisplayName} still tracked at tool completion — emitting synthetic ${toolSuccess ? 'completed' : 'failed'}`));
+              this.activeSubagents.delete(completeToolCallId);
+
+              if (toolSuccess) {
+                this.emit({
+                  type: "subagent.completed",
+                  runId: this.currentRunId,
+                  toolCallId: completeToolCallId,
+                  agentName: pendingSubagent.agentName,
+                });
+              } else {
+                this.emit({
+                  type: "subagent.failed",
+                  runId: this.currentRunId,
+                  toolCallId: completeToolCallId,
+                  agentName: pendingSubagent.agentName,
+                  error: event.data?.error?.message ?? "Task tool returned failure",
+                });
+              }
+            }
           }
           break;
         }
