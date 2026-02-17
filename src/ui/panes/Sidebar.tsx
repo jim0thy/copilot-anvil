@@ -26,12 +26,10 @@ interface SidebarProps {
 // --- Context Section (always visible) ---
 function ContextSection({ 
   contextInfo, 
-  orchestrationMode,
   theme, 
   innerWidth 
 }: { 
   contextInfo: ContextInfo; 
-  orchestrationMode: OrchestrationMode;
   theme: Theme; 
   innerWidth: number 
 }) {
@@ -72,16 +70,6 @@ function ContextSection({
             </span>
           </text>
         </box>
-      </box>
-
-      {/* Orchestration mode indicator */}
-      <box marginTop={1}>
-        <text>
-          <span fg={c.subtext0}>Mode: </span>
-          <span fg={orchestrationMode === "orchestrated" ? c.accent : c.subtext1}>
-            <b>{orchestrationMode === "orchestrated" ? "Team" : "Direct"}</b>
-          </span>
-        </text>
       </box>
 
       <box flexDirection="column" marginTop={1}>
@@ -452,7 +440,15 @@ export const Sidebar = memo(function Sidebar({
       )}
 
       {/* Context Section - Always visible */}
-      <ContextSection contextInfo={contextInfo} orchestrationMode={orchestrationMode} theme={theme} innerWidth={innerWidth} />
+      <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
+
+      {/* Subagents Section - Show when in orchestration mode OR when there are subagents */}
+      {(orchestrationMode === "orchestrated" || hasSubagents) && (
+        <>
+          <SectionDivider theme={theme} innerWidth={innerWidth} />
+          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} theme={theme} />
+        </>
+      )}
 
       {/* Files Modified Section - Only when files exist */}
       {hasFiles && (
@@ -470,14 +466,6 @@ export const Sidebar = memo(function Sidebar({
             currentTodo={currentTodo}
             theme={theme}
           />
-        </>
-      )}
-
-      {/* Subagents Section - Show when in orchestration mode OR when there are subagents */}
-      {(orchestrationMode === "orchestrated" || hasSubagents) && (
-        <>
-          <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} theme={theme} />
         </>
       )}
 

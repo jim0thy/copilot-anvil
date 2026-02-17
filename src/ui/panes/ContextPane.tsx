@@ -1,7 +1,5 @@
 import { memo } from "react";
 import type { Theme } from "../theme.js";
-import type { OrchestrationMode } from "../../agents/types.js";
-import { nf } from "../icons.js";
 
 export interface ContextInfo {
   currentTokens: number;
@@ -13,14 +11,12 @@ export interface ContextInfo {
 
 interface ContextPaneProps {
   contextInfo: ContextInfo;
-  orchestrationMode: OrchestrationMode;
   width: number | `${number}%` | "auto";
   theme: Theme;
 }
 
 export const ContextPane = memo(function ContextPane({ 
   contextInfo,
-  orchestrationMode,
   width, 
   theme 
 }: ContextPaneProps) {
@@ -43,9 +39,6 @@ export const ContextPane = memo(function ContextPane({
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
 
-  const modeLabel = orchestrationMode === "orchestrated" ? `${nf.target} Team` : `${nf.bolt} Direct`;
-  const modeColor = orchestrationMode === "orchestrated" ? c.accent : c.primary;
-
   return (
     <box
       flexDirection="column"
@@ -55,17 +48,11 @@ export const ContextPane = memo(function ContextPane({
       paddingLeft={1}
       paddingRight={1}
     >
-      {/* Header row with title, mode indicator, and counters */}
+      {/* Header row with title and counters */}
       <box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <box flexDirection="row" gap={2}>
-          <text fg={c.primary}>
-            <b>Context</b>
-          </text>
-          <text fg={c.subtle}>│</text>
-          <text fg={modeColor}>
-            <b>{modeLabel}</b>
-          </text>
-        </box>
+        <text fg={c.primary}>
+          <b>Context</b>
+        </text>
         <box flexDirection="row" gap={2}>
           <text>
             <span fg={c.subtext0}>Session: </span>
