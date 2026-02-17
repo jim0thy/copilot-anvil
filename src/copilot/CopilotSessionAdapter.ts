@@ -66,7 +66,10 @@ export class CopilotSessionAdapter {
   private session: CopilotSession | null = null;
   private eventHandler: AdapterEventHandler | null = null;
   private currentRunId: string | null = null;
-  private streamingBuffer = "";
+  private streamingBuffers = new Map<
+    string,
+    { text: string; parentToolCallId?: string; agentName?: string; agentDisplayName?: string }
+  >();
   private reasoningBuffer = "";
   private isCancelled = false;
   private isProcessing = false;
@@ -74,7 +77,6 @@ export class CopilotSessionAdapter {
   private currentRunGeneration = 0;
   private _currentModel: string | null = null;
   private _availableModels: ModelDescription[] = [];
-  private hasEmittedContentForTurn = false;
   private planWatcher: FSWatcher | null = null;
   private workspacePath: string | null = null;
   private userInputHandler: UserInputHandler | null = null;
@@ -300,14 +302,49 @@ export class CopilotSessionAdapter {
     return this.isCancelled || !this.isProcessing || gen !== this.expectedRunGeneration;
   }
 
-  /** Reset streaming / reasoning buffers and the content-emitted flag. */
+  /** Reset streaming/reasoning buffers and per-turn tracking maps. */
   private resetStreamingState(): void {
-    this.streamingBuffer = "";
+    this.streamingBuffers.clear();
     this.reasoningBuffer = "";
-    this.hasEmittedContentForTurn = false;
     this.activeSubagents.clear();
     this.pendingAgentRoles.clear();
     this.checklistItems = [];
+  }
+
+  private getStreamingBufferKey(messageId: string | undefined | null, parentToolCallId: string | undefined | null): string {
+    if (messageId) return messageId;
+    if (parentToolCallId) return `tool:${parentToolCallId}`;
+    return "__default__";
+  }
+
+  /** Flush all pending streaming message buffers into transcript messages. */
+  private flushStreamingBuffers(runId: string): void {
+    for (const [, bufferedMessage] of this.streamingBuffers) {
+      if (!bufferedMessage.text) continue;
+
+      const message = createAssistantMessage(bufferedMessage.text);
+      if (bufferedMessage.parentToolCallId) {
+        message.parentToolCallId = bufferedMessage.parentToolCallId;
+        const subagent = this.activeSubagents.get(bufferedMessage.parentToolCallId);
+        if (subagent) {
+          message.agentName = subagent.agentName;
+          message.agentDisplayName = subagent.agentDisplayName;
+        } else {
+          message.agentName = bufferedMessage.agentName;
+          message.agentDisplayName = bufferedMessage.agentDisplayName;
+        }
+      } else {
+        message.agentName = bufferedMessage.agentName;
+        message.agentDisplayName = bufferedMessage.agentDisplayName;
+      }
+
+      this.emit({
+        type: "assistant.message",
+        runId,
+        message,
+      });
+    }
+    this.streamingBuffers.clear();
   }
 
   /** Emit a todo.updated event with the current checklist state as markdown. */
@@ -677,23 +714,29 @@ ${agentEntries}
 
           const deltaContent = event.data?.deltaContent ?? "";
           if (!deltaContent) return;
+          const parentToolCallId = event.data?.parentToolCallId;
+          const bufferKey = this.getStreamingBufferKey(event.data?.messageId, parentToolCallId);
 
-          this.streamingBuffer += deltaContent;
+          const existingBuffer = this.streamingBuffers.get(bufferKey);
+          // Check if this is from a subagent, otherwise use active agent
+          const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+          const agentInfo = subagent || (this._activeAgent ? {
+            agentName: this._activeAgent.name,
+            agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
+          } : undefined);
+          this.streamingBuffers.set(bufferKey, {
+            text: (existingBuffer?.text ?? "") + deltaContent,
+            parentToolCallId: parentToolCallId ?? existingBuffer?.parentToolCallId,
+            agentName: agentInfo?.agentName ?? existingBuffer?.agentName,
+            agentDisplayName: agentInfo?.agentDisplayName ?? existingBuffer?.agentDisplayName,
+          });
 
           if (this.currentRunId) {
-            const parentToolCallId = event.data?.parentToolCallId;
-            // Check if this is from a subagent, otherwise use active agent
-            const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
-            const agentInfo = subagent || (this._activeAgent ? {
-              agentName: this._activeAgent.name,
-              agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
-            } : undefined);
-            
             // Debug logging for first delta of each message
-            if (this.streamingBuffer.length === 0 && agentInfo) {
+            if ((!existingBuffer || existingBuffer.text.length === 0) && agentInfo) {
               this.emit(createLogEvent("debug", `${nf.send} Assistant delta starting - agent: ${agentInfo.agentDisplayName} (subagent: ${Boolean(subagent)}, parentToolCallId: ${parentToolCallId || "none"})`));
             }
-            
+
             this.emit({
               type: "assistant.delta",
               runId: this.currentRunId,
@@ -710,23 +753,39 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
 
           const content = event.data?.content ?? "";
-          const resolvedContent = content || this.streamingBuffer;
-          const parentToolCallId = event.data?.parentToolCallId;
+          const parentToolCallIdFromEvent = event.data?.parentToolCallId;
+
+          let bufferKey = this.getStreamingBufferKey(event.data?.messageId, parentToolCallIdFromEvent);
+          let bufferedMessage = this.streamingBuffers.get(bufferKey);
+
+          // Defensive fallback: if messageId exists but buffering fell back to parentToolCallId.
+          if (!bufferedMessage && event.data?.messageId && parentToolCallIdFromEvent) {
+            const fallbackKey = this.getStreamingBufferKey(undefined, parentToolCallIdFromEvent);
+            bufferedMessage = this.streamingBuffers.get(fallbackKey);
+            if (bufferedMessage) bufferKey = fallbackKey;
+          }
+
+          const resolvedContent = content || bufferedMessage?.text || "";
+          const parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId;
+          this.streamingBuffers.delete(bufferKey);
 
           this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
 
           if (resolvedContent && this.currentRunId) {
             const message = createAssistantMessage(resolvedContent);
-            
+
             // Add agent information - from subagent if available, otherwise from active agent
             if (parentToolCallId) {
+              message.parentToolCallId = parentToolCallId;
               this.emit(createLogEvent("debug", `Looking up subagent for toolCallId: ${parentToolCallId}`));
               const subagent = this.activeSubagents.get(parentToolCallId);
               if (subagent) {
                 this.emit(createLogEvent("info", `${nf.magic} Message from subagent: ${subagent.agentDisplayName}`));
                 message.agentName = subagent.agentName;
                 message.agentDisplayName = subagent.agentDisplayName;
-                message.parentToolCallId = parentToolCallId;
+              } else if (bufferedMessage?.agentName || bufferedMessage?.agentDisplayName) {
+                message.agentName = bufferedMessage.agentName;
+                message.agentDisplayName = bufferedMessage.agentDisplayName;
               } else {
                 this.emit(createLogEvent("warn", `${nf.warning} No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
               }
@@ -741,24 +800,15 @@ ${agentEntries}
               runId: this.currentRunId,
               message,
             });
-            this.hasEmittedContentForTurn = true;
           }
-
-          this.streamingBuffer = "";
           break;
         }
 
         case "assistant.turn_end": {
           if (this.isEventStale(gen)) return;
 
-          if (!this.hasEmittedContentForTurn && this.streamingBuffer && this.currentRunId) {
-            const message = createAssistantMessage(this.streamingBuffer);
-            
-            this.emit({
-              type: "assistant.message",
-              runId: this.currentRunId,
-              message,
-            });
+          if (this.currentRunId) {
+            this.flushStreamingBuffers(this.currentRunId);
           }
 
           if (this.currentRunId) {
@@ -958,13 +1008,7 @@ ${agentEntries}
           if (this.currentRunId) {
             const runId = this.currentRunId;
 
-            if (this.streamingBuffer && !this.hasEmittedContentForTurn) {
-              this.emit({
-                type: "assistant.message",
-                runId,
-                message: createAssistantMessage(this.streamingBuffer),
-              });
-            }
+            this.flushStreamingBuffers(runId);
 
             this.emit({ type: "run.finished", runId, createdAt: new Date() });
             this.emit(createLogEvent("info", "Response complete", runId));

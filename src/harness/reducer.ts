@@ -95,11 +95,13 @@ export function processEvent(
     }
 
     case "assistant.delta":
+      if (event.parentToolCallId) {
+        return state;
+      }
       return {
         ...state,
         streamingContent: state.streamingContent + event.text,
-        // Update streaming agent name if provided (from subagent or active agent)
-        // This allows subagents to override the top-level agent name during their execution
+        // Update streaming agent name for top-level assistant streaming
         streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
@@ -113,13 +115,20 @@ export function processEvent(
       return state;
 
     case "assistant.message": {
+      const isSubagentMessage = Boolean(event.message.parentToolCallId);
       const messageWithReasoning: ChatMessage = {
         ...event.message,
         kind: "message",
-        reasoning: state.streamingReasoning || undefined,
+        reasoning: isSubagentMessage ? event.message.reasoning : (state.streamingReasoning || undefined),
       };
       const newTranscript = [...state.transcript, messageWithReasoning];
       trimTranscript(newTranscript, ctx);
+      if (isSubagentMessage) {
+        return {
+          ...state,
+          transcript: newTranscript,
+        };
+      }
       return {
         ...state,
         transcript: newTranscript,
