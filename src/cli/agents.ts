@@ -9,11 +9,17 @@
  * Key design: every agent is registered via `customAgents` in
  * `createSession`. The SDK's built-in task tool lets the Tech Lead
  * delegate to subagents without consuming additional premium requests.
+ *
+ * Model assignments are managed centrally in src/agents/modelConfig.ts
+ * and can be overridden via ~/.config/anvil/agents.json. The SDK's
+ * CustomAgentConfig type does not support per-agent model fields, so
+ * models are applied at the session level by the harness.
  */
 
 import type { CustomAgentConfig } from "@github/copilot-sdk";
 
 // ── Tech Lead (orchestrates the team) ───────────────────────────
+// Model: claude-opus-4.6 | Effort: xhigh
 
 export const techLead: CustomAgentConfig = {
   name: "tech-lead",
@@ -69,6 +75,7 @@ export const techLead: CustomAgentConfig = {
 };
 
 // ── Staff Engineer (deep autonomous worker) ─────────────────────
+// Model: gpt-5.2-codex | Effort: medium
 
 export const staffEngineer: CustomAgentConfig = {
   name: "staff-engineer",
@@ -99,6 +106,7 @@ You handle tasks involving 5+ files or complex multi-step implementations that r
 };
 
 // ── Architect (systems analyst & debugger) ──────────────────────
+// Model: gpt-5.2 | Effort: high
 
 export const architect: CustomAgentConfig = {
   name: "architect",
@@ -138,6 +146,7 @@ Always structure your analysis as:
 };
 
 // ── Navigator (codebase knowledge) ──────────────────────────────
+// Model: claude-sonnet-4.5
 
 export const navigator: CustomAgentConfig = {
   name: "navigator",
@@ -176,6 +185,7 @@ Keep responses concise and structured:
 };
 
 // ── Scout (fast read-only search) ───────────────────────────────
+// Model: gpt-5-mini
 
 export const scout: CustomAgentConfig = {
   name: "scout",
@@ -207,6 +217,7 @@ export const scout: CustomAgentConfig = {
 };
 
 // ── Strategist (implementation planner) ─────────────────────────
+// Model: claude-opus-4.6 | Effort: xhigh
 
 export const strategist: CustomAgentConfig = {
   name: "strategist",
@@ -259,6 +270,7 @@ export const strategist: CustomAgentConfig = {
 };
 
 // ── Advisor (plan critic) ───────────────────────────────────────
+// Model: claude-opus-4.6 | Effort: xhigh
 
 export const advisor: CustomAgentConfig = {
   name: "advisor",

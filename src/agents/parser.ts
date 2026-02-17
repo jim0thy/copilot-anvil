@@ -16,6 +16,7 @@
  */
 
 import type { AgentDefinition, AgentFrontmatter, AgentTier, AgentDomain } from "./types.js";
+import type { ReasoningEffort } from "../utils/config.js";
 
 const FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
 
@@ -141,11 +142,17 @@ export function parseAgentFile(
     return null;
   }
   
+  const validEfforts: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+  const effort = typeof frontmatter.reasoningEffort === "string" && validEfforts.includes(frontmatter.reasoningEffort as ReasoningEffort)
+    ? frontmatter.reasoningEffort as ReasoningEffort
+    : undefined;
+
   return {
     id: nameToId(frontmatter.name),
     name: frontmatter.name,
     description: frontmatter.description ?? "",
     model: normalizeModel(frontmatter.model),
+    reasoningEffort: effort,
     tools: Array.isArray(frontmatter.tools) ? frontmatter.tools : [],
     tier: frontmatter.tier ?? inferTier(frontmatter.name),
     domain: frontmatter.domain ?? inferDomain(frontmatter.name),
@@ -169,10 +176,10 @@ function normalizeModel(model?: string): string {
     return "claude-sonnet-4.5";
   }
   if (lowerModel.includes("opus 4.6") || lowerModel.includes("opus-4.6")) {
-    return "claude-opus-4.5"; // Map to closest available
+    return "claude-opus-4.6";
   }
   if (lowerModel.includes("gemini 3 flash") || lowerModel.includes("gemini-3-flash")) {
-    return "claude-haiku-4.5"; // Map flash to haiku (both are fast/cheap)
+    return "gemini-3-flash-preview";
   }
   if (lowerModel.includes("gemini 3 pro") || lowerModel.includes("gemini-3-pro")) {
     return "gemini-3-pro-preview";
