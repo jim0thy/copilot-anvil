@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
 import type { Subagent, Skill } from "../../harness/Harness.js";
 import { getStatusIcon, getStatusColor, formatDuration } from "../formatters.js";
+import { nf } from "../icons.js";
 
 export type { Subagent, Skill };
 
@@ -114,7 +115,7 @@ export const SubagentsPane = memo(function SubagentsPane({
           </box>
           {recentSkills.map((skill) => (
             <box key={skill.name} flexDirection="row" marginLeft={1}>
-              <text fg={c.accent}>◆ </text>
+              <text fg={c.accent}>{nf.diamond} </text>
               <text fg={c.text}>{skill.name}</text>
               {skill.invokeCount > 1 && (
                 <text fg={c.subtext0}>

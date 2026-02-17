@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { Theme } from "../theme.js";
 import type { FileChange } from "../../utils/gitDiff.js";
+import { nf } from "../icons.js";
 
 interface FilesModifiedPaneProps {
   files: FileChange[];
@@ -11,13 +12,13 @@ interface FilesModifiedPaneProps {
 function getStatusIcon(status: FileChange["status"]): string {
   switch (status) {
     case "modified":
-      return "●";
+      return nf.circle;
     case "added":
-      return "✚";
+      return nf.plus;
     case "deleted":
-      return "✖";
+      return nf.times;
     case "renamed":
-      return "➜";
+      return nf.arrowRight;
   }
 }
 
@@ -155,7 +156,7 @@ export const FilesModifiedPane = memo(function FilesModifiedPane({
       {/* Overflow indicator */}
       {files.length > displayFiles.length && (
         <text fg={c.subtle}>
-          ⋯ {files.length - displayFiles.length} more
+          {nf.ellipsis} {files.length - displayFiles.length} more
         </text>
       )}
 

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { Theme } from "../theme.js";
 import type { OrchestrationMode } from "../../agents/types.js";
+import { nf } from "../icons.js";
 
 export interface ContextInfo {
   currentTokens: number;
@@ -40,7 +41,7 @@ export const ContextPane = memo(function ContextPane({
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
 
-  const modeLabel = orchestrationMode === "orchestrated" ? "🎯 Team" : "⚡ Direct";
+  const modeLabel = orchestrationMode === "orchestrated" ? `${nf.target} Team` : `${nf.bolt} Direct`;
   const modeColor = orchestrationMode === "orchestrated" ? c.accent : c.primary;
 
   return (

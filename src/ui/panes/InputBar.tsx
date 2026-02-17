@@ -3,6 +3,7 @@ import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { existsSync } from "node:fs";
 import type { Theme } from "../theme.js";
 import type { PasteEvent } from "@opentui/core";
+import { nf } from "../icons.js";
 
 const IMAGE_EXTENSIONS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif",
@@ -259,12 +260,12 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       <box flexDirection="column" justifyContent="center">
         {pastedContent && (
           <text>
-            <span fg={c.text} bg={c.surface1}> 📋 {pastedLineCount} lines pasted </span>
+            <span fg={c.text} bg={c.surface1}> {nf.clipboard} {pastedLineCount} lines pasted </span>
           </text>
         )}
         {attachedImages.map((img, idx) => (
           <text key={idx}>
-            <span fg={c.text} bg={c.surface1}> 🖼 {img.split('/').pop()} </span>
+            <span fg={c.text} bg={c.surface1}> {nf.image} {img.split('/').pop()} </span>
           </text>
         ))}
         <text wrapMode="word">

@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { memo, useState, useCallback, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
+import { nf } from "../icons.js";
 
 interface AgentInfo {
   id: string;
@@ -140,11 +141,11 @@ export const AgentsModal = memo(function AgentsModal({
 
   const visibleRows = rows.slice(effectiveScrollOffset, effectiveScrollOffset + contentHeight);
 
-  const tierEmoji = {
-    specialist: "🔧",
-    senior: "🏆",
-    mid: "👨‍💻",
-    junior: "⚡",
+  const tierIcon = {
+    specialist: nf.wrench,
+    senior: nf.trophy,
+    mid: nf.code,
+    junior: nf.bolt,
   };
 
   return (
@@ -179,11 +180,11 @@ export const AgentsModal = memo(function AgentsModal({
           }
 
           if (row.type === "header") {
-            const emoji = tierEmoji[row.tier as keyof typeof tierEmoji] || "•";
+            const icon = tierIcon[row.tier as keyof typeof tierIcon] || "•";
             return (
               <box key={`header-${actualIndex}`} height={1} paddingLeft={1}>
                 <text>
-                  <span fg={c.accent}><b>{emoji} {row.tier!.charAt(0).toUpperCase() + row.tier!.slice(1)}</b></span>
+                  <span fg={c.accent}><b>{icon} {row.tier!.charAt(0).toUpperCase() + row.tier!.slice(1)}</b></span>
                 </text>
               </box>
             );
@@ -198,7 +199,7 @@ export const AgentsModal = memo(function AgentsModal({
                 backgroundColor={backgroundColor}
               >
                 <text>
-                  <span fg={fg}>{isSelected ? "► " : "  "}<b>Copilot (Default)</b></span>
+                  <span fg={fg}>{isSelected ? `${nf.caretRight} ` : "  "}<b>Copilot (Default)</b></span>
                 </text>
               </box>
             );
@@ -216,8 +217,8 @@ export const AgentsModal = memo(function AgentsModal({
                 flexDirection="column"
               >
                 <text>
-                  <span fg={fg}>{isSelected ? "► " : "  "}<b>{agent.name}</b></span>
-                  {isCurrent && <span fg={isSelected ? fg : c.accent}> ✓</span>}
+                  <span fg={fg}>{isSelected ? `${nf.caretRight} ` : "  "}<b>{agent.name}</b></span>
+                  {isCurrent && <span fg={isSelected ? fg : c.accent}> {nf.check}</span>}
                   <span fg={isSelected ? fg : c.subtext0}> ({agent.domain})</span>
                 </text>
                 <text>

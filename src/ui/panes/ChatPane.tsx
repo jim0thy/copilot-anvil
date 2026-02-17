@@ -5,6 +5,7 @@ import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/ev
 import type { Theme } from "../theme.js";
 import { getSyntaxStyle } from "../syntaxTheme.js";
 import { formatRole, getRoleColor, formatDuration } from "../formatters.js";
+import { nf } from "../icons.js";
 
 // Singleton tree-sitter client for syntax highlighting
 const treeSitterClient = getTreeSitterClient();
@@ -156,7 +157,7 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   const c = theme.colors;
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
-  const statusIcon = isRunning ? "▮" : isFailed ? "✗" : "✓";
+  const statusIcon = isRunning ? "▮" : isFailed ? nf.times : nf.check;
   const statusColor = isRunning ? c.warning : isFailed ? c.error : c.success;
   const borderColor = isRunning ? c.warning : isFailed ? c.error : c.border;
 

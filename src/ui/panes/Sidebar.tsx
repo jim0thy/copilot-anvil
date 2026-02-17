@@ -5,6 +5,7 @@ import type { FileChange } from "../../utils/gitDiff.js";
 import type { Subagent, Skill } from "../../harness/Harness.js";
 import type { OrchestrationMode } from "../../agents/types.js";
 import { getStatusIcon, getStatusColor, parseMarkdownChecklist } from "../formatters.js";
+import { nf } from "../icons.js";
 
 interface SidebarProps {
   contextInfo: ContextInfo;
@@ -112,13 +113,12 @@ function SectionDivider({ theme, innerWidth }: { theme: Theme; innerWidth: numbe
 }
 
 // --- File status helpers (file-specific icons, distinct from task/subagent status) ---
-// Nerd Font icons: \uF44D= (modified), \uF067= (added), \uF068= (deleted), \uF45A= (renamed)
 function getFileStatusIcon(status: FileChange["status"]): string {
   switch (status) {
-    case "modified": return "\uF44D"; // 
-    case "added": return "\uF067"; // 
-    case "deleted": return "\uF068"; // 
-    case "renamed": return "\uF45A"; // 
+    case "modified": return nf.circle;
+    case "added": return nf.plus;
+    case "deleted": return nf.minus;
+    case "renamed": return nf.arrowRight;
   }
 }
 
@@ -227,7 +227,7 @@ function PlanSection({
               <box key={idx} flexDirection="row" width="100%">
                 <box width={5} flexShrink={0}>
                   <text fg={item.checked ? c.success : c.text}>
-                    {item.checked ? "[✓]" : "[ ]"}
+                    {item.checked ? `[${nf.check}]` : "[ ]"}
                   </text>
                 </box>
                 <box flexShrink={1} width="100%">
@@ -340,7 +340,7 @@ function SkillsSection({
         <box marginTop={1} flexDirection="column">
           {recentSkills.map((skill) => (
             <box key={skill.name} flexDirection="row">
-              <text fg={c.accent}>{"\u25C6"} </text>
+              <text fg={c.accent}>{nf.diamond} </text>
               <text fg={c.text}>{skill.name}</text>
               {skill.invokeCount > 1 && (
                 <text fg={c.subtext0}>
@@ -398,7 +398,7 @@ export const Sidebar = memo(function Sidebar({
       {/* Intent Title - shown at top when active */}
       {currentIntent && currentIntent.trim().length > 0 && (
         <box marginBottom={1}>
-          <text fg={c.accent}>{"\u2192"} {currentIntent}</text>
+          <text fg={c.accent}>{nf.arrowRight} {currentIntent}</text>
         </box>
       )}
 

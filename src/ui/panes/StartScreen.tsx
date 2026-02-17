@@ -1,5 +1,6 @@
 import type { Theme } from "../theme.js";
 import { InputBar, type SubmitData } from "./InputBar.js";
+import { nf } from "../icons.js";
 
 interface StartScreenProps {
   onSubmit: (data: SubmitData) => void;
@@ -53,12 +54,12 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
         {/* Agent info */}
         <box flexDirection="column" marginBottom={2}>
           <text>
-            <span fg={c.info}>● </span>
+            <span fg={c.info}>{nf.circle} </span>
             <span fg={c.info}><b>Intake</b></span>
             <span fg={c.subtext0}> analyzes your request and asks clarifying questions</span>
           </text>
           <text>
-            <span fg={c.accent}>● </span>
+            <span fg={c.accent}>{nf.circle} </span>
             <span fg={c.accent}><b>Tech Lead</b></span>
             <span fg={c.subtext0}> delegates work to specialist agents</span>
           </text>

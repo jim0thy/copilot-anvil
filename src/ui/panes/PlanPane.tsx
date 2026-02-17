@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
 import { parseMarkdownChecklist } from "../formatters.js";
+import { nf } from "../icons.js";
 
 interface PlanPaneProps {
   currentTodo: string | null;
@@ -60,7 +61,7 @@ export const PlanPane = memo(function PlanPane({
               <box key={idx} flexDirection="row" marginLeft={1}>
                 <box width={5} flexShrink={0}>
                   <text fg={item.checked ? c.success : c.text}>
-                    {item.checked ? "[✓]" : "[ ]"}
+                    {item.checked ? `[${nf.check}]` : "[ ]"}
                   </text>
                 </box>
                 <box flexShrink={1}>

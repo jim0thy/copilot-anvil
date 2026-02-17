@@ -2,6 +2,7 @@ import { useKeyboard } from "@opentui/react";
 import { memo, useState, useCallback, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
 import type { ModelDescription } from "../../copilot/CopilotSessionAdapter.js";
+import { nf } from "../icons.js";
 
 interface ModelSelectorProps {
   models: ModelDescription[];
@@ -171,7 +172,7 @@ export const ModelSelector = memo(function ModelSelector({
         {/* Header */}
         <box marginBottom={1}>
           <text>
-            <span fg={c.primary}><b>🤖 Select Model</b></span>
+            <span fg={c.primary}><b>{nf.cog} Select Model</b></span>
           </text>
         </box>
 
@@ -208,7 +209,7 @@ export const ModelSelector = memo(function ModelSelector({
               <box key={model.id}>
                 <text>
                   <span fg={isSelected ? c.primary : c.subtle}>
-                    {isSelected ? "› " : "  "}
+                    {isSelected ? `${nf.angleRight} ` : "  "}
                   </span>
                   <span fg={isSelected ? c.info : c.subtext0}>
                     {model.name || model.id.split("/").pop() || model.id}
@@ -219,7 +220,7 @@ export const ModelSelector = memo(function ModelSelector({
                     </span>
                   )}
                   {isCurrent && (
-                    <span fg={c.success}> ✓</span>
+                    <span fg={c.success}> {nf.check}</span>
                   )}
                 </text>
               </box>

@@ -7,6 +7,7 @@ import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { getOrchestrationAgents } from "../cli/agents.js";
 import { getAnvilTools } from "../cli/tools.js";
 import { createSessionHooks } from "../cli/hooks.js";
+import { nf } from "../ui/icons.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -137,7 +138,7 @@ export class CopilotSessionAdapter {
       (a) => !orchestrationNames.has(a.name) && !superseded.has(a.name)
     );
     this._customAgents = [...orchestrationAgents, ...userAgents];
-    this.emit(createLogEvent("info", `🤖 Setting ${this._customAgents.length} agents (${orchestrationAgents.length} orchestration + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
+    this.emit(createLogEvent("info", `${nf.cog} Setting ${this._customAgents.length} agents (${orchestrationAgents.length} orchestration + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
     
     // If we have an active session, recreate it to include the new agents
     if (this.session && this.client && !this.isProcessing) {
@@ -165,9 +166,9 @@ export class CopilotSessionAdapter {
     
     // Log for debugging
     if (agentId && !agent) {
-      this.emit(createLogEvent("warn", `⚠️ Agent '${agentId}' not found in registered agents. Available: ${this._customAgents.map(a => a.name).join(", ")}`));
+      this.emit(createLogEvent("warn", `${nf.warning} Agent '${agentId}' not found in registered agents. Available: ${this._customAgents.map(a => a.name).join(", ")}`));
     } else if (agent) {
-      this.emit(createLogEvent("debug", `✅ Active agent set: ${agent.displayName || agent.name}`));
+      this.emit(createLogEvent("debug", `${nf.check} Active agent set: ${agent.displayName || agent.name}`));
     }
     
     // If we have an active session, recreate it with the new system prompt
@@ -496,7 +497,7 @@ Example: To use the "intake" agent:
             
             // Debug logging for first delta of each message
             if (this.streamingBuffer.length === 0 && agentInfo) {
-              this.emit(createLogEvent("debug", `📤 Assistant delta starting - agent: ${agentInfo.agentDisplayName} (subagent: ${Boolean(subagent)}, parentToolCallId: ${parentToolCallId || "none"})`));
+              this.emit(createLogEvent("debug", `${nf.send} Assistant delta starting - agent: ${agentInfo.agentDisplayName} (subagent: ${Boolean(subagent)}, parentToolCallId: ${parentToolCallId || "none"})`));
             }
             
             this.emit({
@@ -518,7 +519,7 @@ Example: To use the "intake" agent:
           const resolvedContent = content || this.streamingBuffer;
           const parentToolCallId = event.data?.parentToolCallId;
 
-          this.emit(createLogEvent("debug", `📝 Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
+          this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
 
           if (resolvedContent && this.currentRunId) {
             const message = createAssistantMessage(resolvedContent);
@@ -528,12 +529,12 @@ Example: To use the "intake" agent:
               this.emit(createLogEvent("debug", `Looking up subagent for toolCallId: ${parentToolCallId}`));
               const subagent = this.activeSubagents.get(parentToolCallId);
               if (subagent) {
-                this.emit(createLogEvent("info", `✨ Message from subagent: ${subagent.agentDisplayName}`));
+                this.emit(createLogEvent("info", `${nf.magic} Message from subagent: ${subagent.agentDisplayName}`));
                 message.agentName = subagent.agentName;
                 message.agentDisplayName = subagent.agentDisplayName;
                 message.parentToolCallId = parentToolCallId;
               } else {
-                this.emit(createLogEvent("warn", `⚠️ No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
+                this.emit(createLogEvent("warn", `${nf.warning} No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
               }
             } else if (this._activeAgent) {
               // Message from top-level active agent (e.g., Intake)
@@ -751,7 +752,7 @@ Example: To use the "intake" agent:
 
         case "subagent.selected": {
           if (this.isEventStale(gen)) return;
-          this.emit(createLogEvent("info", `🔍 Subagent selected: ${event.data?.agentName} (${event.data?.agentDisplayName})`));
+          this.emit(createLogEvent("info", `${nf.search} Subagent selected: ${event.data?.agentName} (${event.data?.agentDisplayName})`));
           break;
         }
 
@@ -762,7 +763,7 @@ Example: To use the "intake" agent:
             const agentName = event.data?.agentName ?? "";
             const agentDisplayName = event.data?.agentDisplayName ?? "";
             
-            this.emit(createLogEvent("info", `🚀 Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
+            this.emit(createLogEvent("info", `${nf.rocket} Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
             
             // Track this subagent so we can attribute its messages
             this.activeSubagents.set(toolCallId, { agentName, agentDisplayName });

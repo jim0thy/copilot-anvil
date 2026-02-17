@@ -16,6 +16,7 @@ import type { HarnessPlugin, PluginContext } from "../harness/plugins.js";
 import type { HarnessEvent } from "../harness/events.js";
 import { AgentLoader } from "./loader.js";
 import type { AgentDefinition, OrchestrationMode } from "./types.js";
+import { nf } from "../ui/icons.js";
 
 const ORCHESTRATION_STATE_KEY = "orchestration";
 
@@ -88,7 +89,7 @@ export function createOrchestrationPlugin(): HarnessPlugin {
             type: "log",
             runId: null,
             level: "info",
-            message: `🎯 Team mode enabled — using ${intakeAgent.name} as entry point`,
+            message: `${nf.target} Team mode enabled — using ${intakeAgent.name} as entry point`,
             createdAt: new Date(),
           });
 
@@ -147,8 +148,8 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           runId: null,
           level: "info",
           message: mode === "orchestrated" 
-            ? "🎯 Team mode enabled — prompts will be routed through Intake → Tech Lead"
-            : "⚡ Direct mode enabled — prompts go directly to Copilot",
+            ? `${nf.target} Team mode enabled — prompts will be routed through Intake → Tech Lead`
+            : `${nf.bolt} Direct mode enabled — prompts go directly to Copilot`,
           createdAt: new Date(),
         });
       }
@@ -165,21 +166,21 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           byTier.get(tier)!.push(agent);
         }
         
-        const lines: string[] = ["📋 Available Agents:", ""];
-        
+        const lines: string[] = [`${nf.clipboard} Available Agents:`, ""];
+
         const tierOrder = ["specialist", "senior", "mid", "junior"];
         for (const tier of tierOrder) {
           const tierAgents = byTier.get(tier);
           if (!tierAgents || tierAgents.length === 0) continue;
-          
-          const emoji = {
-            specialist: "🔧",
-            senior: "🏆",
-            mid: "👨‍💻",
-            junior: "⚡",
+
+          const tierIcon = {
+            specialist: nf.wrench,
+            senior: nf.trophy,
+            mid: nf.code,
+            junior: nf.bolt,
           }[tier] ?? "•";
           
-          lines.push(`${emoji} ${tier.charAt(0).toUpperCase() + tier.slice(1)}:`);
+          lines.push(`${tierIcon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}:`);
           for (const agent of tierAgents) {
             lines.push(`   • ${agent.name} (${agent.domain}) — ${agent.description}`);
           }

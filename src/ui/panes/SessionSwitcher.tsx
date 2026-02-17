@@ -2,6 +2,7 @@ import { useKeyboard } from "@opentui/react";
 import { memo, useState, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
 import type { SessionInfo } from "../../harness/events.js";
+import { nf } from "../icons.js";
 
 interface SessionSwitcherProps {
   sessions: SessionInfo[];
@@ -222,7 +223,7 @@ export const SessionSwitcher = memo(function SessionSwitcher({
       {/* Header */}
       <box marginBottom={1}>
         <text>
-          <span fg={c.primary}><b>📁 Sessions</b></span>
+          <span fg={c.primary}><b>{nf.folder} Sessions</b></span>
           {recentSessions.length > 0 && (
             <span fg={c.subtext0}> ({recentSessions.length} recent)</span>
           )}
@@ -252,13 +253,13 @@ export const SessionSwitcher = memo(function SessionSwitcher({
             <box key={item.id}>
               <text>
                 <span fg={isSelected ? c.primary : c.subtle}>
-                  {isSelected ? "› " : "  "}
+                  {isSelected ? `${nf.angleRight} ` : "  "}
                 </span>
                 <span fg={isSelected ? (item.type === "new" ? c.success : c.info) : c.subtext0}>
                   {formatSessionName(item)}
                 </span>
                 {isCurrent && (
-                  <span fg={c.success}> ✓ current</span>
+                  <span fg={c.success}> {nf.check} current</span>
                 )}
               </text>
             </box>

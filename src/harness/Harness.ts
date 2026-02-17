@@ -17,6 +17,7 @@ import type { CopilotSessionAdapter } from "../copilot/CopilotSessionAdapter.js"
 import { CommandRegistry, parseSlashCommand } from "../commands/CommandLoader.js";
 import type { CommandDefinition } from "../commands/CommandLoader.js";
 import { loadConfig, saveConfig } from "../utils/config.js";
+import { nf } from "../ui/icons.js";
 
 // Re-export state types so existing consumers don't need to change imports
 export type {
@@ -679,8 +680,8 @@ export class Harness {
     this.emit(createLogEvent(
       "info",
       newMode === "orchestrated"
-        ? "🎯 Team mode enabled — prompts route through Intake → Tech Lead → Specialists"
-        : "⚡ Direct mode enabled — prompts go directly to Copilot"
+        ? `${nf.target} Team mode enabled — prompts route through Intake → Tech Lead → Specialists`
+        : `${nf.bolt} Direct mode enabled — prompts go directly to Copilot`
     ));
   }
 

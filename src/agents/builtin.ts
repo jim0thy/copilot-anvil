@@ -225,8 +225,8 @@ const frontendDeveloper: AgentDefinition = {
 - API consumption
 
 ## Boundaries
-- ✅ You handle: Implementing designs as components, HTML/CSS/JS/TS, state management, API integration
-- ❌ You do NOT handle: Creating design systems from scratch, major design decisions
+- [+] You handle: Implementing designs as components, HTML/CSS/JS/TS, state management, API integration
+- [-] You do NOT handle: Creating design systems from scratch, major design decisions
 
 ## Mandatory Coding Principles
 
@@ -677,16 +677,16 @@ const reviewer: AgentDefinition = {
 ## Review Summary
 [Brief overall assessment]
 
-## 🔴 Critical Issues
+## [!] Critical Issues
 1. [Issue with file:line if applicable]
 
-## 🟡 Warnings
+## [~] Warnings
 1. [Issue]
 
-## 💡 Suggestions
+## [*] Suggestions
 1. [Suggestion]
 
-## ✅ Approval
+## [ok] Approval
 [Ready to merge / Needs fixes]
 \`\`\`
 

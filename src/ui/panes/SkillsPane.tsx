@@ -2,6 +2,7 @@ import { useKeyboard } from '@opentui/react';
 import { useState, useRef, useEffect } from 'react';
 import type { Theme } from '../theme.js';
 import type { Skill } from '../../harness/Harness.js';
+import { nf } from '../icons.js';
 
 interface SkillsPaneProps {
   skills: Skill[];
@@ -82,7 +83,7 @@ export function SkillsPane({
         {/* Header */}
         <box marginBottom={1}>
           <text>
-            <span fg={c.primary}><b>⚡ Skills</b></span>
+            <span fg={c.primary}><b>{nf.bolt} Skills</b></span>
             {skills.length > 0 && (
               <span fg={c.subtext0}> - Select to invoke</span>
             )}
@@ -109,7 +110,7 @@ export function SkillsPane({
                 >
                   <text>
                     <span fg={isSelected ? c.primary : c.subtle}>
-                      {isSelected ? '› ' : '  '}
+                      {isSelected ? `${nf.angleRight} ` : '  '}
                     </span>
                     <span fg={isSelected ? c.success : c.subtext0}>
                       <b>{skill.name}</b>

@@ -7,6 +7,7 @@
 
 import type { MessageRole } from "../harness/events.js";
 import type { Theme } from "./theme.js";
+import { nf } from "./icons.js";
 
 // ── Role formatting ──────────────────────────────────────────────
 
@@ -65,11 +66,11 @@ type StatusTriple = "running" | "completed" | "failed";
 export function getStatusIcon(status: StatusTriple): string {
   switch (status) {
     case "running":
-      return "\u27F3"; // ⟳
+      return nf.refresh;
     case "completed":
-      return "\u2713"; // ✓
+      return nf.check;
     case "failed":
-      return "\u2717"; // ✗
+      return nf.times;
   }
 }
 

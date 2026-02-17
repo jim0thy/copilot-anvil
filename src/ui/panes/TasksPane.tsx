@@ -2,6 +2,7 @@ import { memo, useMemo, useState, useEffect } from "react";
 import type { Theme } from "../theme.js";
 import type { Task } from "../../harness/Harness.js";
 import { getStatusColor, formatTime, formatDuration } from "../formatters.js";
+import { nf } from "../icons.js";
 
 export type { Task };
 
@@ -92,7 +93,7 @@ export const TasksPane = memo(function TasksPane({ tasks, height, theme }: Tasks
           </box>
           {recentTasks.map((task) => {
             const isCompleted = task.status === "completed";
-            const statusIcon = isCompleted ? "✓" : "✗";
+            const statusIcon = isCompleted ? nf.check : nf.times;
             return (
               <box key={task.id} flexDirection="row" marginLeft={1}>
                 <text fg={getStatusColor(task.status, theme)}>
