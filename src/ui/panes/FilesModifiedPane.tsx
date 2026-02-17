@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { Theme } from "../theme.js";
 import type { FileChange } from "../../utils/gitDiff.js";
+import { nf } from "../icons.js";
 
 interface FilesModifiedPaneProps {
   files: FileChange[];
@@ -11,13 +12,13 @@ interface FilesModifiedPaneProps {
 function getStatusIcon(status: FileChange["status"]): string {
   switch (status) {
     case "modified":
-      return "●";
+      return nf.circle;
     case "added":
-      return "✚";
+      return nf.plus;
     case "deleted":
-      return "✖";
+      return nf.times;
     case "renamed":
-      return "➜";
+      return nf.arrowRight;
   }
 }
 
@@ -134,20 +135,31 @@ export const FilesModifiedPane = memo(function FilesModifiedPane({
       <box flexDirection="column" marginTop={0} gap={0}>
         {displayFiles.map((file, idx) => {
           const { add, del } = formatStats(file.additions, file.deletions);
-          const statsText = [add, del].filter(Boolean).join(" ");
           const truncatedPath = truncatePath(file.path, maxFilePathLength);
           return (
-            <text key={idx}>
-              <span fg={getStatusColor(file.status, theme)}>
-                <b>{getStatusLabel(file.status)}</b>
-              </span>
-              <span fg={c.subtle}> │ </span>
-              <span fg={c.text}>{truncatedPath}</span>
-              {statsText && <span fg={c.subtle}> </span>}
-              {add && <span fg={c.success}>{add}</span>}
-              {add && del && <span fg={c.subtle}> </span>}
-              {del && <span fg={c.error}>{del}</span>}
-            </text>
+            <box key={idx} flexDirection="row" width="100%" overflow="hidden" height={1}>
+              {/* Status label - fixed width */}
+              <text>
+                <span fg={getStatusColor(file.status, theme)}>
+                  <b>{getStatusLabel(file.status)}</b>
+                </span>
+                <span fg={c.subtle}> │ </span>
+              </text>
+              {/* Filename - shrinks to fit */}
+              <box flexShrink={1} overflow="hidden">
+                <text fg={c.text}>{truncatedPath}</text>
+              </box>
+              {/* Stats - fixed, won't shrink */}
+              {(add || del) && (
+                <box flexShrink={0} marginLeft={1}>
+                  <text>
+                    {add && <span fg={c.success}>{add}</span>}
+                    {add && del && <span fg={c.subtle}> </span>}
+                    {del && <span fg={c.error}>{del}</span>}
+                  </text>
+                </box>
+              )}
+            </box>
           );
         })}
       </box>
@@ -155,7 +167,7 @@ export const FilesModifiedPane = memo(function FilesModifiedPane({
       {/* Overflow indicator */}
       {files.length > displayFiles.length && (
         <text fg={c.subtle}>
-          ⋯ {files.length - displayFiles.length} more
+          {nf.ellipsis} {files.length - displayFiles.length} more
         </text>
       )}
 

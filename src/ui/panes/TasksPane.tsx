@@ -1,22 +1,11 @@
-import { memo, useMemo, useState, useEffect } from "react";
+import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
 import type { Task } from "../../harness/Harness.js";
 import { getStatusColor, formatTime, formatDuration } from "../formatters.js";
+import { nf } from "../icons.js";
+import { useSpinner } from "../hooks.js";
 
 export type { Task };
-
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
-function useSpinner(): string {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, 80);
-    return () => clearInterval(interval);
-  }, []);
-  return SPINNER_FRAMES[frame];
-}
 
 interface TasksPaneProps {
   tasks: Task[];
@@ -92,7 +81,7 @@ export const TasksPane = memo(function TasksPane({ tasks, height, theme }: Tasks
           </box>
           {recentTasks.map((task) => {
             const isCompleted = task.status === "completed";
-            const statusIcon = isCompleted ? "✓" : "✗";
+            const statusIcon = isCompleted ? nf.check : nf.times;
             return (
               <box key={task.id} flexDirection="row" marginLeft={1}>
                 <text fg={getStatusColor(task.status, theme)}>

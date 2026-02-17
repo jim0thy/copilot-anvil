@@ -1,12 +1,12 @@
 /**
  * Pure-ish state reducer for HarnessEvent → HarnessState transitions.
  *
- * Extracted from Harness.processEvent so the orchestrator class stays
+ * Extracted from Harness.processEvent so the harness class stays
  * focused on coordination (dispatch, subscribe, adapter lifecycle).
  */
 
 import type { ChatMessage, HarnessEvent, TranscriptItem, ToolCallItem } from "./events.js";
-import { createAssistantMessage, generateId } from "./events.js";
+import { createAssistantMessage, createUserMessage, generateId } from "./events.js";
 import type {
   HarnessState,
   Task,
@@ -95,11 +95,13 @@ export function processEvent(
     }
 
     case "assistant.delta":
+      if (event.parentToolCallId) {
+        return state;
+      }
       return {
         ...state,
         streamingContent: state.streamingContent + event.text,
-        // Update streaming agent name if provided (from subagent or active agent)
-        // This allows subagents to override the top-level agent name during their execution
+        // Update streaming agent name for top-level assistant streaming
         streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
@@ -113,13 +115,24 @@ export function processEvent(
       return state;
 
     case "assistant.message": {
+      const isSubagentMessage = Boolean(event.message.parentToolCallId);
       const messageWithReasoning: ChatMessage = {
         ...event.message,
         kind: "message",
-        reasoning: state.streamingReasoning || undefined,
+        // Prefer explicit reasoning attached to the message (newer SDK/tooling),
+        // otherwise fall back to the streamed reasoning buffer (older/evented flow).
+        reasoning: isSubagentMessage
+          ? event.message.reasoning
+          : (event.message.reasoning || state.streamingReasoning || undefined),
       };
       const newTranscript = [...state.transcript, messageWithReasoning];
       trimTranscript(newTranscript, ctx);
+      if (isSubagentMessage) {
+        return {
+          ...state,
+          transcript: newTranscript,
+        };
+      }
       return {
         ...state,
         transcript: newTranscript,
@@ -316,12 +329,61 @@ export function processEvent(
         agentName: event.agentName,
         agentDisplayName: event.agentDisplayName,
         agentDescription: event.agentDescription,
+        model: event.model,
+        taskTitle: event.taskTitle,
         status: "running",
         startedAt: new Date(),
       };
+
+      // Check if there's already a running subagent with the same agentDisplayName
+      const runningWithSameName = state.subagents.some(
+        (s) => s.status === "running" && s.agentDisplayName === event.agentDisplayName
+      );
+
+      // If a running one exists, just append (allow parallel instances)
+      if (runningWithSameName) {
+        return {
+          ...state,
+          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        };
+      }
+
+      // Find completed/failed entries with matching agentDisplayName
+      const completedOrFailed = state.subagents.filter(
+        (s) => (s.status === "completed" || s.status === "failed") && s.agentDisplayName === event.agentDisplayName
+      );
+
+      if (completedOrFailed.length === 0) {
+        // No matching completed/failed entry exists, just append
+        return {
+          ...state,
+          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        };
+      }
+
+      // Find the most recent completed/failed entry (highest completedAt)
+      const mostRecent = completedOrFailed.reduce((latest, current) => {
+        if (!latest.completedAt) return current;
+        if (!current.completedAt) return latest;
+        return current.completedAt > latest.completedAt ? current : latest;
+      });
+      const mostRecentIndex = state.subagents.indexOf(mostRecent);
+
+      if (mostRecentIndex === -1) {
+        // Fallback: just append if we couldn't find the most recent (shouldn't happen)
+        return {
+          ...state,
+          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        };
+      }
+
+      // Replace the most recent completed/failed entry with the new running one
+      const updatedSubagents = [...state.subagents];
+      updatedSubagents[mostRecentIndex] = newSubagent;
+
       return {
         ...state,
-        subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        subagents: updatedSubagents,
       };
     }
 
@@ -365,8 +427,18 @@ export function processEvent(
       return { ...state, skills: [...state.skills.slice(-MAX_SKILLS + 1), newSkill] };
     }
 
-    case "intent.updated":
+    case "intent.updated": {
+      if (event.toolCallId) {
+        const updatedSubagents = state.subagents.map((agent) => {
+          if (agent.toolCallId === event.toolCallId) {
+            return { ...agent, currentIntent: event.intent };
+          }
+          return agent;
+        });
+        return { ...state, subagents: updatedSubagents };
+      }
       return { ...state, currentIntent: event.intent };
+    }
 
     case "todo.updated":
       return { ...state, currentTodo: event.todos };
@@ -385,14 +457,24 @@ export function processEvent(
         },
       };
 
-    case "question.answered":
-      return { ...state, pendingQuestion: null };
+    case "question.answered": {
+      // Show the user's answer in the transcript so the conversation flow is visible
+      const answerMessage = createUserMessage(event.answer);
+      const updatedTranscript = [...state.transcript, answerMessage];
+      trimTranscript(updatedTranscript, ctx);
+      return {
+        ...state,
+        pendingQuestion: null,
+        transcript: updatedTranscript,
+      };
+    }
 
     case "session.switched":
       ctx.toolCallTranscriptIndex.clear();
       return {
         ...state,
         currentSessionId: event.sessionId,
+        currentSessionName: event.sessionName || null,
         transcript: event.transcript ?? [],
         activeTools: [],
         ...resetRunFields(),
@@ -403,13 +485,18 @@ export function processEvent(
       return {
         ...state,
         currentSessionId: event.sessionId,
+        currentSessionName: event.sessionName || null,
         transcript: [],
         activeTools: [],
         ...resetRunFields(),
       };
 
-    case "session.list.updated":
-      return { ...state, availableSessions: event.sessions };
+    case "session.list.updated": {
+      const currentName = state.currentSessionId
+        ? event.sessions.find(s => s.id === state.currentSessionId)?.name ?? state.currentSessionName
+        : state.currentSessionName;
+      return { ...state, availableSessions: event.sessions, currentSessionName: currentName };
+    }
 
     case "orchestration.mode.changed":
       return { ...state, orchestrationMode: event.mode };

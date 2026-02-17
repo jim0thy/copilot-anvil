@@ -16,6 +16,7 @@ import * as os from "node:os";
 import type { AgentDefinition } from "./types.js";
 import { parseAgentFile } from "./parser.js";
 import { getBuiltinAgents } from "./builtin.js";
+import { loadModelConfig, resolveAgentModel, getModelConfigPath, ensureDefaultConfigExists } from "./modelConfig.js";
 
 const GLOBAL_AGENTS_DIR = path.join(os.homedir(), ".config", "anvil", "agents");
 const PROJECT_AGENTS_DIR = ".agents";
@@ -89,20 +90,37 @@ export class AgentLoader {
   
   /**
    * Load all agents from builtin, global, and project sources.
+   * Applies model/effort overrides from ~/.config/anvil/agents.json.
    */
   async load(): Promise<void> {
     // 1. Built-in agents
     const builtinAgents = getBuiltinAgents();
-    
+
     // 2. Global agents
     const globalAgents = await loadAgentsFromDirectory(GLOBAL_AGENTS_DIR, "global");
-    
+
     // 3. Project agents
     const projectAgentsDir = path.join(this.projectDir, PROJECT_AGENTS_DIR);
     const projectAgents = await loadAgentsFromDirectory(projectAgentsDir, "project");
-    
+
     // Merge with priority (later overrides earlier)
     this.agents = mergeAgents(builtinAgents, globalAgents, projectAgents);
+
+    // 4. Bootstrap default config if it doesn't exist yet
+    ensureDefaultConfigExists();
+
+    // 5. Apply model config overrides from ~/.config/anvil/agents.json
+    const modelConfig = loadModelConfig();
+    for (const agent of this.agents) {
+      const resolved = resolveAgentModel(agent.id, modelConfig);
+      if (resolved.model) {
+        agent.model = resolved.model;
+      }
+      if (resolved.reasoningEffort) {
+        agent.reasoningEffort = resolved.reasoningEffort;
+      }
+    }
+
     this.loaded = true;
   }
   
@@ -138,23 +156,23 @@ export class AgentLoader {
   }
   
   /**
-   * Get the orchestrator agent.
+   * Get the tech lead agent (coordinates work delegation).
    */
-  getOrchestrator(): AgentDefinition | undefined {
+  getTechLead(): AgentDefinition | undefined {
     return this.agents.find(a => a.domain === "orchestration");
   }
   
   /**
-   * Get the clarifier agent.
+   * Get the intake agent (first point of contact).
    */
-  getClarifier(): AgentDefinition | undefined {
+  getIntake(): AgentDefinition | undefined {
     return this.agents.find(a => a.domain === "clarification");
   }
   
   /**
-   * Get the planner agent.
+   * Get the strategist agent (implementation planner).
    */
-  getPlanner(): AgentDefinition | undefined {
+  getStrategist(): AgentDefinition | undefined {
     return this.agents.find(a => a.domain === "planning");
   }
   
@@ -252,6 +270,13 @@ export class AgentLoader {
       GLOBAL_AGENTS_DIR,
       path.join(this.projectDir, PROJECT_AGENTS_DIR),
     ];
+  }
+
+  /**
+   * Get the model config file path (for UI / help text).
+   */
+  getModelConfigPath(): string {
+    return getModelConfigPath();
   }
 }
 

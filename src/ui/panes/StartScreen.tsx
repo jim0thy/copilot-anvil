@@ -1,5 +1,6 @@
 import type { Theme } from "../theme.js";
 import { InputBar, type SubmitData } from "./InputBar.js";
+import { nf } from "../icons.js";
 
 interface StartScreenProps {
   onSubmit: (data: SubmitData) => void;
@@ -7,6 +8,9 @@ interface StartScreenProps {
   suppressKeys?: boolean;
   theme: Theme;
   height: number;
+  agentName?: string;
+  modelName?: string;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
 }
 
 const LOGO_LINES = [
@@ -31,13 +35,13 @@ const RAINBOW_COLORS = [
   "#ff00ff",
 ];
 
-export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, height }: StartScreenProps) {
+export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, height, agentName, modelName, reasoningEffort }: StartScreenProps) {
   const c = theme.colors;
   return (
     <box flexDirection="column" width="100%" height={height}>
       <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
         {/* Logo */}
-        <box flexDirection="column" alignItems="center" marginBottom={3}>
+        <box flexDirection="column" alignItems="center" marginBottom={2}>
           {LOGO_LINES.map((line, index) => (
             <text key={index} fg={RAINBOW_COLORS[index % RAINBOW_COLORS.length]}>
               {line}
@@ -45,21 +49,21 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
           ))}
         </box>
         
-        {/* Subtitle */}
-        <box marginBottom={3}>
-          <text fg={c.subtle}>Ask anything to get started</text>
+        {/* Input Bar - positioned directly under ASCII art */}
+        <box width="40%" minWidth={60} marginBottom={3}>
+          <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} agentName={agentName} modelName={modelName} reasoningEffort={reasoningEffort} />
         </box>
 
         {/* Agent info */}
         <box flexDirection="column" marginBottom={2}>
           <text>
-            <span fg={c.info}>● </span>
-            <span fg={c.info}><b>Clarifier</b></span>
+            <span fg={c.info}>{nf.circle} </span>
+            <span fg={c.info}><b>Intake</b></span>
             <span fg={c.subtext0}> analyzes your request and asks clarifying questions</span>
           </text>
           <text>
-            <span fg={c.accent}>● </span>
-            <span fg={c.accent}><b>Orchestrator</b></span>
+            <span fg={c.accent}>{nf.circle} </span>
+            <span fg={c.accent}><b>Tech Lead</b></span>
             <span fg={c.subtext0}> delegates work to specialist agents</span>
           </text>
         </box>
@@ -73,7 +77,6 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
           <span fg={c.subtext0}> for model</span>
         </text>
       </box>
-      <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} />
     </box>
   );
 }

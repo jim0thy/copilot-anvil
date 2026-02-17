@@ -5,11 +5,14 @@ import type { FileChange } from "../../utils/gitDiff.js";
 import type { Subagent, Skill } from "../../harness/Harness.js";
 import type { OrchestrationMode } from "../../agents/types.js";
 import { getStatusIcon, getStatusColor, parseMarkdownChecklist } from "../formatters.js";
+import { nf } from "../icons.js";
+import { useSpinner } from "../hooks.js";
 
 interface SidebarProps {
   contextInfo: ContextInfo;
   orchestrationMode: OrchestrationMode;
   files: FileChange[];
+  currentSessionName?: string | null;
   currentIntent: string | null;
   currentTodo: string | null;
   currentPlan: string | null;
@@ -23,12 +26,10 @@ interface SidebarProps {
 // --- Context Section (always visible) ---
 function ContextSection({ 
   contextInfo, 
-  orchestrationMode,
   theme, 
   innerWidth 
 }: { 
   contextInfo: ContextInfo; 
-  orchestrationMode: OrchestrationMode;
   theme: Theme; 
   innerWidth: number 
 }) {
@@ -45,8 +46,8 @@ function ContextSection({
     ? c.warning
     : c.success;
 
-  // Dynamic bar width: use available inner width, capped reasonably
-  const barWidth = Math.max(10, Math.min(innerWidth, 60));
+  // Dynamic bar width: use available inner width
+  const barWidth = Math.max(10, innerWidth);
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "\u2588".repeat(filledWidth) + "\u2591".repeat(barWidth - filledWidth);
 
@@ -69,16 +70,6 @@ function ContextSection({
             </span>
           </text>
         </box>
-      </box>
-
-      {/* Orchestration mode indicator */}
-      <box marginTop={1}>
-        <text>
-          <span fg={c.subtext0}>Mode: </span>
-          <span fg={orchestrationMode === "orchestrated" ? c.accent : c.subtext1}>
-            <b>{orchestrationMode === "orchestrated" ? "Team" : "Direct"}</b>
-          </span>
-        </text>
       </box>
 
       <box flexDirection="column" marginTop={1}>
@@ -112,13 +103,12 @@ function SectionDivider({ theme, innerWidth }: { theme: Theme; innerWidth: numbe
 }
 
 // --- File status helpers (file-specific icons, distinct from task/subagent status) ---
-// Nerd Font icons: \uF44D= (modified), \uF067= (added), \uF068= (deleted), \uF45A= (renamed)
 function getFileStatusIcon(status: FileChange["status"]): string {
   switch (status) {
-    case "modified": return "\uF44D"; // 
-    case "added": return "\uF067"; // 
-    case "deleted": return "\uF068"; // 
-    case "renamed": return "\uF45A"; // 
+    case "modified": return nf.circle;
+    case "added": return nf.plus;
+    case "deleted": return nf.minus;
+    case "renamed": return nf.arrowRight;
   }
 }
 
@@ -219,7 +209,11 @@ function PlanSection({
         <b>Plan & Progress</b>
       </text>
 
-      {todoItems.length > 0 && (
+      {todoItems.length === 0 ? (
+        <box marginTop={1}>
+          <text fg={c.subtle}>No active tasks</text>
+        </box>
+      ) : (
         <box marginTop={1} flexDirection="column">
           {todoItems.map((item, idx) => {
             const isCurrent = idx === currentTaskIndex && !item.checked;
@@ -227,7 +221,7 @@ function PlanSection({
               <box key={idx} flexDirection="row" width="100%">
                 <box width={5} flexShrink={0}>
                   <text fg={item.checked ? c.success : c.text}>
-                    {item.checked ? "[✓]" : "[ ]"}
+                    {item.checked ? `[${nf.check}]` : "[ ]"}
                   </text>
                 </box>
                 <box flexShrink={1} width="100%">
@@ -258,6 +252,8 @@ function SubagentsSection({
   theme: Theme;
 }) {
   const c = theme.colors;
+  const spinner = useSpinner();
+
   const { activeSubagents, completedSubagents } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents
@@ -277,7 +273,7 @@ function SubagentsSection({
   return (
     <box flexDirection="column">
       <text fg={c.primary}>
-        <b>Subagents</b>
+        <b>Specialists</b>
       </text>
 
       {!hasAnySubagents && orchestrationMode === "orchestrated" && (
@@ -289,11 +285,29 @@ function SubagentsSection({
       {activeSubagents.length > 0 && (
         <box marginTop={1} flexDirection="column">
           {activeSubagents.map((agent) => (
-            <box key={agent.toolCallId} flexDirection="row">
-              <text fg={getStatusColor(agent.status, theme)}>
-                {getStatusIcon(agent.status)}{" "}
-              </text>
-              <text fg={c.text}><b>{agent.agentDisplayName}</b></text>
+            <box key={agent.toolCallId} flexDirection="column">
+              <box flexDirection="row">
+                <text fg={getStatusColor(agent.status, theme)}>
+                  {spinner}{" "}
+                </text>
+                <text fg={c.text}><b>{agent.agentDisplayName}</b></text>
+                {agent.model && (
+                  <text fg={c.subtle}> {" "}({agent.model})</text>
+                )}
+              </box>
+              {agent.taskTitle && (
+                <box marginLeft={2}>
+                  <text fg={c.subtext0}>{agent.taskTitle}</text>
+                </box>
+              )}
+              {agent.currentIntent && (
+                <box marginLeft={2}>
+                  <text>
+                    <span fg={c.subtext0}>Doing: </span>
+                    <span fg={c.accent}>{nf.arrowRight} {agent.currentIntent}</span>
+                  </text>
+                </box>
+              )}
             </box>
           ))}
         </box>
@@ -302,11 +316,21 @@ function SubagentsSection({
       {completedSubagents.length > 0 && (
         <box marginTop={activeSubagents.length > 0 ? 0 : 1} flexDirection="column">
           {completedSubagents.map((agent) => (
-            <box key={agent.toolCallId} flexDirection="row">
-              <text fg={getStatusColor(agent.status, theme)}>
-                {getStatusIcon(agent.status)}{" "}
-              </text>
-              <text fg={c.subtle}>{agent.agentDisplayName}</text>
+            <box key={agent.toolCallId} flexDirection="column">
+              <box flexDirection="row">
+                <text fg={getStatusColor(agent.status, theme)}>
+                  {getStatusIcon(agent.status)}{" "}
+                </text>
+                <text fg={c.subtle}>{agent.agentDisplayName}</text>
+                {agent.model && (
+                  <text fg={c.subtle}> {" "}({agent.model})</text>
+                )}
+              </box>
+              {agent.taskTitle && (
+                <box marginLeft={2}>
+                  <text fg={c.subtext0}>{agent.taskTitle}</text>
+                </box>
+              )}
             </box>
           ))}
         </box>
@@ -340,7 +364,7 @@ function SkillsSection({
         <box marginTop={1} flexDirection="column">
           {recentSkills.map((skill) => (
             <box key={skill.name} flexDirection="row">
-              <text fg={c.accent}>{"\u25C6"} </text>
+              <text fg={c.accent}>{nf.diamond} </text>
               <text fg={c.text}>{skill.name}</text>
               {skill.invokeCount > 1 && (
                 <text fg={c.subtext0}>
@@ -360,6 +384,7 @@ export const Sidebar = memo(function Sidebar({
   contextInfo,
   orchestrationMode,
   files,
+  currentSessionName,
   currentIntent,
   currentTodo,
   currentPlan,
@@ -370,19 +395,15 @@ export const Sidebar = memo(function Sidebar({
   theme,
 }: SidebarProps) {
   const c = theme.colors;
-  // Calculate inner width: total width minus border (2) and padding (2)
-  const innerWidth = Math.max(1, width - 4);
+  // Calculate inner width: total width minus paddingLeft (1) and paddingRight (1)
+  const innerWidth = Math.max(1, width - 2);
 
   // Determine which sections have content
   const hasFiles = files.length > 0;
-
-  const hasPlanContent = useMemo(() => {
-    if (!currentTodo) return false;
-    return parseMarkdownChecklist(currentTodo).length > 0;
-  }, [currentTodo]);
-
   const hasSubagents = subagents.length > 0;
   const hasSkills = skills.length > 0;
+  const hasSessionName = !!(currentSessionName && currentSessionName.trim().length > 0);
+  const headerTitle = hasSessionName ? currentSessionName : null;
 
   return (
     <box
@@ -395,15 +416,33 @@ export const Sidebar = memo(function Sidebar({
       paddingTop={1}
       overflow="hidden"
     >
-      {/* Intent Title - shown at top when active */}
-      {currentIntent && currentIntent.trim().length > 0 && (
+      {/* Conversation Title */}
+      {headerTitle && (
         <box marginBottom={1}>
-          <text fg={c.accent}>{"\u2192"} {currentIntent}</text>
+          <text fg={c.primary}><b>{headerTitle}</b></text>
+        </box>
+      )}
+
+      {/* Current Intent (what the agent is doing right now) */}
+      {hasSessionName && currentIntent && currentIntent.trim().length > 0 && (
+        <box marginBottom={1}>
+          <text>
+            <span fg={c.subtext0}>Doing: </span>
+            <span fg={c.accent}>{nf.arrowRight} {currentIntent}</span>
+          </text>
         </box>
       )}
 
       {/* Context Section - Always visible */}
-      <ContextSection contextInfo={contextInfo} orchestrationMode={orchestrationMode} theme={theme} innerWidth={innerWidth} />
+      <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
+
+      {/* Subagents Section - Show when in orchestration mode OR when there are subagents */}
+      {(orchestrationMode === "orchestrated" || hasSubagents) && (
+        <>
+          <SectionDivider theme={theme} innerWidth={innerWidth} />
+          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} theme={theme} />
+        </>
+      )}
 
       {/* Files Modified Section - Only when files exist */}
       {hasFiles && (
@@ -413,24 +452,12 @@ export const Sidebar = memo(function Sidebar({
         </>
       )}
 
-      {/* Plan & Progress Section - Only when there's content */}
-      {hasPlanContent && (
-        <>
-          <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <PlanSection
-            currentTodo={currentTodo}
-            theme={theme}
-          />
-        </>
-      )}
-
-      {/* Subagents Section - Show when in orchestration mode OR when there are subagents */}
-      {(orchestrationMode === "orchestrated" || hasSubagents) && (
-        <>
-          <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} theme={theme} />
-        </>
-      )}
+      {/* Plan & Progress Section - Always visible */}
+      <SectionDivider theme={theme} innerWidth={innerWidth} />
+      <PlanSection
+        currentTodo={currentTodo}
+        theme={theme}
+      />
 
       {/* Skills Section - Only when there are skills */}
       {hasSkills && (

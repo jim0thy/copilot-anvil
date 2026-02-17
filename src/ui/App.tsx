@@ -12,6 +12,7 @@ import { AgentsModal } from './panes/AgentsModal.js'
 import { SkillsPane } from './panes/SkillsPane.js'
 import { ConfirmModal } from './panes/ConfirmModal.js'
 import { EphemeralModal } from './panes/EphemeralModal.js'
+import { SessionHistoryPane } from './panes/SessionHistoryPane.js'
 import { Sidebar } from './panes/Sidebar.js'
 import { DebugOverlay } from './panes/DebugOverlay.js'
 import { getTheme } from './theme.js'
@@ -40,16 +41,6 @@ function useSpinner(active: boolean): string {
   return active ? SPINNER_FRAMES[frame] : "";
 }
 
-function getEffortColor(effort: "low" | "medium" | "high" | "xhigh", theme: ReturnType<typeof getTheme>): string {
-  const c = theme.colors;
-  switch (effort) {
-    case "low": return c.success;    // green
-    case "medium": return c.warning;  // yellow
-    case "high": return "#FFA500";    // orange
-    case "xhigh": return c.error;     // red
-  }
-}
-
 export function App({ harness, renderer }: AppProps) {
   const { width, height } = useTerminalDimensions();
   const [state, setState] = useState<HarnessState>(harness.getState());
@@ -58,6 +49,7 @@ export function App({ harness, renderer }: AppProps) {
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showSessionSwitcher, setShowSessionSwitcher] = useState(false);
+  const [showSessionHistory, setShowSessionHistory] = useState(true);
   const [showSkillsPane, setShowSkillsPane] = useState(false);
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
   const [showAgentsModal, setShowAgentsModal] = useState(false);
@@ -81,6 +73,10 @@ export function App({ harness, renderer }: AppProps) {
       }
     });
   }, [harness]);
+
+  useEffect(() => {
+    harness.dispatch({ type: "session.refresh" });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -229,7 +225,7 @@ export function App({ harness, renderer }: AppProps) {
       }
     }
     if (key.ctrl && key.name === "s") {
-      setShowSkillsPane(true);
+      setShowSessionHistory((prev) => !prev);
     }
     if (key.ctrl && key.name === "n") {
       if (state.status !== "running") {
@@ -281,12 +277,28 @@ export function App({ harness, renderer }: AppProps) {
   const agentDisplay = currentAgent?.name ?? "Copilot";
 
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
+  const sessionHistoryWidth = Math.floor(width * 0.175);
+  const sidebarWidth = Math.floor(width * 0.175);
+  const mainWidth = width - (showSessionHistory ? sessionHistoryWidth : 0) - sidebarWidth;
 
   return (
     <box flexDirection="column" width={width} height={height - 1}>
       {hasStarted ? (
         <box height={contentHeight} flexDirection="row">
-          <box flexDirection="column" width="82.5%">
+          {showSessionHistory && (
+            <box width="17.5%">
+              <SessionHistoryPane
+                sessions={state.availableSessions || []}
+                currentSessionId={state.currentSessionId || null}
+                onSelect={handleSelectSession}
+                onNewSession={handleNewSession}
+                height={contentHeight}
+                width={sessionHistoryWidth}
+                theme={theme}
+              />
+            </box>
+          )}
+          <box flexDirection="column" width={mainWidth}>
             <ChatPane
               transcript={state.transcript}
               streamingContent={state.streamingContent}
@@ -295,6 +307,7 @@ export function App({ harness, renderer }: AppProps) {
               isStreaming={state.status === "running"}
               height={contentHeight - inputBarHeight}
               theme={theme}
+              subagentToolCallIds={state.subagents.map((s) => s.toolCallId)}
             />
             <InputBar
               onSubmit={handleSubmit}
@@ -303,33 +316,55 @@ export function App({ harness, renderer }: AppProps) {
               queuedCount={state.messageQueue.length}
               theme={theme}
               onHeightChange={handleInputHeightChange}
+              agentName={agentDisplay}
+              modelName={modelDisplay}
+              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
             />
           </box>
-          <box flexDirection="column" width="17.5%" paddingLeft={2}>
+          <box flexDirection="column" width={sidebarWidth} paddingLeft={2}>
             <Sidebar
               contextInfo={state.contextInfo}
               orchestrationMode={state.orchestrationMode}
               files={modifiedFiles}
+              currentSessionName={state.currentSessionName}
               currentIntent={state.currentIntent}
               currentTodo={state.currentTodo}
               currentPlan={state.currentPlan}
               subagents={state.subagents}
               skills={state.skills}
               height={contentHeight}
-              width={Math.floor(width * 0.175) - 2}
+              width={sidebarWidth - 2}
               theme={theme}
             />
           </box>
         </box>
       ) : (
-        <box height={contentHeight} flexDirection="column">
-          <StartScreen
-            onSubmit={handleSubmit}
-            disabled={state.status === "running"}
-            suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
-            theme={theme}
-            height={contentHeight}
-          />
+        <box height={contentHeight} flexDirection="row">
+          {showSessionHistory && (
+            <box width="17.5%">
+              <SessionHistoryPane
+                sessions={state.availableSessions || []}
+                currentSessionId={state.currentSessionId || null}
+                onSelect={handleSelectSession}
+                onNewSession={handleNewSession}
+                height={contentHeight}
+                width={sessionHistoryWidth}
+                theme={theme}
+              />
+            </box>
+          )}
+          <box flexDirection="column" width={width - (showSessionHistory ? sessionHistoryWidth : 0)}>
+            <StartScreen
+              onSubmit={handleSubmit}
+              disabled={state.status === "running"}
+              suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
+              theme={theme}
+              height={contentHeight}
+              agentName={agentDisplay}
+              modelName={modelDisplay}
+              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
+            />
+          </box>
         </box>
       )}
 
@@ -347,19 +382,6 @@ export function App({ harness, renderer }: AppProps) {
             <span>{spinner}  </span>
           )}
           <span fg={statusColor}>{statusText}</span>
-          <span>  </span>
-          <span fg={c.accent}>{agentDisplay}</span>
-          {(() => {
-            const currentModelInfo = state.availableModels.find(m => m.id === state.currentModel);
-            return currentModelInfo?.supportsReasoningEffort ? (
-              <>
-                <span fg={c.subtle}> • </span>
-                <span fg={getEffortColor(state.reasoningEffort, theme)}>{state.reasoningEffort}</span>
-              </>
-            ) : null;
-          })()}
-          <span fg={c.subtle}> · </span>
-          <span fg={c.link}>{modelDisplay}</span>
           {/* Git status with Nerd Font icons: \uE0A0=, \uF111=, \uF44D=, \uF059=, \uF062=, \uF063=, \uF00C= */}
           {gitInfo.branch && (
             <>
@@ -382,11 +404,6 @@ export function App({ harness, renderer }: AppProps) {
           <span fg={c.subtext0}>^N</span><span fg={c.text}> new  </span>
           <span fg={c.subtext0}>^O</span><span fg={c.text}> sessions  </span>
           <span fg={c.subtext0}>S-Tab</span><span fg={c.text}> model  </span>
-          {state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort && (
-            <>
-              <span fg={c.subtext0}>^T</span><span fg={c.text}> effort  </span>
-            </>
-          )}
           {gitInfo.hasChanges && (
             <><span fg={c.subtext0}>^G</span><span fg={c.text}> commit  </span></>
           )}

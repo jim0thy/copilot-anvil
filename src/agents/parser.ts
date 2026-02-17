@@ -16,6 +16,7 @@
  */
 
 import type { AgentDefinition, AgentFrontmatter, AgentTier, AgentDomain } from "./types.js";
+import type { ReasoningEffort } from "../utils/config.js";
 
 const FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
 
@@ -69,8 +70,9 @@ function inferTier(name: string): AgentTier {
   if (lowerName.includes("junior") || lowerName.includes("jr-") || lowerName.includes("jr ")) {
     return "junior";
   }
-  if (lowerName.includes("orchestrator") || lowerName.includes("planner") || 
-      lowerName.includes("clarifier") || lowerName.includes("reviewer")) {
+  if (lowerName.includes("orchestrator") || lowerName.includes("tech-lead") || lowerName.includes("tech lead") ||
+      lowerName.includes("planner") || lowerName.includes("strategist") ||
+      lowerName.includes("clarifier") || lowerName.includes("intake") || lowerName.includes("reviewer")) {
     return "specialist";
   }
   return "mid";
@@ -89,9 +91,9 @@ function inferDomain(name: string): AgentDomain {
   if (lowerName.includes("devops")) return "devops";
   if (lowerName.includes("prompt")) return "prompt";
   if (lowerName.includes("review")) return "review";
-  if (lowerName.includes("plan")) return "planning";
-  if (lowerName.includes("orchestrat")) return "orchestration";
-  if (lowerName.includes("clarif")) return "clarification";
+  if (lowerName.includes("plan") || lowerName.includes("strategist")) return "planning";
+  if (lowerName.includes("orchestrat") || lowerName.includes("tech-lead") || lowerName.includes("tech lead")) return "orchestration";
+  if (lowerName.includes("clarif") || lowerName.includes("intake")) return "clarification";
   return "general";
 }
 
@@ -140,11 +142,17 @@ export function parseAgentFile(
     return null;
   }
   
+  const validEfforts: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+  const effort = typeof frontmatter.reasoningEffort === "string" && validEfforts.includes(frontmatter.reasoningEffort as ReasoningEffort)
+    ? frontmatter.reasoningEffort as ReasoningEffort
+    : undefined;
+
   return {
     id: nameToId(frontmatter.name),
     name: frontmatter.name,
     description: frontmatter.description ?? "",
     model: normalizeModel(frontmatter.model),
+    reasoningEffort: effort,
     tools: Array.isArray(frontmatter.tools) ? frontmatter.tools : [],
     tier: frontmatter.tier ?? inferTier(frontmatter.name),
     domain: frontmatter.domain ?? inferDomain(frontmatter.name),
@@ -168,16 +176,16 @@ function normalizeModel(model?: string): string {
     return "claude-sonnet-4.5";
   }
   if (lowerModel.includes("opus 4.6") || lowerModel.includes("opus-4.6")) {
-    return "claude-opus-4.5"; // Map to closest available
+    return "claude-opus-4.6";
   }
   if (lowerModel.includes("gemini 3 flash") || lowerModel.includes("gemini-3-flash")) {
-    return "claude-haiku-4.5"; // Map flash to haiku (both are fast/cheap)
+    return "gemini-3-flash-preview";
   }
   if (lowerModel.includes("gemini 3 pro") || lowerModel.includes("gemini-3-pro")) {
     return "gemini-3-pro-preview";
   }
-  if (lowerModel.includes("gpt-5.2-codex")) {
-    return "gpt-5.2-codex";
+  if (lowerModel.includes("gpt-5.3-codex")) {
+    return "gpt-5.3-codex";
   }
   if (lowerModel.includes("gpt-5.2")) {
     return "gpt-5.2";

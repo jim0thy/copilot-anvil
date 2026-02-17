@@ -2,7 +2,7 @@
  * Orchestration Plugin for the Harness.
  * 
  * This plugin adds orchestrated mode support where prompts are routed through
- * the Clarifier → Orchestrator → Specialist agents pipeline instead of going
+ * the Intake → Tech Lead → Specialist agents pipeline instead of going
  * directly to the default Copilot agent.
  * 
  * The plugin:
@@ -16,6 +16,7 @@ import type { HarnessPlugin, PluginContext } from "../harness/plugins.js";
 import type { HarnessEvent } from "../harness/events.js";
 import { AgentLoader } from "./loader.js";
 import type { AgentDefinition, OrchestrationMode } from "./types.js";
+import { nf } from "../ui/icons.js";
 
 const ORCHESTRATION_STATE_KEY = "orchestration";
 
@@ -64,9 +65,9 @@ export function createOrchestrationPlugin(): HarnessPlugin {
         
         // Emit agents.loaded event so harness can update its state
         // Top-level agents are specialists that users can directly select:
-        // - Clarifier: first point of contact for ambiguous requests
-        // - Orchestrator: coordinates work delegation
-        // - Planner: creates implementation plans
+        // - Intake: first point of contact for ambiguous requests
+        // - Tech Lead: coordinates work delegation
+        // - Strategist: creates implementation plans
         // - Reviewer: code review and security checks
         const topLevelAgents = agents
           .filter(a => a.tier === "specialist" && 
@@ -78,31 +79,31 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           agents: topLevelAgents,
         } as any);
         
-        // Set Clarifier as the default agent (vscode-agents style - always entry point)
-        const clarifier = agents.find(a => a.domain === "clarification");
-        if (clarifier) {
+        // Set Intake as the default agent (always entry point in team mode)
+        const intakeAgent = agents.find(a => a.domain === "clarification");
+        if (intakeAgent) {
           // Switch to orchestrated mode
           ctx!.state.update<OrchestrationState>(ORCHESTRATION_STATE_KEY, { mode: "orchestrated" });
-          
+
           ctx!.emit({
             type: "log",
             runId: null,
             level: "info",
-            message: `🎯 Team mode enabled — using ${clarifier.name} as entry point`,
+            message: `${nf.target} Team mode enabled — using ${intakeAgent.name} as entry point`,
             createdAt: new Date(),
           });
-          
+
           // Emit mode change event
           ctx!.emit({
             type: "orchestration.mode.changed",
             mode: "orchestrated",
           } as any);
-          
-          // Emit agent.changed event to switch to clarifier
+
+          // Emit agent.changed event to switch to intake
           ctx!.emit({
             type: "agent.changed",
-            agentId: clarifier.id,
-            agentName: clarifier.name,
+            agentId: intakeAgent.id,
+            agentName: intakeAgent.name,
           } as any);
         }
         
@@ -147,8 +148,8 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           runId: null,
           level: "info",
           message: mode === "orchestrated" 
-            ? "🎯 Team mode enabled — prompts will be routed through Clarifier → Orchestrator"
-            : "⚡ Direct mode enabled — prompts go directly to Copilot",
+            ? `${nf.target} Team mode enabled — prompts will be routed through Intake → Tech Lead`
+            : `${nf.bolt} Direct mode enabled — prompts go directly to Copilot`,
           createdAt: new Date(),
         });
       }
@@ -165,21 +166,21 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           byTier.get(tier)!.push(agent);
         }
         
-        const lines: string[] = ["📋 Available Agents:", ""];
-        
+        const lines: string[] = [`${nf.clipboard} Available Agents:`, ""];
+
         const tierOrder = ["specialist", "senior", "mid", "junior"];
         for (const tier of tierOrder) {
           const tierAgents = byTier.get(tier);
           if (!tierAgents || tierAgents.length === 0) continue;
-          
-          const emoji = {
-            specialist: "🔧",
-            senior: "🏆",
-            mid: "👨‍💻",
-            junior: "⚡",
+
+          const tierIcon = {
+            specialist: nf.wrench,
+            senior: nf.trophy,
+            mid: nf.code,
+            junior: nf.bolt,
           }[tier] ?? "•";
           
-          lines.push(`${emoji} ${tier.charAt(0).toUpperCase() + tier.slice(1)}:`);
+          lines.push(`${tierIcon} ${tier.charAt(0).toUpperCase() + tier.slice(1)}:`);
           for (const agent of tierAgents) {
             lines.push(`   • ${agent.name} (${agent.domain}) — ${agent.description}`);
           }
@@ -275,8 +276,8 @@ export function buildOrchestrationContext(
   const state = getOrchestrationState(ctx);
   if (state.mode !== "orchestrated") return "";
   
-  const orchestrator = loader.getOrchestrator();
-  if (!orchestrator) return "";
+  const techLead = loader.getTechLead();
+  if (!techLead) return "";
   
   const agents = loader.getAgents();
   const agentList = agents
@@ -289,7 +290,7 @@ export function buildOrchestrationContext(
 You are operating in TEAM MODE with access to specialized agents.
 
 ## Your Role
-You are the Orchestrator. Break down complex requests into tasks and delegate to specialist agents.
+You are the Tech Lead. Break down complex requests into tasks and delegate to specialist agents.
 Do NOT implement anything yourself - coordinate work through subagents.
 
 ## Available Agents

@@ -5,6 +5,7 @@ import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/ev
 import type { Theme } from "../theme.js";
 import { getSyntaxStyle } from "../syntaxTheme.js";
 import { formatRole, getRoleColor, formatDuration } from "../formatters.js";
+import { nf } from "../icons.js";
 
 // Singleton tree-sitter client for syntax highlighting
 const treeSitterClient = getTreeSitterClient();
@@ -29,6 +30,8 @@ interface ChatPaneProps {
   isStreaming: boolean;
   height: number;
   theme: Theme;
+  /** Tool call IDs that represent launching subagents; their tool status is shown in the Specialists pane instead. */
+  subagentToolCallIds?: string[];
 }
 
 function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boolean {
@@ -156,7 +159,7 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   const c = theme.colors;
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
-  const statusIcon = isRunning ? "▮" : isFailed ? "✗" : "✓";
+  const statusIcon = isRunning ? "▮" : isFailed ? nf.times : nf.check;
   const statusColor = isRunning ? c.warning : isFailed ? c.error : c.success;
   const borderColor = isRunning ? c.warning : isFailed ? c.error : c.border;
 
@@ -241,11 +244,21 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   );
 });
 
-export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, isStreaming, height, theme }: ChatPaneProps) {
+export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, isStreaming, height, theme, subagentToolCallIds: subagentToolCallIdsProp }: ChatPaneProps) {
   const c = theme.colors;
   // Only auto-scroll when actively receiving streaming content, not when user is typing
   const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning);
-  
+
+  // Build a Set of tool call IDs that correspond to subagents.
+  // Prefer the explicit list from state (so we can hide immediately on subagent start),
+  // and also learn from the transcript (messages tagged with parentToolCallId).
+  const subagentToolCallIds = new Set<string>(subagentToolCallIdsProp ?? []);
+  for (const item of transcript) {
+    if (item.kind === "message" && item.parentToolCallId) {
+      subagentToolCallIds.add(item.parentToolCallId);
+    }
+  }
+
   return (
     <scrollbox
       height={height}
@@ -269,6 +282,10 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
         if (item.kind === "tool-call") {
           // Skip report_intent - it's shown in the Plan & Progress pane
           if (item.toolName === "report_intent") {
+            return null;
+          }
+          // Skip task tool calls that correspond to subagents (they're shown in Specialists pane)
+          if (item.toolName === "task" && subagentToolCallIds.has(item.toolCallId)) {
             return null;
           }
           return <ToolCallInline key={item.id} tool={item} theme={theme} />;

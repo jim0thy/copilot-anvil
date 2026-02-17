@@ -2,6 +2,8 @@ import { memo, useMemo } from "react";
 import type { Theme } from "../theme.js";
 import type { Subagent, Skill } from "../../harness/Harness.js";
 import { getStatusIcon, getStatusColor, formatDuration } from "../formatters.js";
+import { nf } from "../icons.js";
+import { useSpinner } from "../hooks.js";
 
 export type { Subagent, Skill };
 
@@ -19,6 +21,7 @@ export const SubagentsPane = memo(function SubagentsPane({
   theme 
 }: SubagentsPaneProps) {
   const c = theme.colors;
+  const spinner = useSpinner();
   const { activeSubagents, completedSubagents, recentSkills } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents
@@ -53,7 +56,7 @@ export const SubagentsPane = memo(function SubagentsPane({
       overflow="hidden"
     >
       <text fg={c.primary}>
-        <b>Subagents & Skills</b>
+        <b>Specialists & Skills</b>
       </text>
 
       {activeSubagents.length === 0 && completedSubagents.length === 0 && recentSkills.length === 0 && (
@@ -64,16 +67,32 @@ export const SubagentsPane = memo(function SubagentsPane({
       {activeSubagents.length > 0 && (
         <>
           <box marginTop={1}>
-            <text fg={c.subtext1}><b>Active Subagents:</b></text>
+            <text fg={c.subtext1}><b>Active Specialists:</b></text>
           </box>
           {activeSubagents.map((agent) => (
             <box key={agent.toolCallId} flexDirection="column" marginLeft={1}>
               <box flexDirection="row">
                 <text fg={getStatusColor(agent.status, theme)}>
-                  {getStatusIcon(agent.status)}{" "}
+                  {spinner}{" "}
                 </text>
                 <text fg={c.text}><b>{agent.agentDisplayName}</b></text>
+                {agent.model && (
+                  <text fg={c.subtle}>{" "}({agent.model})</text>
+                )}
               </box>
+              {agent.taskTitle && (
+                <box marginLeft={2}>
+                  <text fg={c.subtext0}>{agent.taskTitle}</text>
+                </box>
+              )}
+              {agent.currentIntent && (
+                <box marginLeft={2}>
+                  <text>
+                    <span fg={c.subtext0}>Doing: </span>
+                    <span fg={c.accent}>{nf.arrowRight} {agent.currentIntent}</span>
+                  </text>
+                </box>
+              )}
               <box marginLeft={2}>
                 <text fg={c.subtext0}>
                   {agent.agentDescription}
@@ -88,18 +107,28 @@ export const SubagentsPane = memo(function SubagentsPane({
       {completedSubagents.length > 0 && (
         <>
           <box marginTop={1}>
-            <text fg={c.subtext0}><b>Recent Subagents:</b></text>
+            <text fg={c.subtext0}><b>Recent Specialists:</b></text>
           </box>
           {completedSubagents.map((agent) => (
-            <box key={agent.toolCallId} flexDirection="row" marginLeft={1}>
-              <text fg={getStatusColor(agent.status, theme)}>
-                {getStatusIcon(agent.status)}{" "}
-              </text>
-              <text fg={c.text}>{agent.agentDisplayName}</text>
-              {agent.completedAt && (
-                <text fg={c.subtle}>
-                  {" "}({formatDuration(agent.startedAt, agent.completedAt)})
+            <box key={agent.toolCallId} flexDirection="column" marginLeft={1}>
+              <box flexDirection="row">
+                <text fg={getStatusColor(agent.status, theme)}>
+                  {getStatusIcon(agent.status)}{" "}
                 </text>
+                <text fg={c.text}>{agent.agentDisplayName}</text>
+                {agent.model && (
+                  <text fg={c.subtle}>{" "}({agent.model})</text>
+                )}
+                {agent.completedAt && (
+                  <text fg={c.subtle}>
+                    {" "}({formatDuration(agent.startedAt, agent.completedAt)})
+                  </text>
+                )}
+              </box>
+              {agent.taskTitle && (
+                <box marginLeft={2}>
+                  <text fg={c.subtext0}>{agent.taskTitle}</text>
+                </box>
               )}
             </box>
           ))}
@@ -114,7 +143,7 @@ export const SubagentsPane = memo(function SubagentsPane({
           </box>
           {recentSkills.map((skill) => (
             <box key={skill.name} flexDirection="row" marginLeft={1}>
-              <text fg={c.accent}>◆ </text>
+              <text fg={c.accent}>{nf.diamond} </text>
               <text fg={c.text}>{skill.name}</text>
               {skill.invokeCount > 1 && (
                 <text fg={c.subtext0}>

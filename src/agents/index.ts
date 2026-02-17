@@ -16,7 +16,7 @@
  * 
  * // Get available agents
  * const agents = loader.getAgents();
- * const orchestrator = loader.getOrchestrator();
+ * const techLead = loader.getTechLead();
  * 
  * // Use in harness
  * harness.use(createOrchestrationPlugin());
@@ -45,6 +45,17 @@ export { AgentLoader, getAgentLoader } from "./loader.js";
 
 // Built-in agents
 export { getBuiltinAgents } from "./builtin.js";
+
+// Model configuration
+export {
+  loadModelConfig,
+  saveModelConfig,
+  ensureDefaultConfigExists,
+  resolveAgentModel,
+  getModelConfigPath,
+  DEFAULT_AGENT_MODELS,
+} from "./modelConfig.js";
+export type { AgentModelConfig, AgentModelOverride } from "./modelConfig.js";
 
 // Orchestration plugin
 export {

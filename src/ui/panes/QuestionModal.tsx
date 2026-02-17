@@ -2,6 +2,7 @@ import { useKeyboard } from "@opentui/react";
 import { memo, useState, useCallback, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
 import type { PendingQuestion } from "../../harness/Harness.js";
+import { nf } from "../icons.js";
 
 interface QuestionModalProps {
   question: PendingQuestion;
@@ -140,7 +141,7 @@ export const QuestionModal = memo(function QuestionModal({
       {/* Question header - minimal, matching InputBar style */}
       <box marginBottom={1}>
         <text>
-          <span fg={c.info}><b>❓ Agent question:</b></span>
+          <span fg={c.info}><b>{nf.question} Agent question:</b></span>
         </text>
       </box>
 
@@ -163,7 +164,7 @@ export const QuestionModal = memo(function QuestionModal({
                 <box key={index}>
                   <text wrapMode="word">
                     <span fg={isSelected ? c.primary : c.subtle}>
-                      {isSelected ? "› " : "  "}
+                      {isSelected ? `${nf.angleRight} ` : "  "}
                     </span>
                     <span fg={isSelected ? c.text : c.subtext0}>
                       {choice}

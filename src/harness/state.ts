@@ -42,6 +42,9 @@ export interface Subagent {
   agentName: string;
   agentDisplayName: string;
   agentDescription: string;
+  model?: string;
+  taskTitle?: string;
+  currentIntent?: string;
   status: "running" | "completed" | "failed";
   startedAt: Date;
   completedAt?: Date;
@@ -95,6 +98,7 @@ export interface HarnessState {
   currentIntent: string | null;
   pendingQuestion: PendingQuestion | null;
   currentSessionId: string | null;
+  currentSessionName: string | null;
   availableSessions: SessionInfo[];
   ephemeralRun: EphemeralRun | null;
   orchestrationMode: OrchestrationMode;
@@ -143,6 +147,7 @@ export const INITIAL_STATE: HarnessState = {
   currentIntent: null,
   pendingQuestion: null,
   currentSessionId: null,
+  currentSessionName: null,
   availableSessions: [],
   ephemeralRun: null,
   orchestrationMode: "direct",

@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { memo, useState, useRef, useEffect } from "react";
 import type { Theme } from "../theme.js";
+import { nf } from "../icons.js";
 
 interface ConfirmModalProps {
   title: string;
@@ -89,7 +90,7 @@ export const ConfirmModal = memo(function ConfirmModal({
       {/* Header */}
       <box marginBottom={1}>
         <text>
-          <span fg={c.warning}><b>⚠️  {title}</b></span>
+          <span fg={c.warning}><b>{nf.warning}  {title}</b></span>
         </text>
       </box>
 

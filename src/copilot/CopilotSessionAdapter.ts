@@ -1,9 +1,14 @@
 import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
-import type { ModelInfo, SessionEvent, SystemMessageConfig } from "@github/copilot-sdk";
+import type { ModelInfo, SessionEvent, SystemMessageConfig, Tool } from "@github/copilot-sdk";
 import type { HarnessEvent, SessionInfo, TranscriptItem, ToolCallItem } from "../harness/events.js";
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 import * as path from "path";
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { getOrchestrationAgents } from "../cli/agents.js";
+import { getAnvilTools } from "../cli/tools.js";
+import { createSessionHooks } from "../cli/hooks.js";
+import { loadModelConfig, resolveAgentModel, type AgentModelOverride } from "../agents/modelConfig.js";
+import { nf } from "../ui/icons.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -61,7 +66,10 @@ export class CopilotSessionAdapter {
   private session: CopilotSession | null = null;
   private eventHandler: AdapterEventHandler | null = null;
   private currentRunId: string | null = null;
-  private streamingBuffer = "";
+  private streamingBuffers = new Map<
+    string,
+    { text: string; parentToolCallId?: string; agentName?: string; agentDisplayName?: string }
+  >();
   private reasoningBuffer = "";
   private isCancelled = false;
   private isProcessing = false;
@@ -69,7 +77,6 @@ export class CopilotSessionAdapter {
   private currentRunGeneration = 0;
   private _currentModel: string | null = null;
   private _availableModels: ModelDescription[] = [];
-  private hasEmittedContentForTurn = false;
   private planWatcher: FSWatcher | null = null;
   private workspacePath: string | null = null;
   private userInputHandler: UserInputHandler | null = null;
@@ -78,11 +85,41 @@ export class CopilotSessionAdapter {
   private _customAgents: CustomAgentDef[] = [];
   private _activeAgent: CustomAgentDef | null = null;
   private _reasoningEffort: "low" | "medium" | "high" | "xhigh" = "medium";
+  /** True while the onUserInputRequest callback is awaiting a user response */
+  private hasPendingUserInput = false;
+  /** Guards against concurrent renewSessionWithAgents calls */
+  private _renewalPromise: Promise<void> | null = null;
   /** Map of tool call IDs to subagent information */
-  private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
+  private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string; model?: string }>();
+  /** Map of tool call IDs to specialist metadata extracted from task tool prompts.
+   *  Populated in tool.execution_start, consumed in subagent.started to override
+   *  the generic "general-purpose" display name with the actual specialist name. */
+  private pendingAgentRoles = new Map<string, { role?: string; model?: string; taskTitle?: string }>();
+  /** Checklist items tracked for todo/checklist tools */
+  private checklistItems: { id: string; title: string; checked: boolean }[] = [];
+  /** SQL query text by sql tool call ID (used for parsing execution_complete results) */
+  private sqlQueriesByToolCallId = new Map<string, string>();
+
+  /** Pre-built Anvil tools for the SDK integration */
+  private _anvilTools: Tool<any>[] = getAnvilTools();
+  /** Session hooks for guardrails and context enrichment */
+  private _sessionHooks = createSessionHooks();
+  /** Skill directories discovered from the project */
+  private _skillDirectories: string[] = [];
 
   constructor() {
     this._projectPrefix = path.basename(process.cwd()) + "-";
+
+    // Auto-discover skill directories
+    const cwd = process.cwd();
+    const projectSkillDir = path.join(cwd, ".agents", "skills");
+    if (existsSync(projectSkillDir)) {
+      this._skillDirectories.push(projectSkillDir);
+    }
+    const dotAnvilSkills = path.join(cwd, ".anvil", "skills");
+    if (existsSync(dotAnvilSkills)) {
+      this._skillDirectories.push(dotAnvilSkills);
+    }
   }
 
   // ── Public accessors ─────────────────────────────────────────
@@ -97,18 +134,29 @@ export class CopilotSessionAdapter {
 
   /**
    * Set custom agents to be registered with the SDK.
-   * These agents will be available for delegation by the orchestrator.
+   * These agents will be available for delegation by the tech lead.
    * If a session is already active, it will be recreated with the new agents.
    */
   async setCustomAgents(agents: CustomAgentDef[]): Promise<void> {
-    this._customAgents = agents;
-    this.emit(createLogEvent("info", `🤖 Setting ${agents.length} custom agents: ${agents.map(a => a.displayName || a.name).join(", ")}`));
-    
-    // If we have an active session, recreate it to include the new agents
-    if (this.session && this.client && !this.isProcessing) {
-      this.emit(createLogEvent("info", "Renewing session with custom agents..."));
-      await this.renewSessionWithAgents();
-    }
+    // Merge orchestration agents with existing builtin agents.
+    // Orchestration agents supersede existing agents that serve the same role:
+    //   tech-lead and strategist are the new coordination agents.
+    // All other existing agents (developers, specialists) are kept as-is
+    // since the tech-lead references them by name in its delegation table.
+    const orchestrationAgents = getOrchestrationAgents();
+    const orchestrationNames = new Set(orchestrationAgents.map(a => a.name));
+
+    // Agents whose role is superseded by an orchestration agent
+    const superseded = new Set(["orchestrator", "planner"]);
+
+    const userAgents = agents.filter(
+      (a) => !orchestrationNames.has(a.name) && !superseded.has(a.name)
+    );
+    this._customAgents = [...orchestrationAgents, ...userAgents];
+    this.emit(createLogEvent("info", `${nf.cog} Setting ${this._customAgents.length} agents (${orchestrationAgents.length} orchestration + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
+
+    // Schedule a session renewal (coalesced with any pending renewal)
+    await this.scheduleRenewal("setCustomAgents");
   }
 
   /**
@@ -122,25 +170,24 @@ export class CopilotSessionAdapter {
    */
   async setActiveAgent(agentId: string | null, skipSessionRenew = false): Promise<void> {
     // Find the agent from registered custom agents
-    const agent = agentId 
+    const agent = agentId
       ? this._customAgents.find(a => a.name === agentId)
       : null;
-    
+
     this._activeAgent = agent ?? null;
-    
+
     // Log for debugging
     if (agentId && !agent) {
-      this.emit(createLogEvent("warn", `⚠️ Agent '${agentId}' not found in registered agents. Available: ${this._customAgents.map(a => a.name).join(", ")}`));
+      this.emit(createLogEvent("warn", `${nf.warning} Agent '${agentId}' not found in registered agents. Available: ${this._customAgents.map(a => a.name).join(", ")}`));
     } else if (agent) {
-      this.emit(createLogEvent("debug", `✅ Active agent set: ${agent.displayName || agent.name}`));
+      this.emit(createLogEvent("debug", `${nf.check} Active agent set: ${agent.displayName || agent.name}`));
     }
-    
-    // If we have an active session, recreate it with the new system prompt
-    // (unless skipSessionRenew is true, meaning caller will handle session update)
-    if (this.session && this.client && !this.isProcessing && !skipSessionRenew) {
+
+    // Schedule a session renewal (coalesced with any pending renewal)
+    if (!skipSessionRenew) {
       const agentName = agent?.displayName ?? agent?.name ?? "Copilot";
       this.emit(createLogEvent("info", `Activating agent: ${agentName}`));
-      await this.renewSessionWithAgents();
+      await this.scheduleRenewal("setActiveAgent");
     }
   }
 
@@ -164,9 +211,40 @@ export class CopilotSessionAdapter {
   }
 
   /**
-   * Recreate the current session with updated custom agents.
-   * Preserves the current session ID to maintain conversation history.
+   * Coalesces concurrent renewal requests so that only ONE
+   * destroy-then-resume cycle runs at a time. If a renewal is already
+   * in flight, callers share the same promise. The final renewal always
+   * uses the latest _customAgents / _activeAgent state.
    */
+  private async scheduleRenewal(source: string): Promise<void> {
+    if (!this.session || !this.client || this.isProcessing) return;
+
+    if (this._renewalPromise) {
+      // Another renewal is already in flight — just wait for it.
+      // It will pick up the latest state when it builds the session opts.
+      this.emit(createLogEvent("debug", `Renewal coalesced (from ${source}) — joining existing renewal`));
+      return this._renewalPromise;
+    }
+
+    // Defer one microtick so that synchronous setCustomAgents +
+    // setActiveAgent calls both land before the renewal starts.
+    this._renewalPromise = new Promise<void>(resolve => {
+      queueMicrotask(async () => {
+        try {
+          this.emit(createLogEvent("info", `Renewing session (trigger: ${source})...`));
+          await this.renewSessionWithAgents();
+        } catch (err) {
+          this.emit(createLogEvent("error", `Session renewal failed: ${err instanceof Error ? err.message : String(err)}`));
+        } finally {
+          this._renewalPromise = null;
+          resolve();
+        }
+      });
+    });
+
+    return this._renewalPromise;
+  }
+
   private async renewSessionWithAgents(): Promise<void> {
     if (!this.client) throw new Error("Client not initialized");
     
@@ -175,12 +253,14 @@ export class CopilotSessionAdapter {
 
     await this.teardownSession();
 
-    // Resume the same session with updated agents and system message
+    // Resume the same session with updated agents, tools, hooks, and system message
       const opts = {
         streaming: true as const,
         model: this._currentModel ?? undefined,
         onUserInputRequest: this.getUserInputCallback(),
-        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        tools: this._anvilTools,
+        hooks: this._sessionHooks,
+        skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
         systemMessage: this.buildSystemMessage(),
         reasoningEffort: this.getEffectiveReasoningEffort(),
       };
@@ -224,12 +304,400 @@ export class CopilotSessionAdapter {
     return this.isCancelled || !this.isProcessing || gen !== this.expectedRunGeneration;
   }
 
-  /** Reset streaming / reasoning buffers and the content-emitted flag. */
-  private resetStreamingState(): void {
-    this.streamingBuffer = "";
+  /** Reset per-turn streaming/reasoning buffers. */
+  private resetTurnStreamingBuffers(): void {
+    this.streamingBuffers.clear();
     this.reasoningBuffer = "";
-    this.hasEmittedContentForTurn = false;
+  }
+
+  /** Reset all per-run transient tracking state. */
+  private resetRunTrackingState(): void {
+    this.resetTurnStreamingBuffers();
     this.activeSubagents.clear();
+    this.pendingAgentRoles.clear();
+    this.checklistItems = [];
+    this.sqlQueriesByToolCallId.clear();
+  }
+
+  private getStreamingBufferKey(messageId: string | undefined | null, parentToolCallId: string | undefined | null): string {
+    if (messageId) return messageId;
+    if (parentToolCallId) return `tool:${parentToolCallId}`;
+    return "__default__";
+  }
+
+  /** Flush all pending streaming message buffers into transcript messages. */
+  private flushStreamingBuffers(runId: string): void {
+    for (const [, bufferedMessage] of this.streamingBuffers) {
+      if (!bufferedMessage.text) continue;
+
+      const message = createAssistantMessage(bufferedMessage.text);
+      if (bufferedMessage.parentToolCallId) {
+        message.parentToolCallId = bufferedMessage.parentToolCallId;
+        const subagent = this.activeSubagents.get(bufferedMessage.parentToolCallId);
+        if (subagent) {
+          message.agentName = subagent.agentName;
+          message.agentDisplayName = subagent.agentDisplayName;
+        } else {
+          message.agentName = bufferedMessage.agentName;
+          message.agentDisplayName = bufferedMessage.agentDisplayName;
+        }
+      } else {
+        message.agentName = bufferedMessage.agentName;
+        message.agentDisplayName = bufferedMessage.agentDisplayName;
+      }
+
+      this.emit({
+        type: "assistant.message",
+        runId,
+        message,
+      });
+    }
+    this.streamingBuffers.clear();
+  }
+
+  /** Resolve intent attribution to a subagent tool call when possible. */
+  private resolveIntentToolCallId(parentToolCallId?: string): string | undefined {
+    if (parentToolCallId && this.activeSubagents.has(parentToolCallId)) {
+      return parentToolCallId;
+    }
+    if (this.activeSubagents.size === 0) {
+      return undefined;
+    }
+    const entries = Array.from(this.activeSubagents.entries());
+    return entries[entries.length - 1][0];
+  }
+
+  /** Render checklist state as markdown for todo.updated events. */
+  private getChecklistMarkdown(): string | null {
+    if (this.checklistItems.length === 0) return null;
+    return this.checklistItems
+      .map(item => `- [${item.checked ? "x" : " "}] ${item.title}`)
+      .join("\n");
+  }
+
+  private isDoneTodoStatus(status: string | undefined): boolean {
+    return (status ?? "").trim().toLowerCase() === "done";
+  }
+
+  /** Emit a todo.updated event with the current checklist state as markdown. */
+  private emitChecklistUpdate(): void {
+    if (!this.currentRunId) return;
+    const markdown = this.getChecklistMarkdown();
+    if (!markdown) return;
+    this.emit({ type: "todo.updated", runId: this.currentRunId, todos: markdown });
+  }
+
+  /** Parse SQL INSERT/UPDATE on the todos table and merge with existing checklist state. */
+  private parseSqlTodoItems(query: string): string | null {
+    const upperQuery = query.toUpperCase();
+    const isTodoMutation =
+      (upperQuery.includes("INSERT") || upperQuery.includes("UPDATE")) &&
+      upperQuery.includes("TODOS");
+    if (!isTodoMutation) return null;
+
+    try {
+      // --- Helpers (intentionally small, SQL-ish not fully general) ---
+      const unquote = (token: string | undefined): string | null => {
+        if (!token) return null;
+        const t = token.trim();
+        if (!t) return null;
+        if (/^null$/i.test(t)) return null;
+        if (t.startsWith("'") && t.endsWith("'")) {
+          // SQL escapes single-quote as doubled single-quote
+          return t.slice(1, -1).replace(/''/g, "'");
+        }
+        return t;
+      };
+
+      const splitTupleValues = (tuple: string): string[] => {
+        const vals: string[] = [];
+        let cur = "";
+        let inQuote = false;
+        let depth = 0; // nested parens (e.g. datetime('now'))
+        for (let i = 0; i < tuple.length; i++) {
+          const ch = tuple[i];
+          const next = tuple[i + 1];
+
+          if (ch === "'") {
+            if (inQuote && next === "'") {
+              // escaped quote inside string
+              cur += "''";
+              i++;
+              continue;
+            }
+            inQuote = !inQuote;
+            cur += ch;
+            continue;
+          }
+
+          if (!inQuote) {
+            if (ch === "(") depth++;
+            else if (ch === ")" && depth > 0) depth--;
+
+            if (ch === "," && depth === 0) {
+              vals.push(cur.trim());
+              cur = "";
+              continue;
+            }
+          }
+
+          cur += ch;
+        }
+        if (cur.trim().length > 0) vals.push(cur.trim());
+        return vals;
+      };
+
+      const extractValuesTuples = (valuesBlock: string): string[] => {
+        const tuples: string[] = [];
+        let inQuote = false;
+        let depth = 0;
+        let start = -1;
+
+        for (let i = 0; i < valuesBlock.length; i++) {
+          const ch = valuesBlock[i];
+          const next = valuesBlock[i + 1];
+
+          if (ch === "'") {
+            if (inQuote && next === "'") {
+              // escaped quote
+              i++;
+              continue;
+            }
+            inQuote = !inQuote;
+            continue;
+          }
+
+          if (inQuote) continue;
+
+          if (ch === "(") {
+            if (depth === 0) start = i + 1;
+            depth++;
+          } else if (ch === ")") {
+            depth = Math.max(0, depth - 1);
+            if (depth === 0 && start >= 0) {
+              tuples.push(valuesBlock.slice(start, i));
+              start = -1;
+            }
+          }
+        }
+
+        return tuples;
+      };
+
+      // --- INSERT ---
+      // Supports both: INSERT INTO todos (a,b,...) VALUES (...),(...)
+      // and (best-effort): INSERT INTO todos VALUES (...)
+      const insertMatch = query.match(
+        /INSERT\s+INTO\s+todos\s*(?:\(([^)]+)\))?\s*VALUES\s+([\s\S]+?)(?:;|$)/i
+      );
+      if (insertMatch) {
+        const columnsRaw = insertMatch[1];
+        const columns = columnsRaw
+          ? columnsRaw.split(",").map(c => c.trim().toLowerCase())
+          : null;
+
+        const valuesBlock = insertMatch[2];
+        const tuples = extractValuesTuples(valuesBlock);
+        if (tuples.length === 0) return null;
+
+        const colIdx = (colName: string, fallbackIndex: number): number => {
+          if (!columns) return fallbackIndex;
+          const idx = columns.indexOf(colName);
+          return idx >= 0 ? idx : -1;
+        };
+
+        const idIdx = colIdx("id", 0);
+        const titleIdx = colIdx("title", 1);
+        const statusIdx = colIdx("status", 3);
+
+        let changed = false;
+
+        for (const tuple of tuples) {
+          const rawVals = splitTupleValues(tuple);
+          const id = idIdx >= 0 ? unquote(rawVals[idIdx]) : unquote(rawVals[0]);
+          const title = titleIdx >= 0 ? unquote(rawVals[titleIdx]) : unquote(rawVals[1]);
+          const status = statusIdx >= 0 ? unquote(rawVals[statusIdx]) : unquote(rawVals[3]);
+
+          const checklistId = (id || title)?.trim();
+          if (!title || !checklistId) continue;
+
+          const checked = this.isDoneTodoStatus(status ?? undefined);
+          const existing = this.checklistItems.find(item => item.id === checklistId);
+
+          if (!existing) {
+            this.checklistItems.push({ id: checklistId, title, checked });
+            changed = true;
+          } else if (existing.title !== title || existing.checked !== checked) {
+            existing.title = title;
+            existing.checked = checked;
+            changed = true;
+          }
+        }
+
+        return changed ? this.getChecklistMarkdown() : null;
+      }
+
+      // --- UPDATE ---
+      // Be liberal: allow additional SET fields (e.g. updated_at=...) and different spacing.
+      if (upperQuery.includes("UPDATE") && upperQuery.includes("TODOS")) {
+        const idMatch = query.match(/WHERE\s+id\s*=\s*'([^']+)'/i);
+        const statusMatch = query.match(/\bstatus\s*=\s*'(done|in_progress|pending|blocked)'/i);
+        if (idMatch && statusMatch) {
+          const todoId = idMatch[1];
+          const newStatus = statusMatch[1];
+          const item = this.checklistItems.find(it => it.id === todoId);
+          if (!item) return null;
+          const checked = this.isDoneTodoStatus(newStatus);
+          if (item.checked === checked) return null;
+          item.checked = checked;
+          return this.getChecklistMarkdown();
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.emit(createLogEvent("warn", `Failed to parse SQL todo mutation: ${String(error)}`));
+      return null;
+    }
+  }
+
+  /** Parse SQL SELECT todos results and replace checklist state from returned rows. */
+  private parseSqlTodoItemsFromResult(query: string, result: unknown): string | null {
+    const upperQuery = query.toUpperCase();
+    const isTodoSelect =
+      upperQuery.includes("SELECT") &&
+      upperQuery.includes("FROM") &&
+      upperQuery.includes("TODOS");
+    if (!isTodoSelect) return null;
+
+    // Prefer structured SQL results if available (newer sql tool implementations).
+    const structuredRows = this.extractSqlRows(result);
+    if (structuredRows && structuredRows.length > 0) {
+      const nextItems: { id: string; title: string; checked: boolean }[] = [];
+      for (const row of structuredRows) {
+        const title = typeof row.title === "string" ? row.title.trim() : String(row.title ?? "").trim();
+        if (!title) continue;
+        const idRaw = row.id ?? title;
+        const id = typeof idRaw === "string" ? idRaw.trim() : String(idRaw).trim();
+        const statusRaw = row.status ?? "pending";
+        const status = typeof statusRaw === "string" ? statusRaw.trim() : String(statusRaw).trim();
+        nextItems.push({ id, title, checked: this.isDoneTodoStatus(status) });
+      }
+      if (nextItems.length > 0) {
+        this.checklistItems = nextItems;
+        return this.getChecklistMarkdown();
+      }
+    }
+
+    const resultText = this.extractSqlResultText(result);
+    if (!resultText) return null;
+
+    const lines = resultText
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.startsWith("|"));
+    if (lines.length < 3) return null;
+
+    const headerCells = this.parseMarkdownTableRow(lines[0]).map(cell => cell.toLowerCase());
+    const idIdx = headerCells.indexOf("id");
+    const titleIdx = headerCells.indexOf("title");
+    const statusIdx = headerCells.indexOf("status");
+    if (titleIdx === -1) return null;
+
+    const nextItems: { id: string; title: string; checked: boolean }[] = [];
+    for (const line of lines.slice(1)) {
+      const cells = this.parseMarkdownTableRow(line);
+      if (cells.length === 0) continue;
+      if (cells.every(cell => /^:?-{3,}:?$/.test(cell))) continue;
+      const title = cells[titleIdx]?.trim();
+      if (!title) continue;
+      const id = idIdx >= 0 ? (cells[idIdx]?.trim() || title) : title;
+      const status = statusIdx >= 0 ? cells[statusIdx]?.trim() : "pending";
+      nextItems.push({ id, title, checked: this.isDoneTodoStatus(status) });
+    }
+
+    if (nextItems.length === 0) return null;
+    this.checklistItems = nextItems;
+    return this.getChecklistMarkdown();
+  }
+
+  private parseMarkdownTableRow(row: string): string[] {
+    const trimmed = row.trim();
+    if (!trimmed.startsWith("|")) return [];
+    const withoutEdges = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+    return withoutEdges.split("|").map(cell => cell.trim());
+  }
+
+  private extractSqlResultText(result: unknown): string | null {
+    if (!result) return null;
+    if (typeof result === "string") return result;
+    if (typeof result === "object") {
+      const obj = result as Record<string, unknown>;
+      if (typeof obj.content === "string" && obj.content.trim()) return obj.content;
+      if (typeof obj.detailedContent === "string" && obj.detailedContent.trim()) return obj.detailedContent;
+      const contents = obj.contents;
+      if (Array.isArray(contents)) {
+        const textChunks: string[] = [];
+        for (const content of contents) {
+          if (!content || typeof content !== "object") continue;
+          const item = content as Record<string, unknown>;
+          if ((item.type === "text" || item.type === "terminal") && typeof item.text === "string") {
+            textChunks.push(item.text);
+          } else if (item.type === "resource" && typeof item.resource === "object" && item.resource !== null) {
+            const resource = item.resource as Record<string, unknown>;
+            if (typeof resource.text === "string") {
+              textChunks.push(resource.text);
+            }
+          }
+        }
+        if (textChunks.length > 0) return textChunks.join("\n");
+      }
+    }
+    const fallback = extractToolOutput(result);
+    return typeof fallback === "string" && fallback.trim() ? fallback : null;
+  }
+
+  /** Best-effort extraction for structured SQL results (rows/columns), if provided by a sql tool implementation. */
+  private extractSqlRows(result: unknown): Array<Record<string, unknown>> | null {
+    if (!result) return null;
+
+    // Some tools return the rows directly as an array.
+    if (Array.isArray(result)) {
+      const first = result[0];
+      if (first && typeof first === "object" && !Array.isArray(first)) {
+        return result as Array<Record<string, unknown>>;
+      }
+      return null;
+    }
+
+    if (typeof result !== "object") return null;
+    const obj = result as Record<string, unknown>;
+
+    const rows = obj.rows;
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+
+    const firstRow = rows[0];
+
+    // rows: Array<object>
+    if (firstRow && typeof firstRow === "object" && !Array.isArray(firstRow)) {
+      return rows as Array<Record<string, unknown>>;
+    }
+
+    // rows: Array<Array<any>> with columns: Array<string>
+    const columns = obj.columns;
+    if (Array.isArray(columns) && Array.isArray(firstRow)) {
+      const colNames = columns.map(c => String(c));
+      return (rows as unknown[]).map((r) => {
+        const rec: Record<string, unknown> = {};
+        const arr = r as unknown[];
+        for (let i = 0; i < colNames.length; i++) {
+          rec[colNames[i]] = arr[i];
+        }
+        return rec;
+      });
+    }
+
+    return null;
   }
 
   /** Tear down the current session and its plan watcher. Does not throw. */
@@ -253,10 +721,20 @@ export class CopilotSessionAdapter {
     }
   }
 
-  /** Build the `onUserInputRequest` callback suitable for SDK session options. */
+  /** Build the `onUserInputRequest` callback suitable for SDK session options.
+   *  Tracks pending state so `session.idle` doesn't prematurely end the run. */
   private getUserInputCallback(): ((request: any) => Promise<{ answer: string; wasFreeform: boolean }>) | undefined {
     return this.userInputHandler
-      ? async (request: any) => this.userInputHandler!(request)
+      ? async (request: any) => {
+          this.hasPendingUserInput = true;
+          this.emit(createLogEvent("debug", "User input requested — pausing idle handling"));
+          try {
+            return await this.userInputHandler!(request);
+          } finally {
+            this.hasPendingUserInput = false;
+            this.emit(createLogEvent("debug", "User input received — resuming idle handling"));
+          }
+        }
       : undefined;
   }
 
@@ -265,72 +743,204 @@ export class CopilotSessionAdapter {
     return this._projectPrefix + Date.now().toString(36);
   }
 
-  /** 
+  /**
    * Build system message config for the session.
-   * 
+   *
    * If an active agent is selected, uses that agent's system prompt directly,
    * making the LLM behave AS that agent (the top-level agent).
-   * 
+   *
    * Additionally, advertises other available agents as potential subagents
-   * that can be delegated to via the task tool.
+   * that can be delegated to via the task tool, using agent_type "general-purpose"
+   * with the specialist's role instructions embedded in the prompt.
+   *
+   * We use "general-purpose" instead of custom agent names because the CLI's
+   * setAuthInfo flow calls loadCustomAgents() after every session.create/resume,
+   * which overwrites any customAgents we register with an empty array from disk.
    */
   private buildSystemMessage(): SystemMessageConfig | undefined {
     // If an active agent is selected, use its system prompt as the primary instruction
     if (this._activeAgent) {
       this.emit(createLogEvent("debug", `Building system message for active agent: ${this._activeAgent.displayName ?? this._activeAgent.name}`));
-      
-      // Build list of OTHER agents available for delegation (excluding the active one)
+
+      // Build delegation guide for other available agents
       const otherAgents = this._customAgents.filter(a => a.name !== this._activeAgent?.name);
-      const agentList = otherAgents.length > 0
-        ? otherAgents.map(a => `- **${a.displayName || a.name}**: ${a.description || 'No description'}`).join('\n')
+      const delegationGuide = otherAgents.length > 0
+        ? this.buildDelegationGuide(otherAgents)
         : '';
-      
-      const subagentSection = otherAgents.length > 0 ? `
-
-<available_subagents>
-You can delegate to these specialist agents via the task tool:
-
-${agentList}
-
-To delegate: use task tool with agent name as agent_type parameter.
-</available_subagents>` : '';
 
       return {
         mode: "replace" as const,
-        content: `${this._activeAgent.prompt}
-
-${subagentSection}
-`,
+        content: `${this._activeAgent.prompt}\n\n${delegationGuide}`,
       };
     }
-    
+
     // No active agent - just advertise all available agents as options
     if (this._customAgents.length === 0) return undefined;
 
-    const agentList = this._customAgents
-      .map(a => `- **${a.displayName || a.name}**: ${a.description || 'No description'}`)
-      .join('\n');
-
     return {
       mode: "append" as const,
-      content: `
-<custom_agents>
-You have access to the following custom agents that you can delegate tasks to via the task tool:
-
-${agentList}
-
-When delegating to a custom agent:
-1. Use the task tool with the agent's name as the agent_type parameter
-2. Provide a clear, specific prompt describing what the agent should do
-3. Custom agents have specialized knowledge and should be preferred for their domain
-
-Example: To use the "clarifier" agent:
-\`\`\`json
-{"agent_type": "clarifier", "prompt": "Analyze this request for ambiguity: ..."}
-\`\`\`
-</custom_agents>
-`,
+      content: `\n\n${this.buildDelegationGuide(this._customAgents)}`,
     };
+  }
+
+  /**
+   * Resolve the model ID for an agent, returning undefined if not available.
+   */
+  private resolveModelForAgent(agentName: string): string | undefined {
+    const modelConfig = loadModelConfig();
+    const override = resolveAgentModel(agentName, modelConfig);
+    if (!override.model) return undefined;
+    return this._availableModels.some(m => m.id === override.model)
+      ? override.model
+      : undefined;
+  }
+
+  /**
+   * Build a compact specialist directory listing all agents with their models.
+   * Used both in the top-level delegation guide and embedded in orchestrator prompts.
+   */
+  private buildSpecialistDirectory(agents: CustomAgentDef[], exclude?: Set<string>): string {
+    return agents
+      .filter(a => !exclude?.has(a.name))
+      .map(a => {
+        const displayName = a.displayName || a.name;
+        const model = this.resolveModelForAgent(a.name);
+        const modelStr = model ? ` | model: "${model}"` : '';
+        const preamble = a.prompt.split('\n').find(l => l.trim())?.trim() ?? '';
+        return `- **${displayName}**${modelStr}: ${a.description || 'No description'}\n  Preamble: "${preamble}"`;
+      })
+      .join('\n');
+  }
+
+  /**
+   * Build a delegation guide that instructs the LLM how to delegate to specialists.
+   *
+   * Uses agent_type "general-purpose" for ALL delegations, with the specialist's
+   * role preamble embedded in the prompt. This avoids the customAgents overwrite
+   * issue while preserving specialist behavior.
+   *
+   * CRITICAL DESIGN: Orchestrator agents (e.g., Tech Lead) need to sub-delegate
+   * to other specialists. Since subagents get a fresh context (no access to the
+   * top-level system message), the delegation instructions must be embedded
+   * directly in the orchestrator's prompt. This method:
+   *
+   * 1. Builds a compact specialist directory with models
+   * 2. For orchestrators, augments their prompt with inline delegation instructions
+   * 3. Instructs the top-level LLM to include the full orchestrator prompt
+   *
+   * The guide also includes a role marker format (## Role: Name) that we parse
+   * in the event handler to extract display names for subagent UI attribution.
+   */
+  private buildDelegationGuide(agents: CustomAgentDef[]): string {
+    // Identify orchestrator agents (agents that delegate but don't implement)
+    const orchestratorNames = new Set(['tech-lead']);
+
+    // Build the sub-delegation block that gets embedded in orchestrator prompts.
+    // This replaces the <delegation_guide> reference in the Tech Lead's prompt.
+    const nonOrchestrators = agents.filter(a => !orchestratorNames.has(a.name));
+    const specialistDir = this.buildSpecialistDirectory(nonOrchestrators);
+
+    const subDelegationBlock = `## Delegation Instructions
+
+To delegate to a specialist, use the task tool with these EXACT parameters:
+- **agent_type**: "general-purpose" (ALWAYS — never use specialist names as agent_type)
+- **model**: Use the specialist's model listed below
+- **prompt**: Start with "## Role: [Name]" then the task. Include enough context for the specialist to work independently.
+
+### Specialist Directory
+${specialistDir}
+
+### Delegation Format
+\`\`\`json
+{
+  "agent_type": "general-purpose",
+  "model": "[model from directory]",
+  "description": "[3-5 word summary]",
+  "prompt": "## Role: [Specialist Name]\\n\\nTask: [detailed task description with all necessary context]"
+}
+\`\`\``;
+
+    // Build agent entries for the top-level guide
+    const agentEntries = agents.map(a => {
+      const displayName = a.displayName || a.name;
+      const model = this.resolveModelForAgent(a.name);
+
+      if (orchestratorNames.has(a.name)) {
+        // For orchestrators: augment their prompt with inline sub-delegation instructions,
+        // replacing the <delegation_guide> reference with the actual content.
+        const augmentedPrompt = a.prompt.replace(
+          /Delegate to specialists using the task tool following the instructions in the <delegation_guide> section\./,
+          ''
+        ).trimEnd() + '\n\n' + subDelegationBlock;
+
+        let entry = `### ${displayName} (ORCHESTRATOR)
+- **Description**: ${a.description || 'No description'}`;
+        if (model) entry += `\n- **Model**: "${model}"`;
+        entry += `\n- **IMPORTANT**: When delegating to this agent, include its FULL prompt below verbatim.`;
+        entry += `\n  The orchestrator needs the embedded delegation instructions to sub-delegate.`;
+        entry += `\n<${a.name}_prompt>\n${augmentedPrompt}\n</${a.name}_prompt>`;
+        return entry;
+      }
+
+      // Non-orchestrator: compact entry with preamble
+      const preamble = a.prompt.split('\n').find(l => l.trim())?.trim() ?? '';
+      let entry = `### ${displayName}
+- **Description**: ${a.description || 'No description'}`;
+      if (model) entry += `\n- **Model**: "${model}"`;
+      entry += `\n- **Preamble**: "${preamble}"`;
+      return entry;
+    }).join('\n\n');
+
+    // Pick a representative non-orchestrator for the simple delegation example
+    const exampleAgent = nonOrchestrators.find(a => a.name === 'staff-engineer') ?? nonOrchestrators[0];
+    const exampleName = exampleAgent?.displayName || exampleAgent?.name || 'Specialist';
+    const exampleModel = this.resolveModelForAgent(exampleAgent?.name ?? '');
+    const exampleModelStr = exampleModel ? `\n  "model": "${exampleModel}",` : '';
+
+    // Find the orchestrator for the orchestrator example
+    const orchestrator = agents.find(a => orchestratorNames.has(a.name));
+    const orchName = orchestrator?.displayName || orchestrator?.name || 'Tech Lead';
+    const orchModel = this.resolveModelForAgent(orchestrator?.name ?? '');
+    const orchModelStr = orchModel ? `\n  "model": "${orchModel}",` : '';
+
+    return `<delegation_guide>
+## How to Delegate
+
+Use the task tool with agent_type "general-purpose" for ALL delegations.
+Each specialist runs on its own model — include the model parameter from the directory.
+Start every prompt with a role marker: ## Role: [Specialist Display Name]
+
+## CRITICAL RULES
+1. ALWAYS use agent_type "general-purpose" — never use specialist names as agent_type
+2. ALWAYS include the specialist's model parameter if one is listed
+3. ALWAYS start the prompt with: ## Role: [Specialist Display Name]
+4. For ORCHESTRATOR agents: include their FULL prompt (shown in the <*_prompt> block)
+5. For other specialists: include the role marker, then describe the task with full context
+
+## Available Specialists
+
+${agentEntries}
+
+## Delegation Examples
+
+### Delegating to a specialist (simple):
+\`\`\`json
+{
+  "agent_type": "general-purpose",${exampleModelStr}
+  "description": "Implement auth feature",
+  "prompt": "## Role: ${exampleName}\\n\\nTask: [detailed task with context]"
+}
+\`\`\`
+
+### Delegating to an orchestrator (include full prompt):
+\`\`\`json
+{
+  "agent_type": "general-purpose",${orchModelStr}
+  "description": "Coordinate feature implementation",
+  "prompt": "## Role: ${orchName}\\n[INCLUDE THE FULL PROMPT FROM <${orchestrator?.name ?? 'tech-lead'}_prompt> ABOVE]\\n\\nTask: [describe what needs to be done]"
+}
+\`\`\`
+</delegation_guide>`;
   }
 
   // ── Lifecycle ────────────────────────────────────────────────
@@ -368,12 +978,24 @@ Example: To use the "clarifier" agent:
 
       const sessionId = this.generateSessionId();
 
+      // Pre-load orchestration agents as defaults
+      if (this._customAgents.length === 0) {
+        this._customAgents = getOrchestrationAgents();
+      }
+
       const session = await this.client.createSession({
         sessionId,
         streaming: true,
         model,
         onUserInputRequest: this.getUserInputCallback(),
-        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        // NOTE: customAgents intentionally omitted. The CLI's setAuthInfo flow
+        // calls loadCustomAgents() after every session.create, which async-overwrites
+        // any customAgents we pass here with an empty array loaded from disk.
+        // Instead, we embed specialist roles directly in the system message and
+        // instruct the LLM to use agent_type "general-purpose" for all delegations.
+        tools: this._anvilTools,
+        hooks: this._sessionHooks,
+        skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
         systemMessage: this.buildSystemMessage(),
         reasoningEffort: this.getEffectiveReasoningEffort(),
       });
@@ -419,7 +1041,7 @@ Example: To use the "clarifier" agent:
         case "assistant.turn_start": {
           if (this.isEventStale(gen)) return;
 
-          this.resetStreamingState();
+          this.resetTurnStreamingBuffers();
 
           if (this.currentRunId) {
             this.emit({
@@ -436,23 +1058,29 @@ Example: To use the "clarifier" agent:
 
           const deltaContent = event.data?.deltaContent ?? "";
           if (!deltaContent) return;
+          const parentToolCallId = event.data?.parentToolCallId;
+          const bufferKey = this.getStreamingBufferKey(event.data?.messageId, parentToolCallId);
 
-          this.streamingBuffer += deltaContent;
+          const existingBuffer = this.streamingBuffers.get(bufferKey);
+          // Check if this is from a subagent, otherwise use active agent
+          const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+          const agentInfo = subagent || (this._activeAgent ? {
+            agentName: this._activeAgent.name,
+            agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
+          } : undefined);
+          this.streamingBuffers.set(bufferKey, {
+            text: (existingBuffer?.text ?? "") + deltaContent,
+            parentToolCallId: parentToolCallId ?? existingBuffer?.parentToolCallId,
+            agentName: agentInfo?.agentName ?? existingBuffer?.agentName,
+            agentDisplayName: agentInfo?.agentDisplayName ?? existingBuffer?.agentDisplayName,
+          });
 
           if (this.currentRunId) {
-            const parentToolCallId = event.data?.parentToolCallId;
-            // Check if this is from a subagent, otherwise use active agent
-            const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
-            const agentInfo = subagent || (this._activeAgent ? {
-              agentName: this._activeAgent.name,
-              agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
-            } : undefined);
-            
             // Debug logging for first delta of each message
-            if (this.streamingBuffer.length === 0 && agentInfo) {
-              this.emit(createLogEvent("debug", `📤 Assistant delta starting - agent: ${agentInfo.agentDisplayName} (subagent: ${Boolean(subagent)}, parentToolCallId: ${parentToolCallId || "none"})`));
+            if ((!existingBuffer || existingBuffer.text.length === 0) && agentInfo) {
+              this.emit(createLogEvent("debug", `${nf.send} Assistant delta starting - agent: ${agentInfo.agentDisplayName} (subagent: ${Boolean(subagent)}, parentToolCallId: ${parentToolCallId || "none"})`));
             }
-            
+
             this.emit({
               type: "assistant.delta",
               runId: this.currentRunId,
@@ -469,28 +1097,51 @@ Example: To use the "clarifier" agent:
           if (this.isEventStale(gen)) return;
 
           const content = event.data?.content ?? "";
-          const resolvedContent = content || this.streamingBuffer;
-          const parentToolCallId = event.data?.parentToolCallId;
+          const parentToolCallIdFromEvent = event.data?.parentToolCallId;
 
-          this.emit(createLogEvent("debug", `📝 Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
+          let bufferKey = this.getStreamingBufferKey(event.data?.messageId, parentToolCallIdFromEvent);
+          let bufferedMessage = this.streamingBuffers.get(bufferKey);
+
+          // Defensive fallback: if messageId exists but buffering fell back to parentToolCallId.
+          if (!bufferedMessage && event.data?.messageId && parentToolCallIdFromEvent) {
+            const fallbackKey = this.getStreamingBufferKey(undefined, parentToolCallIdFromEvent);
+            bufferedMessage = this.streamingBuffers.get(fallbackKey);
+            if (bufferedMessage) bufferKey = fallbackKey;
+          }
+
+          const resolvedContent = content || bufferedMessage?.text || "";
+          const parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId;
+          this.streamingBuffers.delete(bufferKey);
+
+          this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
 
           if (resolvedContent && this.currentRunId) {
             const message = createAssistantMessage(resolvedContent);
-            
+
+            // Best-effort reasoning support: some SDK builds attach reasoning directly
+            // to the completed assistant message instead of emitting reasoning_delta events.
+            const directReasoning = (event.data as any)?.reasoning ?? (event.data as any)?.reasoningContent;
+            if (typeof directReasoning === "string" && directReasoning.trim()) {
+              (message as any).reasoning = directReasoning;
+            }
+
             // Add agent information - from subagent if available, otherwise from active agent
             if (parentToolCallId) {
+              message.parentToolCallId = parentToolCallId;
               this.emit(createLogEvent("debug", `Looking up subagent for toolCallId: ${parentToolCallId}`));
               const subagent = this.activeSubagents.get(parentToolCallId);
               if (subagent) {
-                this.emit(createLogEvent("info", `✨ Message from subagent: ${subagent.agentDisplayName}`));
+                this.emit(createLogEvent("info", `${nf.magic} Message from subagent: ${subagent.agentDisplayName}`));
                 message.agentName = subagent.agentName;
                 message.agentDisplayName = subagent.agentDisplayName;
-                message.parentToolCallId = parentToolCallId;
+              } else if (bufferedMessage?.agentName || bufferedMessage?.agentDisplayName) {
+                message.agentName = bufferedMessage.agentName;
+                message.agentDisplayName = bufferedMessage.agentDisplayName;
               } else {
-                this.emit(createLogEvent("warn", `⚠️ No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
+                this.emit(createLogEvent("warn", `${nf.warning} No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
               }
             } else if (this._activeAgent) {
-              // Message from top-level active agent (e.g., Clarifier)
+              // Message from top-level active agent (e.g., Intake)
               message.agentName = this._activeAgent.name;
               message.agentDisplayName = this._activeAgent.displayName || this._activeAgent.name;
             }
@@ -500,24 +1151,15 @@ Example: To use the "clarifier" agent:
               runId: this.currentRunId,
               message,
             });
-            this.hasEmittedContentForTurn = true;
           }
-
-          this.streamingBuffer = "";
           break;
         }
 
         case "assistant.turn_end": {
           if (this.isEventStale(gen)) return;
 
-          if (!this.hasEmittedContentForTurn && this.streamingBuffer && this.currentRunId) {
-            const message = createAssistantMessage(this.streamingBuffer);
-            
-            this.emit({
-              type: "assistant.message",
-              runId: this.currentRunId,
-              message,
-            });
+          if (this.currentRunId) {
+            this.flushStreamingBuffers(this.currentRunId);
           }
 
           if (this.currentRunId) {
@@ -528,7 +1170,7 @@ Example: To use the "clarifier" agent:
             });
           }
 
-          this.resetStreamingState();
+          this.resetTurnStreamingBuffers();
           break;
         }
 
@@ -539,15 +1181,77 @@ Example: To use the "clarifier" agent:
           const args = parseToolArgs(event.data?.arguments);
 
           // Handle special tool calls
-          if (toolName === "report_intent" && args && typeof args === "object") {
-            const intentArg = (args as any).intent;
+          if (toolName === "report_intent") {
+            const intentArg =
+              args && typeof args === "object"
+                ? (args as any).intent
+                : typeof args === "string"
+                ? args
+                : undefined;
             if (intentArg && this.currentRunId) {
-              this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg });
+              const subagentToolCallId = this.resolveIntentToolCallId(event.data?.parentToolCallId);
+              this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg, toolCallId: subagentToolCallId });
             }
-          } else if (toolName === "update_todo" && args && typeof args === "object") {
-            const todosArg = (args as any).todos;
+          } else if (toolName === "update_todo") {
+            const todosArg =
+              args && typeof args === "object"
+                ? (args as any).todos
+                : typeof args === "string"
+                ? args
+                : undefined;
             if (todosArg && this.currentRunId) {
               this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todosArg });
+            }
+          } else if (toolName === "enforce_checklist" && args && typeof args === "object") {
+            const action = (args as any).action;
+            const items = (args as any).items as string[] | undefined;
+            const itemIndex = (args as any).item_index as number | undefined;
+
+            if (action === "register" && items && items.length > 0) {
+              this.checklistItems = items.map((title, index) => ({
+                id: `checklist-${index}`,
+                title,
+                checked: false,
+              }));
+              this.emitChecklistUpdate();
+            } else if (
+              action === "complete" &&
+              itemIndex !== undefined &&
+              itemIndex >= 0 &&
+              itemIndex < this.checklistItems.length
+            ) {
+              this.checklistItems[itemIndex].checked = true;
+              this.emitChecklistUpdate();
+            }
+          } else if (toolName === "sql" && args && typeof args === "object") {
+            const toolCallId = event.data?.toolCallId;
+            const query = (args as any).query as string | undefined;
+            if (toolCallId && query) {
+              this.sqlQueriesByToolCallId.set(toolCallId, query);
+            }
+            if (query && this.currentRunId) {
+              const todoMarkdown = this.parseSqlTodoItems(query);
+              if (todoMarkdown) {
+                this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todoMarkdown });
+              }
+            }
+          }
+
+          // Extract specialist role and model from task tool prompts for display attribution.
+          // When the LLM delegates via agent_type "general-purpose", the prompt
+          // starts with "## Role: <SpecialistName>\n..." — we capture that name
+          // so the subagent.started event can show the real specialist instead of
+          // "General Purpose Agent". We also capture the model parameter.
+          if (toolName === "task" && args && typeof args === "object") {
+            const toolCallId = event.data?.toolCallId;
+            if (toolCallId) {
+              const prompt = (args as any).prompt;
+              const roleMatch = typeof prompt === "string" ? prompt.match(/^## Role:\s*(.+)/m) : null;
+              this.pendingAgentRoles.set(toolCallId, {
+                role: roleMatch?.[1]?.trim(),
+                model: (args as any).model,
+                taskTitle: (args as any).description,
+              });
             }
           }
 
@@ -568,7 +1272,8 @@ Example: To use the "clarifier" agent:
 
           const intent = event.data?.intent;
           if (intent && this.currentRunId) {
-            this.emit({ type: "intent.updated", runId: this.currentRunId, intent });
+            const subagentToolCallId = this.resolveIntentToolCallId();
+            this.emit({ type: "intent.updated", runId: this.currentRunId, intent, toolCallId: subagentToolCallId });
           }
           break;
         }
@@ -591,14 +1296,53 @@ Example: To use the "clarifier" agent:
           if (this.isEventStale(gen)) return;
 
           if (this.currentRunId) {
+            const completeToolCallId = event.data?.toolCallId ?? "";
+            const toolSuccess = event.data?.success ?? false;
+            const sqlQuery = this.sqlQueriesByToolCallId.get(completeToolCallId);
+            if (sqlQuery) this.sqlQueriesByToolCallId.delete(completeToolCallId);
+
             this.emit({
               type: "tool.completed",
               runId: this.currentRunId,
-              toolCallId: event.data?.toolCallId ?? "",
-              success: event.data?.success ?? false,
+              toolCallId: completeToolCallId,
+              success: toolSuccess,
               output: extractToolOutput(event.data?.result),
               error: event.data?.error?.message,
             });
+
+            if (sqlQuery) {
+              const todoMarkdown = this.parseSqlTodoItemsFromResult(sqlQuery, event.data?.result);
+              if (todoMarkdown) {
+                this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todoMarkdown });
+              }
+            }
+
+            // Safety net: if a task tool completes but its subagent wasn't
+            // explicitly completed/failed by the SDK, emit a synthetic completion.
+            //
+            // The SDK only emits subagent.completed via session boundary events,
+            // but for "general-purpose" agents these boundaries may never fire.
+            // Without this, the subagent pane gets stuck on "running" or shows
+            // incorrect status.
+            //
+            // IMPORTANT: We always emit subagent.completed here, NOT subagent.failed.
+            // A subagent that was started and ran to completion is "completed" from
+            // the UI's perspective — even if the task tool reports resultType "failure"
+            // (which sets success=false). The tool-level success/failure is about the
+            // tool's return semantics, not whether the agent actually did its work.
+            // Showing "failed" causes the parent LLM to retry needlessly.
+            const pendingSubagent = this.activeSubagents.get(completeToolCallId);
+            if (pendingSubagent) {
+              this.emit(createLogEvent("debug", `Subagent ${pendingSubagent.agentDisplayName} still tracked at tool completion — emitting synthetic completed (tool success=${toolSuccess})`));
+              this.activeSubagents.delete(completeToolCallId);
+
+              this.emit({
+                type: "subagent.completed",
+                runId: this.currentRunId,
+                toolCallId: completeToolCallId,
+                agentName: pendingSubagent.agentName,
+              });
+            }
           }
           break;
         }
@@ -640,21 +1384,24 @@ Example: To use the "clarifier" agent:
         case "session.idle": {
           if (!this.isProcessing) return;
 
+          // The SDK may fire session.idle while waiting for the
+          // onUserInputRequest callback to resolve.  Ignore it —
+          // the real idle will arrive after the user answers and
+          // the agent finishes its remaining turns.
+          if (this.hasPendingUserInput) {
+            this.emit(createLogEvent("debug", "Ignoring session.idle — user input pending"));
+            return;
+          }
+
           if (this.currentRunId) {
             const runId = this.currentRunId;
 
-            if (this.streamingBuffer && !this.hasEmittedContentForTurn) {
-              this.emit({
-                type: "assistant.message",
-                runId,
-                message: createAssistantMessage(this.streamingBuffer),
-              });
-            }
+            this.flushStreamingBuffers(runId);
 
             this.emit({ type: "run.finished", runId, createdAt: new Date() });
             this.emit(createLogEvent("info", "Response complete", runId));
 
-            this.resetStreamingState();
+            this.resetRunTrackingState();
             this.currentRunId = null;
             this.isProcessing = false;
           }
@@ -705,7 +1452,7 @@ Example: To use the "clarifier" agent:
 
         case "subagent.selected": {
           if (this.isEventStale(gen)) return;
-          this.emit(createLogEvent("info", `🔍 Subagent selected: ${event.data?.agentName} (${event.data?.agentDisplayName})`));
+          this.emit(createLogEvent("info", `${nf.search} Subagent selected: ${event.data?.agentName} (${event.data?.agentDisplayName})`));
           break;
         }
 
@@ -713,14 +1460,29 @@ Example: To use the "clarifier" agent:
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             const toolCallId = event.data?.toolCallId ?? "";
-            const agentName = event.data?.agentName ?? "";
-            const agentDisplayName = event.data?.agentDisplayName ?? "";
-            
-            this.emit(createLogEvent("info", `🚀 Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
-            
+            let agentName = event.data?.agentName ?? "";
+            let agentDisplayName = event.data?.agentDisplayName ?? "";
+
+            // Override generic "general-purpose" name with the real specialist
+            // role extracted from the task tool's prompt (see tool.execution_start).
+            const pendingData = this.pendingAgentRoles.get(toolCallId);
+            let model: string | undefined;
+            let taskTitle: string | undefined;
+            if (pendingData) {
+              if (pendingData.role) {
+                agentDisplayName = pendingData.role;
+                agentName = pendingData.role.toLowerCase().replace(/\s+/g, "-");
+              }
+              model = pendingData.model;
+              taskTitle = pendingData.taskTitle;
+              this.pendingAgentRoles.delete(toolCallId);
+            }
+
+            this.emit(createLogEvent("info", `${nf.rocket} Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
+
             // Track this subagent so we can attribute its messages
-            this.activeSubagents.set(toolCallId, { agentName, agentDisplayName });
-            
+            this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
+
             this.emit({
               type: "subagent.started",
               runId: this.currentRunId,
@@ -728,6 +1490,8 @@ Example: To use the "clarifier" agent:
               agentName,
               agentDisplayName,
               agentDescription: event.data?.agentDescription ?? "",
+              model,
+              taskTitle,
             });
           }
           break;
@@ -755,16 +1519,33 @@ Example: To use the "clarifier" agent:
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             const toolCallId = event.data?.toolCallId ?? "";
-            
+            const failedAgentName = event.data?.agentName ?? "";
+            const failError = event.data?.error ?? "Unknown error";
+
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
-            
+
+            // IMPORTANT: We intentionally convert subagent.failed → subagent.completed.
+            //
+            // The SDK emits subagent.failed when the task tool returns resultType
+            // "failure", but this is a tool-level semantic — it does NOT mean the
+            // agent crashed or didn't run. Common "failure" causes:
+            //   - The general-purpose agent returned an error-like object
+            //   - Model negotiation issues (still produced output)
+            //   - The agent's response was wrapped with resultType "failure"
+            //
+            // Emitting subagent.failed causes the parent LLM to see the red ✕
+            // and retry needlessly, wasting premium requests. Instead, we always
+            // mark the subagent as "completed" in the UI. The parent LLM still
+            // sees the actual tool result text and can decide for itself whether
+            // to retry based on the content, not the status icon.
+            this.emit(createLogEvent("info", `Subagent ${failedAgentName} reported as "failed" by SDK (${failError}) — converting to completed for UI`));
+
             this.emit({
-              type: "subagent.failed",
+              type: "subagent.completed",
               runId: this.currentRunId,
               toolCallId,
-              agentName: event.data?.agentName ?? "",
-              error: event.data?.error ?? "Unknown error",
+              agentName: failedAgentName,
             });
           }
           break;
@@ -798,7 +1579,7 @@ Example: To use the "clarifier" agent:
     this.currentRunId = runId;
     this.isCancelled = false;
     this.isProcessing = true;
-    this.resetStreamingState();
+    this.resetRunTrackingState();
 
     const attachments = images?.map((imagePath) => ({
       type: "file" as const,
@@ -826,7 +1607,7 @@ Example: To use the "clarifier" agent:
         // Bump generation to invalidate stale events from the old session
         this.expectedRunGeneration++;
         this.currentRunGeneration = this.expectedRunGeneration;
-        this.resetStreamingState();
+        this.resetRunTrackingState();
 
         this.emit(createLogEvent("info", "Session renewed, retrying prompt...", runId));
         await this.session!.send(sendPayload);
@@ -841,13 +1622,14 @@ Example: To use the "clarifier" agent:
 
     this.isCancelled = true;
     this.isProcessing = false;
+    this.hasPendingUserInput = false;
     this.expectedRunGeneration++;
 
     if (this.session) {
       try { await this.session.abort(); } catch { /* best-effort */ }
     }
 
-    this.resetStreamingState();
+    this.resetRunTrackingState();
     this.currentRunId = null;
 
     if (runId) {
@@ -866,7 +1648,9 @@ Example: To use the "clarifier" agent:
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._anvilTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     });
@@ -887,7 +1671,9 @@ Example: To use the "clarifier" agent:
       streaming: true as const,
       model: modelId,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._anvilTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     };
@@ -920,7 +1706,9 @@ Example: To use the "clarifier" agent:
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._anvilTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     });
@@ -947,7 +1735,9 @@ Example: To use the "clarifier" agent:
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+      tools: this._anvilTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
       reasoningEffort: this.getEffectiveReasoningEffort(),
     });

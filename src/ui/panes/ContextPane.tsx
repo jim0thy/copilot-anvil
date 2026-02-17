@@ -1,6 +1,5 @@
 import { memo } from "react";
 import type { Theme } from "../theme.js";
-import type { OrchestrationMode } from "../../agents/types.js";
 
 export interface ContextInfo {
   currentTokens: number;
@@ -12,14 +11,12 @@ export interface ContextInfo {
 
 interface ContextPaneProps {
   contextInfo: ContextInfo;
-  orchestrationMode: OrchestrationMode;
   width: number | `${number}%` | "auto";
   theme: Theme;
 }
 
 export const ContextPane = memo(function ContextPane({ 
   contextInfo,
-  orchestrationMode,
   width, 
   theme 
 }: ContextPaneProps) {
@@ -36,12 +33,11 @@ export const ContextPane = memo(function ContextPane({
     ? c.warning 
     : c.success;
 
-  const barWidth = 30;
+  const numericWidth = typeof width === "number" ? width : 0;
+  const innerWidth = Math.max(1, numericWidth - 4);
+  const barWidth = Math.max(10, innerWidth);
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
-
-  const modeLabel = orchestrationMode === "orchestrated" ? "🎯 Team" : "⚡ Direct";
-  const modeColor = orchestrationMode === "orchestrated" ? c.accent : c.primary;
 
   return (
     <box
@@ -52,17 +48,11 @@ export const ContextPane = memo(function ContextPane({
       paddingLeft={1}
       paddingRight={1}
     >
-      {/* Header row with title, mode indicator, and counters */}
+      {/* Header row with title and counters */}
       <box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <box flexDirection="row" gap={2}>
-          <text fg={c.primary}>
-            <b>Context</b>
-          </text>
-          <text fg={c.subtle}>│</text>
-          <text fg={modeColor}>
-            <b>{modeLabel}</b>
-          </text>
-        </box>
+        <text fg={c.primary}>
+          <b>Context</b>
+        </text>
         <box flexDirection="row" gap={2}>
           <text>
             <span fg={c.subtext0}>Session: </span>
@@ -80,7 +70,7 @@ export const ContextPane = memo(function ContextPane({
         </box>
       </box>
 
-      {/* Token usage display with progress bar on same line as percentage */}
+      {/* Token usage display */}
       <box flexDirection="column" marginTop={1}>
         <box flexDirection="row" justifyContent="space-between" alignItems="center">
           <text>
@@ -89,10 +79,10 @@ export const ContextPane = memo(function ContextPane({
             <span fg={c.subtext0}>{tokenLimit.toLocaleString()}</span>
             <span fg={c.subtext0}> tokens</span>
           </text>
-          <text>
-            <span fg={percentColor}>{progressBar}</span>
-            <span fg={percentColor}> <b>{contextPercent}%</b></span>
-          </text>
+          <text fg={percentColor}><b>{contextPercent}%</b></text>
+        </box>
+        <box>
+          <text fg={percentColor}>{progressBar}</text>
         </box>
       </box>
     </box>

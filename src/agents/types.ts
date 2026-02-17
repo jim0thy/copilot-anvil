@@ -1,15 +1,17 @@
 /**
  * Agent definition types for the orchestration system.
- * 
+ *
  * Agents are defined in markdown files with YAML frontmatter, following
  * the vscode-agents convention. This module provides types and parsing
  * utilities to load agents from both global (~/.config/anvil/agents/)
  * and project-local (.agents/) directories.
  */
 
+import type { ReasoningEffort } from "../utils/config.js";
+
 /**
  * Complexity level for agent selection.
- * Used by the orchestrator to pick the right agent based on task scope.
+ * Used by the tech lead to pick the right agent based on task scope.
  */
 export type AgentTier = "junior" | "mid" | "senior" | "specialist";
 
@@ -37,6 +39,7 @@ export interface AgentFrontmatter {
   name: string;
   description: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   tools?: string[];
   tier?: AgentTier;
   domain?: AgentDomain;
@@ -59,7 +62,10 @@ export interface AgentDefinition {
   
   /** Model to use (e.g., "claude-sonnet-4.5", "gemini-3-pro") */
   model: string;
-  
+
+  /** Reasoning effort level (maps to Copilot variant: max → xhigh) */
+  reasoningEffort?: ReasoningEffort;
+
   /** Tools available to this agent */
   tools: string[];
   
@@ -94,7 +100,7 @@ export interface AgentContext {
   /** Current working directory */
   cwd: string;
   
-  /** Available agents for delegation (for orchestrator) */
+  /** Available agents for delegation (for tech lead) */
   availableAgents: AgentDefinition[];
   
   /** Current orchestration mode */
@@ -137,7 +143,7 @@ export interface ExecutionTask {
 }
 
 /**
- * Full execution plan created by the Planner agent.
+ * Full execution plan created by the Strategist agent.
  */
 export interface ExecutionPlan {
   summary: string;
