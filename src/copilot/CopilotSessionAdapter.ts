@@ -96,6 +96,9 @@ export class CopilotSessionAdapter {
    *  the generic "general-purpose" display name with the actual specialist name. */
   private pendingAgentRoles = new Map<string, { role?: string; model?: string; taskTitle?: string }>();
   /** Checklist items tracked for todo/checklist tools */
+  private checklistItems: { id: string; title: string; checked: boolean }[] = [];
+  /** SQL query text by sql tool call ID (used for parsing execution_complete results) */
+  private sqlQueriesByToolCallId = new Map<string, string>();
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -364,13 +367,165 @@ export class CopilotSessionAdapter {
     return entries[entries.length - 1][0];
   }
 
+  /** Render checklist state as markdown for todo.updated events. */
+  private getChecklistMarkdown(): string | null {
+    if (this.checklistItems.length === 0) return null;
+    return this.checklistItems
+      .map(item => `- [${item.checked ? "x" : " "}] ${item.title}`)
+      .join("\n");
+  }
+
+  private isDoneTodoStatus(status: string | undefined): boolean {
+    return (status ?? "").trim().toLowerCase() === "done";
+  }
+
   /** Emit a todo.updated event with the current checklist state as markdown. */
   private emitChecklistUpdate(): void {
     if (!this.currentRunId) return;
-    const markdown = this.checklistItems
-      .map(item => `- [${item.checked ? "x" : " "}] ${item.text}`)
-      .join("\n");
+    const markdown = this.getChecklistMarkdown();
+    if (!markdown) return;
     this.emit({ type: "todo.updated", runId: this.currentRunId, todos: markdown });
+  }
+
+  /** Parse SQL INSERT/UPDATE on the todos table and merge with existing checklist state. */
+  private parseSqlTodoItems(query: string): string | null {
+    const upperQuery = query.toUpperCase();
+    const isTodoMutation =
+      (upperQuery.includes("INSERT") || upperQuery.includes("UPDATE")) &&
+      upperQuery.includes("TODOS");
+    if (!isTodoMutation) return null;
+
+    // Column-aware INSERT: extract column list then match positionally
+    const insertMatch = query.match(
+      /INSERT\s+INTO\s+todos\s*\(([^)]+)\)\s*VALUES\s+([\s\S]+?)(?:;|$)/i
+    );
+    if (insertMatch) {
+      const columns = insertMatch[1].split(",").map(c => c.trim().toLowerCase());
+      const idIdx = columns.indexOf("id");
+      const titleIdx = columns.indexOf("title");
+      const statusIdx = columns.indexOf("status");
+      if (titleIdx === -1) return null; // can't proceed without a title column
+
+      const valuesBlock = insertMatch[2];
+      // Extract each value row — handles quoted strings with commas inside
+      const rowMatches = [...valuesBlock.matchAll(/\((?:[^()']*|'[^']*')*\)/g)];
+      let changed = false;
+      for (const rowMatch of rowMatches) {
+        const vals = [...rowMatch[1].matchAll(/'([^']*?)'/g)].map(m => m[1]);
+        const id = idIdx >= 0 && idIdx < vals.length ? vals[idIdx] : undefined;
+        const title = vals[titleIdx];
+        const status = statusIdx >= 0 && statusIdx < vals.length ? vals[statusIdx] : "pending";
+        const checklistId = (id || title)?.trim();
+        if (!title || !checklistId) continue;
+        const checked = this.isDoneTodoStatus(status);
+        const existing = this.checklistItems.find(item => item.id === checklistId);
+        if (!existing) {
+          this.checklistItems.push({ id: checklistId, title, checked });
+          changed = true;
+        } else {
+          if (existing.title !== title || existing.checked !== checked) {
+            existing.title = title;
+            existing.checked = checked;
+            changed = true;
+          }
+        }
+      }
+      return changed ? this.getChecklistMarkdown() : null;
+    }
+
+    // Match UPDATE todos SET status = 'done' WHERE id = '...'
+    const updateMatch = query.match(
+      /UPDATE\s+todos\s+SET\s+status\s*=\s*'(done|in_progress|pending|blocked)'\s+WHERE\s+id\s*=\s*'([^']+)'/is
+    );
+    if (updateMatch) {
+      const newStatus = updateMatch[1];
+      const todoId = updateMatch[2];
+      const item = this.checklistItems.find(it => it.id === todoId);
+      if (!item) return null;
+      const checked = this.isDoneTodoStatus(newStatus);
+      if (item.checked === checked) return null;
+      item.checked = checked;
+      return this.getChecklistMarkdown();
+    }
+
+    return null;
+  }
+
+  /** Parse SQL SELECT todos results and replace checklist state from returned rows. */
+  private parseSqlTodoItemsFromResult(query: string, result: unknown): string | null {
+    const upperQuery = query.toUpperCase();
+    const isTodoSelect =
+      upperQuery.includes("SELECT") &&
+      upperQuery.includes("FROM") &&
+      upperQuery.includes("TODOS");
+    if (!isTodoSelect) return null;
+
+    const resultText = this.extractSqlResultText(result);
+    if (!resultText) return null;
+
+    const lines = resultText
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.startsWith("|"));
+    if (lines.length < 3) return null;
+
+    const headerCells = this.parseMarkdownTableRow(lines[0]).map(cell => cell.toLowerCase());
+    const idIdx = headerCells.indexOf("id");
+    const titleIdx = headerCells.indexOf("title");
+    const statusIdx = headerCells.indexOf("status");
+    if (titleIdx === -1) return null;
+
+    const nextItems: { id: string; title: string; checked: boolean }[] = [];
+    for (const line of lines.slice(1)) {
+      const cells = this.parseMarkdownTableRow(line);
+      if (cells.length === 0) continue;
+      if (cells.every(cell => /^:?-{3,}:?$/.test(cell))) continue;
+      const title = cells[titleIdx]?.trim();
+      if (!title) continue;
+      const id = idIdx >= 0 ? (cells[idIdx]?.trim() || title) : title;
+      const status = statusIdx >= 0 ? cells[statusIdx]?.trim() : "pending";
+      nextItems.push({ id, title, checked: this.isDoneTodoStatus(status) });
+    }
+
+    if (nextItems.length === 0) return null;
+    this.checklistItems = nextItems;
+    return this.getChecklistMarkdown();
+  }
+
+  private parseMarkdownTableRow(row: string): string[] {
+    const trimmed = row.trim();
+    if (!trimmed.startsWith("|")) return [];
+    const withoutEdges = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+    return withoutEdges.split("|").map(cell => cell.trim());
+  }
+
+  private extractSqlResultText(result: unknown): string | null {
+    if (!result) return null;
+    if (typeof result === "string") return result;
+    if (typeof result === "object") {
+      const obj = result as Record<string, unknown>;
+      if (typeof obj.content === "string" && obj.content.trim()) return obj.content;
+      if (typeof obj.detailedContent === "string" && obj.detailedContent.trim()) return obj.detailedContent;
+      const contents = obj.contents;
+      if (Array.isArray(contents)) {
+        const textChunks: string[] = [];
+        for (const content of contents) {
+          if (!content || typeof content !== "object") continue;
+          const item = content as Record<string, unknown>;
+          if ((item.type === "text" || item.type === "terminal") && typeof item.text === "string") {
+            textChunks.push(item.text);
+          } else if (item.type === "resource" && typeof item.resource === "object" && item.resource !== null) {
+            const resource = item.resource as Record<string, unknown>;
+            if (typeof resource.text === "string") {
+              textChunks.push(resource.text);
+            }
+          }
+        }
+        if (textChunks.length > 0) return textChunks.join("\n");
+      }
+    }
+    const fallback = extractToolOutput(result);
+    return typeof fallback === "string" && fallback.trim() ? fallback : null;
   }
 
   /** Tear down the current session and its plan watcher. Does not throw. */
@@ -889,6 +1044,18 @@ ${agentEntries}
               this.checklistItems[itemIndex].checked = true;
               this.emitChecklistUpdate();
             }
+          } else if (toolName === "sql" && args && typeof args === "object") {
+            const toolCallId = event.data?.toolCallId;
+            const query = (args as any).query as string | undefined;
+            if (toolCallId && query) {
+              this.sqlQueriesByToolCallId.set(toolCallId, query);
+            }
+            if (query && this.currentRunId) {
+              const todoMarkdown = this.parseSqlTodoItems(query);
+              if (todoMarkdown) {
+                this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todoMarkdown });
+              }
+            }
           }
 
           // Extract specialist role and model from task tool prompts for display attribution.
@@ -952,6 +1119,8 @@ ${agentEntries}
           if (this.currentRunId) {
             const completeToolCallId = event.data?.toolCallId ?? "";
             const toolSuccess = event.data?.success ?? false;
+            const sqlQuery = this.sqlQueriesByToolCallId.get(completeToolCallId);
+            if (sqlQuery) this.sqlQueriesByToolCallId.delete(completeToolCallId);
 
             this.emit({
               type: "tool.completed",
@@ -961,6 +1130,13 @@ ${agentEntries}
               output: extractToolOutput(event.data?.result),
               error: event.data?.error?.message,
             });
+
+            if (sqlQuery) {
+              const todoMarkdown = this.parseSqlTodoItemsFromResult(sqlQuery, event.data?.result);
+              if (todoMarkdown) {
+                this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todoMarkdown });
+              }
+            }
 
             // Safety net: if a task tool completes but its subagent wasn't
             // explicitly completed/failed by the SDK, emit a synthetic completion.
