@@ -82,9 +82,12 @@ await session.destroy();
 | `Ctrl+S` | Open skills selector |
 | `Ctrl+N` | Switch/create sessions |
 | `Ctrl+G` | Smart commit & push |
-| `Ctrl+I` | Attach image to prompt |
+| `Esc` | Quit the application (or cancel attachment selection) |
 | `Ctrl+C` | Cancel active run (or quit if idle) |
-| `Esc` | Quit |
+| `Enter` | Submit prompt |
+| `Ctrl+I` | Attach image to prompt |
+| `Ctrl+X` | Remove attachments (toggle selection mode) |
+| `↑/↓` | Cycle through attachments (when in removal mode) |
 
 ## TUI Layout
 
