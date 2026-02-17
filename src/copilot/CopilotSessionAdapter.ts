@@ -92,7 +92,9 @@ export class CopilotSessionAdapter {
   /** Map of tool call IDs to specialist role names extracted from task tool prompts.
    *  Populated in tool.execution_start, consumed in subagent.started to override
    *  the generic "general-purpose" display name with the actual specialist name. */
-  private pendingAgentRoles = new Map<string, string>();
+  private pendingAgentRoles = new Map<string, { role?: string; model?: string; taskTitle?: string }>();
+  /** Checklist items tracked for the enforce_checklist tool */
+  private checklistItems: { text: string; checked: boolean }[] = [];
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -305,6 +307,16 @@ export class CopilotSessionAdapter {
     this.hasEmittedContentForTurn = false;
     this.activeSubagents.clear();
     this.pendingAgentRoles.clear();
+    this.checklistItems = [];
+  }
+
+  /** Emit a todo.updated event with the current checklist state as markdown. */
+  private emitChecklistUpdate(): void {
+    if (!this.currentRunId) return;
+    const markdown = this.checklistItems
+      .map(item => `- [${item.checked ? "x" : " "}] ${item.text}`)
+      .join("\n");
+    this.emit({ type: "todo.updated", runId: this.currentRunId, todos: markdown });
   }
 
   /** Tear down the current session and its plan watcher. Does not throw. */
@@ -778,6 +790,23 @@ ${agentEntries}
             if (todosArg && this.currentRunId) {
               this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todosArg });
             }
+          } else if (toolName === "enforce_checklist" && args && typeof args === "object") {
+            const action = (args as any).action;
+            const items = (args as any).items as string[] | undefined;
+            const itemIndex = (args as any).item_index as number | undefined;
+
+            if (action === "register" && items && items.length > 0) {
+              this.checklistItems = items.map(text => ({ text, checked: false }));
+              this.emitChecklistUpdate();
+            } else if (
+              action === "complete" &&
+              itemIndex !== undefined &&
+              itemIndex >= 0 &&
+              itemIndex < this.checklistItems.length
+            ) {
+              this.checklistItems[itemIndex].checked = true;
+              this.emitChecklistUpdate();
+            }
           }
 
           // Extract specialist role from task tool prompts for display attribution.
@@ -787,12 +816,14 @@ ${agentEntries}
           // "General Purpose Agent".
           if (toolName === "task" && args && typeof args === "object") {
             const toolCallId = event.data?.toolCallId;
-            const prompt = (args as any).prompt;
-            if (toolCallId && typeof prompt === "string") {
-              const roleMatch = prompt.match(/^## Role:\s*(.+)/m);
-              if (roleMatch) {
-                this.pendingAgentRoles.set(toolCallId, roleMatch[1].trim());
-              }
+            if (toolCallId) {
+              const prompt = (args as any).prompt;
+              const roleMatch = typeof prompt === "string" ? prompt.match(/^## Role:\s*(.+)/m) : null;
+              this.pendingAgentRoles.set(toolCallId, {
+                role: roleMatch?.[1]?.trim(),
+                model: (args as any).model,
+                taskTitle: (args as any).description,
+              });
             }
           }
 
@@ -1001,11 +1032,16 @@ ${agentEntries}
 
             // Override generic "general-purpose" name with the real specialist
             // role extracted from the task tool's prompt (see tool.execution_start).
-            const roleOverride = this.pendingAgentRoles.get(toolCallId);
-            if (roleOverride) {
-              agentDisplayName = roleOverride;
-              // Derive a kebab-case name for consistent identification
-              agentName = roleOverride.toLowerCase().replace(/\s+/g, '-');
+            const pendingData = this.pendingAgentRoles.get(toolCallId);
+            let model: string | undefined;
+            let taskTitle: string | undefined;
+            if (pendingData) {
+              if (pendingData.role) {
+                agentDisplayName = pendingData.role;
+                agentName = pendingData.role.toLowerCase().replace(/\s+/g, "-");
+              }
+              model = pendingData.model;
+              taskTitle = pendingData.taskTitle;
               this.pendingAgentRoles.delete(toolCallId);
             }
 
@@ -1021,6 +1057,8 @@ ${agentEntries}
               agentName,
               agentDisplayName,
               agentDescription: event.data?.agentDescription ?? "",
+              model,
+              taskTitle,
             });
           }
           break;

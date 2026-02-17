@@ -180,6 +180,8 @@ export interface SubagentStartedEvent {
   agentName: string;
   agentDisplayName: string;
   agentDescription: string;
+  model?: string;
+  taskTitle?: string;
 }
 
 export interface SubagentCompletedEvent {

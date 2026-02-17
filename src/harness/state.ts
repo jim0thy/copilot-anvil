@@ -46,6 +46,8 @@ export interface Subagent {
   startedAt: Date;
   completedAt?: Date;
   error?: string;
+  model?: string;
+  taskTitle?: string;
 }
 
 export interface Skill {

@@ -318,10 +318,59 @@ export function processEvent(
         agentDescription: event.agentDescription,
         status: "running",
         startedAt: new Date(),
+        model: event.model,
+        taskTitle: event.taskTitle,
       };
+
+      // Check if there's already a running subagent with the same agentDisplayName
+      const runningWithSameName = state.subagents.some(
+        (s) => s.status === "running" && s.agentDisplayName === event.agentDisplayName
+      );
+
+      // If a running one exists, just append (allow parallel instances)
+      if (runningWithSameName) {
+        return {
+          ...state,
+          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        };
+      }
+
+      // Find completed/failed entries with matching agentDisplayName
+      const completedOrFailed = state.subagents.filter(
+        (s) => (s.status === "completed" || s.status === "failed") && s.agentDisplayName === event.agentDisplayName
+      );
+
+      if (completedOrFailed.length === 0) {
+        // No matching completed/failed entry exists, just append
+        return {
+          ...state,
+          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        };
+      }
+
+      // Find the most recent completed/failed entry (highest completedAt)
+      const mostRecent = completedOrFailed.reduce((latest, current) => {
+        if (!latest.completedAt) return current;
+        if (!current.completedAt) return latest;
+        return current.completedAt > latest.completedAt ? current : latest;
+      });
+      const mostRecentIndex = state.subagents.indexOf(mostRecent);
+
+      if (mostRecentIndex === -1) {
+        // Fallback: just append if we couldn't find the most recent (shouldn't happen)
+        return {
+          ...state,
+          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        };
+      }
+
+      // Replace the most recent completed/failed entry with the new running one
+      const updatedSubagents = [...state.subagents];
+      updatedSubagents[mostRecentIndex] = newSubagent;
+
       return {
         ...state,
-        subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+        subagents: updatedSubagents,
       };
     }
 
