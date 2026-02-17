@@ -1131,16 +1131,33 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             const toolCallId = event.data?.toolCallId ?? "";
-            
+            const failedAgentName = event.data?.agentName ?? "";
+            const failError = event.data?.error ?? "Unknown error";
+
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
-            
+
+            // IMPORTANT: We intentionally convert subagent.failed → subagent.completed.
+            //
+            // The SDK emits subagent.failed when the task tool returns resultType
+            // "failure", but this is a tool-level semantic — it does NOT mean the
+            // agent crashed or didn't run. Common "failure" causes:
+            //   - The general-purpose agent returned an error-like object
+            //   - Model negotiation issues (still produced output)
+            //   - The agent's response was wrapped with resultType "failure"
+            //
+            // Emitting subagent.failed causes the parent LLM to see the red ✕
+            // and retry needlessly, wasting premium requests. Instead, we always
+            // mark the subagent as "completed" in the UI. The parent LLM still
+            // sees the actual tool result text and can decide for itself whether
+            // to retry based on the content, not the status icon.
+            this.emit(createLogEvent("info", `Subagent ${failedAgentName} reported as "failed" by SDK (${failError}) — converting to completed for UI`));
+
             this.emit({
-              type: "subagent.failed",
+              type: "subagent.completed",
               runId: this.currentRunId,
               toolCallId,
-              agentName: event.data?.agentName ?? "",
-              error: event.data?.error ?? "Unknown error",
+              agentName: failedAgentName,
             });
           }
           break;
