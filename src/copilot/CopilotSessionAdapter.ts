@@ -88,8 +88,8 @@ export class CopilotSessionAdapter {
   /** Guards against concurrent renewSessionWithAgents calls */
   private _renewalPromise: Promise<void> | null = null;
   /** Map of tool call IDs to subagent information */
-  private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
-  /** Map of tool call IDs to specialist role names extracted from task tool prompts.
+  private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string; model?: string }>();
+  /** Map of tool call IDs to specialist metadata extracted from task tool prompts.
    *  Populated in tool.execution_start, consumed in subagent.started to override
    *  the generic "general-purpose" display name with the actual specialist name. */
   private pendingAgentRoles = new Map<string, { role?: string; model?: string; taskTitle?: string }>();
@@ -809,11 +809,11 @@ ${agentEntries}
             }
           }
 
-          // Extract specialist role from task tool prompts for display attribution.
+          // Extract specialist role and model from task tool prompts for display attribution.
           // When the LLM delegates via agent_type "general-purpose", the prompt
           // starts with "## Role: <SpecialistName>\n..." — we capture that name
           // so the subagent.started event can show the real specialist instead of
-          // "General Purpose Agent".
+          // "General Purpose Agent". We also capture the model parameter.
           if (toolName === "task" && args && typeof args === "object") {
             const toolCallId = event.data?.toolCallId;
             if (toolCallId) {
@@ -1048,7 +1048,7 @@ ${agentEntries}
             this.emit(createLogEvent("info", `${nf.rocket} Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
 
             // Track this subagent so we can attribute its messages
-            this.activeSubagents.set(toolCallId, { agentName, agentDisplayName });
+            this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
 
             this.emit({
               type: "subagent.started",

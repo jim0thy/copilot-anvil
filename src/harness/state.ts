@@ -42,12 +42,12 @@ export interface Subagent {
   agentName: string;
   agentDisplayName: string;
   agentDescription: string;
+  model?: string;
+  taskTitle?: string;
   status: "running" | "completed" | "failed";
   startedAt: Date;
   completedAt?: Date;
   error?: string;
-  model?: string;
-  taskTitle?: string;
 }
 
 export interface Skill {

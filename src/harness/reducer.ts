@@ -316,10 +316,10 @@ export function processEvent(
         agentName: event.agentName,
         agentDisplayName: event.agentDisplayName,
         agentDescription: event.agentDescription,
-        status: "running",
-        startedAt: new Date(),
         model: event.model,
         taskTitle: event.taskTitle,
+        status: "running",
+        startedAt: new Date(),
       };
 
       // Check if there's already a running subagent with the same agentDisplayName
