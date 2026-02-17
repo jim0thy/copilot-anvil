@@ -7,6 +7,7 @@ import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { getOrchestrationAgents } from "../cli/agents.js";
 import { getAnvilTools } from "../cli/tools.js";
 import { createSessionHooks } from "../cli/hooks.js";
+import { loadModelConfig, resolveAgentModel, type AgentModelOverride } from "../agents/modelConfig.js";
 import { nf } from "../ui/icons.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
@@ -396,36 +397,59 @@ export class CopilotSessionAdapter {
    * role preamble embedded in the prompt. This avoids the customAgents overwrite
    * issue while preserving specialist behavior.
    *
+   * Each specialist entry includes a `model` parameter so the subagent runs on
+   * the correct model (e.g., claude-opus-4.6 for the Tech Lead, gpt-5-mini for
+   * the Scout). The model is resolved from the central agent model config.
+   *
    * The guide also includes a role marker format (## Role: Name) that we parse
    * in the event handler to extract display names for subagent UI attribution.
    */
   private buildDelegationGuide(agents: CustomAgentDef[]): string {
+    // Load model config (user overrides + built-in defaults)
+    const modelConfig = loadModelConfig();
+    const availableModelIds = new Set(this._availableModels.map(m => m.id));
+
     const agentEntries = agents.map(a => {
       const displayName = a.displayName || a.name;
       // Extract the first meaningful line of the prompt as a condensed preamble
       const preambleLines = a.prompt.split('\n').filter(l => l.trim().length > 0);
       const preamble = preambleLines[0]?.trim() ?? '';
 
-      return `### ${displayName}
-- **Description**: ${a.description || 'No description'}
-- **Preamble**: "${preamble}"`;
+      // Resolve model for this agent
+      const modelOverride = resolveAgentModel(a.name, modelConfig);
+      const model = modelOverride.model && availableModelIds.has(modelOverride.model)
+        ? modelOverride.model
+        : undefined;
+
+      let entry = `### ${displayName}
+- **Description**: ${a.description || 'No description'}`;
+      if (model) entry += `\n- **Model**: "${model}"`;
+      entry += `\n- **Preamble**: "${preamble}"`;
+
+      return entry;
     }).join('\n\n');
 
     // Pick a representative agent for the example
     const exampleAgent = agents.find(a => a.name === 'staff-engineer') ?? agents[0];
     const exampleName = exampleAgent?.displayName || exampleAgent?.name || 'Specialist';
     const examplePreamble = exampleAgent?.prompt.split('\n').filter(l => l.trim().length > 0)[0]?.trim() ?? 'You are a specialist.';
+    const exampleModel = resolveAgentModel(exampleAgent?.name ?? '', modelConfig);
+    const exampleModelStr = exampleModel.model && availableModelIds.has(exampleModel.model)
+      ? `\n  "model": "${exampleModel.model}",`
+      : '';
 
     return `<delegation_guide>
 To delegate work to specialists, use the task tool with these parameters:
 - **agent_type**: "general-purpose"  (ALWAYS use this exact value for ALL delegations)
+- **model**: Use the specialist's listed Model value (overrides the default model)
 - **prompt**: Start with the role marker line, then the specialist's preamble, then describe the task
 
 ## CRITICAL RULES
 1. ALWAYS use agent_type "general-purpose" — never use specialist names as agent_type
-2. ALWAYS start the prompt with a role marker: ## Role: [Specialist Display Name]
-3. Follow the role marker with the specialist's preamble to set their persona
-4. Then describe the specific task
+2. ALWAYS include the specialist's model parameter if one is listed
+3. ALWAYS start the prompt with a role marker: ## Role: [Specialist Display Name]
+4. Follow the role marker with the specialist's preamble to set their persona
+5. Then describe the specific task
 
 ## Available Specialists
 
@@ -435,7 +459,7 @@ ${agentEntries}
 
 \`\`\`json
 {
-  "agent_type": "general-purpose",
+  "agent_type": "general-purpose",${exampleModelStr}
   "prompt": "## Role: ${exampleName}\\n${examplePreamble}\\n\\nTask: [describe the specific task here]"
 }
 \`\`\`
