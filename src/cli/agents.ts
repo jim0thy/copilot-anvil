@@ -78,7 +78,7 @@ Delegate to specialists using the task tool following the instructions in the <d
 };
 
 // ── Staff Engineer (deep autonomous worker) ─────────────────────
-// Model: gpt-5.2-codex | Effort: medium
+// Model: gpt-5.3-codex | Effort: medium
 
 export const staffEngineer: CustomAgentConfig = {
   name: "staff-engineer",

@@ -52,7 +52,7 @@ const CONFIG_FILE = join(CONFIG_DIR, "agents.json");
 export const DEFAULT_AGENT_MODELS: Record<string, AgentModelOverride> = {
   // ── CLI orchestration agents ─────────────────────────────────
   "tech-lead":       { model: "claude-opus-4.6",       reasoningEffort: "xhigh"  },
-  "staff-engineer":  { model: "gpt-5.2-codex",         reasoningEffort: "medium" },
+  "staff-engineer":  { model: "gpt-5.3-codex",         reasoningEffort: "medium" },
   "architect":       { model: "gpt-5.2",               reasoningEffort: "high"   },
   "navigator":       { model: "claude-sonnet-4.5"                                },
   "scout":           { model: "gpt-5-mini"                                       },
@@ -65,13 +65,13 @@ export const DEFAULT_AGENT_MODELS: Record<string, AgentModelOverride> = {
   "frontend-developer":        { model: "gemini-3-pro-preview"                             },
   "backend-developer":         { model: "claude-sonnet-4.5"                                },
   "fullstack-developer":       { model: "gemini-3-pro-preview"                             },
-  "senior-frontend-developer": { model: "gpt-5.2-codex"                                   },
+  "senior-frontend-developer": { model: "gpt-5.3-codex"                                   },
   "senior-backend-developer":  { model: "claude-sonnet-4.5"                                },
-  "senior-fullstack-developer":{ model: "gpt-5.2-codex"                                   },
+  "senior-fullstack-developer":{ model: "gpt-5.3-codex"                                   },
   "data-engineer":             { model: "claude-sonnet-4.5"                                },
   "designer":                  { model: "gemini-3-pro-preview"                             },
   "prompt-writer":             { model: "gemini-3-flash-preview"                           },
-  "devops":                    { model: "gpt-5.2-codex"                                   },
+  "devops":                    { model: "gpt-5.3-codex"                                   },
   "reviewer":                  { model: "gpt-5.2",              reasoningEffort: "medium"  },
 };
 
