@@ -88,6 +88,10 @@ export class CopilotSessionAdapter {
   private _renewalPromise: Promise<void> | null = null;
   /** Map of tool call IDs to subagent information */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
+  /** Map of tool call IDs to specialist role names extracted from task tool prompts.
+   *  Populated in tool.execution_start, consumed in subagent.started to override
+   *  the generic "general-purpose" display name with the actual specialist name. */
+  private pendingAgentRoles = new Map<string, string>();
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -247,7 +251,6 @@ export class CopilotSessionAdapter {
         streaming: true as const,
         model: this._currentModel ?? undefined,
         onUserInputRequest: this.getUserInputCallback(),
-        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
         tools: this._anvilTools,
         hooks: this._sessionHooks,
         skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -300,6 +303,7 @@ export class CopilotSessionAdapter {
     this.reasoningBuffer = "";
     this.hasEmittedContentForTurn = false;
     this.activeSubagents.clear();
+    this.pendingAgentRoles.clear();
   }
 
   /** Tear down the current session and its plan watcher. Does not throw. */
@@ -345,78 +349,101 @@ export class CopilotSessionAdapter {
     return this._projectPrefix + Date.now().toString(36);
   }
 
-  /** 
+  /**
    * Build system message config for the session.
-   * 
+   *
    * If an active agent is selected, uses that agent's system prompt directly,
    * making the LLM behave AS that agent (the top-level agent).
-   * 
+   *
    * Additionally, advertises other available agents as potential subagents
-   * that can be delegated to via the task tool.
+   * that can be delegated to via the task tool, using agent_type "general-purpose"
+   * with the specialist's role instructions embedded in the prompt.
+   *
+   * We use "general-purpose" instead of custom agent names because the CLI's
+   * setAuthInfo flow calls loadCustomAgents() after every session.create/resume,
+   * which overwrites any customAgents we register with an empty array from disk.
    */
   private buildSystemMessage(): SystemMessageConfig | undefined {
     // If an active agent is selected, use its system prompt as the primary instruction
     if (this._activeAgent) {
       this.emit(createLogEvent("debug", `Building system message for active agent: ${this._activeAgent.displayName ?? this._activeAgent.name}`));
-      
-      // Build list of OTHER agents available for delegation (excluding the active one).
-      // IMPORTANT: the list must show the agent `name` (the SDK routing key) so the
-      // LLM passes the exact value the task tool needs for agent_type.
+
+      // Build delegation guide for other available agents
       const otherAgents = this._customAgents.filter(a => a.name !== this._activeAgent?.name);
-      const agentList = otherAgents.length > 0
-        ? otherAgents.map(a => {
-            const label = a.displayName && a.displayName !== a.name
-              ? `**${a.name}** (${a.displayName})`
-              : `**${a.name}**`;
-            return `- ${label}: ${a.description || 'No description'}`;
-          }).join('\n')
+      const delegationGuide = otherAgents.length > 0
+        ? this.buildDelegationGuide(otherAgents)
         : '';
-
-      const subagentSection = otherAgents.length > 0 ? `
-
-<available_subagents>
-You can delegate to these specialist agents via the task tool.
-Use the exact agent identifier (bold text) as the agent_type value.
-
-${agentList}
-
-Example: {"agent_type": "tech-lead", "prompt": "your task description"}
-</available_subagents>` : '';
 
       return {
         mode: "replace" as const,
-        content: `${this._activeAgent.prompt}
-
-${subagentSection}
-`,
+        content: `${this._activeAgent.prompt}\n\n${delegationGuide}`,
       };
     }
-    
+
     // No active agent - just advertise all available agents as options
     if (this._customAgents.length === 0) return undefined;
 
-    const agentList = this._customAgents
-      .map(a => {
-        const label = a.displayName && a.displayName !== a.name
-          ? `**${a.name}** (${a.displayName})`
-          : `**${a.name}**`;
-        return `- ${label}: ${a.description || 'No description'}`;
-      })
-      .join('\n');
-
     return {
       mode: "append" as const,
-      content: `
-<custom_agents>
-You have access to the following custom agents that you can delegate tasks to via the task tool.
-Use the exact agent identifier (bold text) as the agent_type value.
-
-${agentList}
-
-Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity: ..."}
-</custom_agents>
-`,
+      content: `\n\n${this.buildDelegationGuide(this._customAgents)}`,
     };
+  }
+
+  /**
+   * Build a delegation guide that instructs the LLM how to delegate to specialists.
+   *
+   * Uses agent_type "general-purpose" for ALL delegations, with the specialist's
+   * role preamble embedded in the prompt. This avoids the customAgents overwrite
+   * issue while preserving specialist behavior.
+   *
+   * The guide also includes a role marker format (## Role: Name) that we parse
+   * in the event handler to extract display names for subagent UI attribution.
+   */
+  private buildDelegationGuide(agents: CustomAgentDef[]): string {
+    const agentEntries = agents.map(a => {
+      const displayName = a.displayName || a.name;
+      // Extract the first meaningful line of the prompt as a condensed preamble
+      const preambleLines = a.prompt.split('\n').filter(l => l.trim().length > 0);
+      const preamble = preambleLines[0]?.trim() ?? '';
+
+      return `### ${displayName}
+- **Description**: ${a.description || 'No description'}
+- **Preamble**: "${preamble}"`;
+    }).join('\n\n');
+
+    // Pick a representative agent for the example
+    const exampleAgent = agents.find(a => a.name === 'staff-engineer') ?? agents[0];
+    const exampleName = exampleAgent?.displayName || exampleAgent?.name || 'Specialist';
+    const examplePreamble = exampleAgent?.prompt.split('\n').filter(l => l.trim().length > 0)[0]?.trim() ?? 'You are a specialist.';
+
+    return `<delegation_guide>
+To delegate work to specialists, use the task tool with these parameters:
+- **agent_type**: "general-purpose"  (ALWAYS use this exact value for ALL delegations)
+- **prompt**: Start with the role marker line, then the specialist's preamble, then describe the task
+
+## CRITICAL RULES
+1. ALWAYS use agent_type "general-purpose" — never use specialist names as agent_type
+2. ALWAYS start the prompt with a role marker: ## Role: [Specialist Display Name]
+3. Follow the role marker with the specialist's preamble to set their persona
+4. Then describe the specific task
+
+## Available Specialists
+
+${agentEntries}
+
+## Delegation Format
+
+\`\`\`json
+{
+  "agent_type": "general-purpose",
+  "prompt": "## Role: ${exampleName}\\n${examplePreamble}\\n\\nTask: [describe the specific task here]"
+}
+\`\`\`
+
+## Sub-delegation
+Specialists can also delegate to other specialists using the same format.
+Each specialist has access to the task tool and can use agent_type "general-purpose".
+</delegation_guide>`;
   }
 
   // ── Lifecycle ────────────────────────────────────────────────
@@ -464,7 +491,11 @@ Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity:
         streaming: true,
         model,
         onUserInputRequest: this.getUserInputCallback(),
-        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        // NOTE: customAgents intentionally omitted. The CLI's setAuthInfo flow
+        // calls loadCustomAgents() after every session.create, which async-overwrites
+        // any customAgents we pass here with an empty array loaded from disk.
+        // Instead, we embed specialist roles directly in the system message and
+        // instruct the LLM to use agent_type "general-purpose" for all delegations.
         tools: this._anvilTools,
         hooks: this._sessionHooks,
         skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -645,6 +676,22 @@ Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity:
             }
           }
 
+          // Extract specialist role from task tool prompts for display attribution.
+          // When the LLM delegates via agent_type "general-purpose", the prompt
+          // starts with "## Role: <SpecialistName>\n..." — we capture that name
+          // so the subagent.started event can show the real specialist instead of
+          // "General Purpose Agent".
+          if (toolName === "task" && args && typeof args === "object") {
+            const toolCallId = event.data?.toolCallId;
+            const prompt = (args as any).prompt;
+            if (toolCallId && typeof prompt === "string") {
+              const roleMatch = prompt.match(/^## Role:\s*(.+)/m);
+              if (roleMatch) {
+                this.pendingAgentRoles.set(toolCallId, roleMatch[1].trim());
+              }
+            }
+          }
+
           if (this.currentRunId) {
             this.emit({
               type: "tool.started",
@@ -816,14 +863,24 @@ Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity:
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             const toolCallId = event.data?.toolCallId ?? "";
-            const agentName = event.data?.agentName ?? "";
-            const agentDisplayName = event.data?.agentDisplayName ?? "";
-            
+            let agentName = event.data?.agentName ?? "";
+            let agentDisplayName = event.data?.agentDisplayName ?? "";
+
+            // Override generic "general-purpose" name with the real specialist
+            // role extracted from the task tool's prompt (see tool.execution_start).
+            const roleOverride = this.pendingAgentRoles.get(toolCallId);
+            if (roleOverride) {
+              agentDisplayName = roleOverride;
+              // Derive a kebab-case name for consistent identification
+              agentName = roleOverride.toLowerCase().replace(/\s+/g, '-');
+              this.pendingAgentRoles.delete(toolCallId);
+            }
+
             this.emit(createLogEvent("info", `${nf.rocket} Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
-            
+
             // Track this subagent so we can attribute its messages
             this.activeSubagents.set(toolCallId, { agentName, agentDisplayName });
-            
+
             this.emit({
               type: "subagent.started",
               runId: this.currentRunId,
@@ -970,7 +1027,6 @@ Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity:
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -994,7 +1050,6 @@ Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity:
       streaming: true as const,
       model: modelId,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -1030,7 +1085,6 @@ Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity:
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -1060,7 +1114,6 @@ Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity:
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
