@@ -16,7 +16,7 @@ import * as os from "node:os";
 import type { AgentDefinition } from "./types.js";
 import { parseAgentFile } from "./parser.js";
 import { getBuiltinAgents } from "./builtin.js";
-import { loadModelConfig, resolveAgentModel, getModelConfigPath } from "./modelConfig.js";
+import { loadModelConfig, resolveAgentModel, getModelConfigPath, ensureDefaultConfigExists } from "./modelConfig.js";
 
 const GLOBAL_AGENTS_DIR = path.join(os.homedir(), ".config", "anvil", "agents");
 const PROJECT_AGENTS_DIR = ".agents";
@@ -106,7 +106,10 @@ export class AgentLoader {
     // Merge with priority (later overrides earlier)
     this.agents = mergeAgents(builtinAgents, globalAgents, projectAgents);
 
-    // 4. Apply model config overrides from ~/.config/anvil/agents.json
+    // 4. Bootstrap default config if it doesn't exist yet
+    ensureDefaultConfigExists();
+
+    // 5. Apply model config overrides from ~/.config/anvil/agents.json
     const modelConfig = loadModelConfig();
     for (const agent of this.agents) {
       const resolved = resolveAgentModel(agent.id, modelConfig);
