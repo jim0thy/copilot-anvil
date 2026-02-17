@@ -308,6 +308,14 @@ function SubagentsSection({
                   <text fg={c.subtext0}>{agent.taskTitle}</text>
                 </box>
               )}
+              {agent.currentIntent && (
+                <box marginLeft={2}>
+                  <text>
+                    <span fg={c.subtext0}>Doing: </span>
+                    <span fg={c.accent}>{nf.arrowRight} {agent.currentIntent}</span>
+                  </text>
+                </box>
+              )}
             </box>
           ))}
         </box>
