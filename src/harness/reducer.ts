@@ -460,6 +460,7 @@ export function processEvent(
       return {
         ...state,
         currentSessionId: event.sessionId,
+        currentSessionName: event.sessionName || null,
         transcript: event.transcript ?? [],
         activeTools: [],
         ...resetRunFields(),
@@ -470,13 +471,18 @@ export function processEvent(
       return {
         ...state,
         currentSessionId: event.sessionId,
+        currentSessionName: event.sessionName || null,
         transcript: [],
         activeTools: [],
         ...resetRunFields(),
       };
 
-    case "session.list.updated":
-      return { ...state, availableSessions: event.sessions };
+    case "session.list.updated": {
+      const currentName = state.currentSessionId
+        ? event.sessions.find(s => s.id === state.currentSessionId)?.name ?? state.currentSessionName
+        : state.currentSessionName;
+      return { ...state, availableSessions: event.sessions, currentSessionName: currentName };
+    }
 
     case "orchestration.mode.changed":
       return { ...state, orchestrationMode: event.mode };
