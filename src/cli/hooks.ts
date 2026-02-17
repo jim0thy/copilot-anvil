@@ -155,13 +155,49 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
     },
 
     /**
-     * Post-tool-use hook: validates tool outputs.
+     * Post-tool-use hook: validates tool outputs and fixes false failures.
      *
+     * - Converts task tool "false failures" to success so the parent LLM
+     *   doesn't retry subagents that actually completed their work.
      * - Flags if a file write left TODO/FIXME markers
      */
     onPostToolUse: async (input: PostToolUseInput) => {
       const { toolName, toolResult } = input;
 
+      // ── Task tool false-failure interception ─────────────────────
+      //
+      // The SDK's task tool returns resultType "failure" in many cases
+      // where the subagent actually ran and produced useful output. The
+      // parent LLM sees "failure" and retries, causing wasteful loops.
+      //
+      // We intercept here and convert false failures to success. Real
+      // failures (validation errors, crashes, empty output) are left as-is
+      // so the parent LLM can handle them appropriately.
+      if (toolName === "task" && toolResult.resultType !== "success") {
+        const text = (toolResult.textResultForLlm || "").trim();
+
+        // Known real-failure patterns from the SDK:
+        const isRealFailure =
+          !text ||
+          text.startsWith("Task tool encountered an error:") ||
+          text.startsWith("Unknown agent_type:") ||
+          text.startsWith("Invalid input:") ||
+          (text.startsWith("Model '") && text.includes("is not available")) ||
+          (text.startsWith("Tool '") && text.includes("is not supported"));
+
+        if (!isRealFailure) {
+          // The subagent produced useful output — convert to success
+          return {
+            modifiedResult: {
+              ...toolResult,
+              resultType: "success" as const,
+            },
+          };
+        }
+        // Real failure — leave as-is so the parent LLM can retry/escalate
+      }
+
+      // ── File write quality checks ───────────────────────────────
       if (
         (toolName === "write" || toolName === "edit") &&
         toolResult.resultType === "success"
