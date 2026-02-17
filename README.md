@@ -31,10 +31,12 @@ bun run dev
 | `Ctrl+S` | Open skills selector |
 | `Ctrl+N` | Switch/create sessions |
 | `Ctrl+G` | Smart commit & push |
-| `Esc` | Quit the application |
+| `Esc` | Quit the application (or cancel attachment selection) |
 | `Ctrl+C` | Cancel active run (or quit if idle) |
 | `Enter` | Submit prompt |
 | `Ctrl+I` | Attach image to prompt |
+| `Ctrl+X` | Remove attachments (toggle selection mode) |
+| `↑/↓` | Cycle through attachments (when in removal mode) |
 
 ## Layout
 
@@ -59,7 +61,7 @@ bun run dev
 
 - **Multi-session support**: Create and switch between multiple conversation sessions
 - **Skills integration**: Invoke project-specific skills (e.g., copilot-sdk, opentui, copilot-tui-harness)
-- **Image attachments**: Attach images to prompts for vision model support
+- **Image attachments**: Attach images to prompts for vision model support, with easy removal via `Ctrl+X`
 - **Git integration**: View modified files, smart commit & push workflows
 - **Task tracking**: Monitor task progress in real-time
 - **Subagent monitoring**: Track subagent execution and status
