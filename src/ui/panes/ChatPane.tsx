@@ -27,6 +27,7 @@ interface ChatPaneProps {
   streamingContent: string;
   streamingReasoning: string;
   streamingAgentName: string | null;
+  subagentStreaming?: Record<string, { agentDisplayName: string; content: string; reasoning?: string }>;
   isStreaming: boolean;
   height: number;
   theme: Theme;
@@ -244,10 +245,12 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   );
 });
 
-export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, isStreaming, height, theme, subagentToolCallIds: subagentToolCallIdsProp }: ChatPaneProps) {
+export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, isStreaming, height, theme, subagentToolCallIds: subagentToolCallIdsProp }: ChatPaneProps) {
   const c = theme.colors;
+  const subagentStreamingEntries = Object.entries(subagentStreamingProp);
+  const hasSubagentStreaming = subagentStreamingEntries.some(([, stream]) => Boolean(stream.content || stream.reasoning));
   // Only auto-scroll when actively receiving streaming content, not when user is typing
-  const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning);
+  const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning) || hasSubagentStreaming;
 
   // Build a Set of tool call IDs that correspond to subagents.
   // Prefer the explicit list from state (so we can hide immediately on subagent start),
@@ -272,7 +275,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
         paddingTop: 1,
       }}
     >
-      {transcript.length === 0 && !streamingContent && !streamingReasoning && (
+      {transcript.length === 0 && !streamingContent && !streamingReasoning && !hasSubagentStreaming && (
         <text fg={c.subtle}>No messages yet</text>
       )}
 
@@ -311,6 +314,28 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
           </text>
         </box>
       )}
+
+      {subagentStreamingEntries.map(([toolCallId, stream]) => {
+        if (!stream.content && !stream.reasoning) return null;
+        return (
+          <box key={toolCallId} flexDirection="column" marginBottom={1}>
+            <text fg={c.secondary}>
+              <b>{stream.agentDisplayName || "Subagent"}</b> <span fg={c.success}>▮</span>
+            </text>
+            {stream.reasoning && (
+              <box flexDirection="column" paddingLeft={1} marginBottom={1}>
+                <text fg={c.accent}>Thinking...</text>
+                <text fg={c.subtle}>{stream.reasoning}</text>
+              </box>
+            )}
+            {stream.content && (
+              <box paddingLeft={1}>
+                <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={stream.content} streaming />
+              </box>
+            )}
+          </box>
+        );
+      })}
 
       {streamingContent && (() => {
         const lastItem = transcript.length > 0 ? transcript[transcript.length - 1] : null;

@@ -38,6 +38,7 @@ function resetRunFields(): Partial<HarnessState> {
     streamingContent: "",
     streamingReasoning: "",
     streamingAgentName: null,
+    subagentStreaming: {},
     currentIntent: null,
     // Keep currentTodo/currentPlan until a new message is sent
   };
@@ -68,6 +69,15 @@ function trimTranscript(transcript: TranscriptItem[], ctx: ReducerContext): void
   }
 }
 
+function removeSubagentStreamingEntry(
+  subagentStreaming: HarnessState["subagentStreaming"],
+  toolCallId: string,
+): HarnessState["subagentStreaming"] {
+  if (!(toolCallId in subagentStreaming)) return subagentStreaming;
+  const { [toolCallId]: _removed, ...rest } = subagentStreaming;
+  return rest;
+}
+
 // ── Main reducer ────────────────────────────────────────────────
 
 export function processEvent(
@@ -96,7 +106,18 @@ export function processEvent(
 
     case "assistant.delta":
       if (event.parentToolCallId) {
-        return state;
+        const existing = state.subagentStreaming[event.parentToolCallId];
+        return {
+          ...state,
+          subagentStreaming: {
+            ...state.subagentStreaming,
+            [event.parentToolCallId]: {
+              agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
+              content: (existing?.content ?? "") + event.text,
+              reasoning: existing?.reasoning,
+            },
+          },
+        };
       }
       return {
         ...state,
@@ -115,7 +136,8 @@ export function processEvent(
       return state;
 
     case "assistant.message": {
-      const isSubagentMessage = Boolean(event.message.parentToolCallId);
+      const parentToolCallId = event.message.parentToolCallId;
+      const isSubagentMessage = Boolean(parentToolCallId);
       const messageWithReasoning: ChatMessage = {
         ...event.message,
         kind: "message",
@@ -131,6 +153,7 @@ export function processEvent(
         return {
           ...state,
           transcript: newTranscript,
+          subagentStreaming: removeSubagentStreamingEntry(state.subagentStreaming, parentToolCallId!),
         };
       }
       return {
@@ -394,7 +417,11 @@ export function processEvent(
         }
         return agent;
       });
-      return { ...state, subagents: updatedSubagents };
+      return {
+        ...state,
+        subagents: updatedSubagents,
+        subagentStreaming: removeSubagentStreamingEntry(state.subagentStreaming, event.toolCallId),
+      };
     }
 
     case "subagent.failed": {
@@ -404,7 +431,11 @@ export function processEvent(
         }
         return agent;
       });
-      return { ...state, subagents: updatedSubagents };
+      return {
+        ...state,
+        subagents: updatedSubagents,
+        subagentStreaming: removeSubagentStreamingEntry(state.subagentStreaming, event.toolCallId),
+      };
     }
 
     case "skill.invoked": {

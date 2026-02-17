@@ -86,6 +86,7 @@ export interface HarnessState {
   streamingReasoning: string;
   /** Agent display name for the currently streaming content */
   streamingAgentName: string | null;
+  subagentStreaming: Record<string, { agentDisplayName: string; content: string; reasoning?: string }>;
   activeTools: ActiveTool[];
   tasks: Task[];
   subagents: Subagent[];
@@ -135,6 +136,7 @@ export const INITIAL_STATE: HarnessState = {
   streamingContent: "",
   streamingReasoning: "",
   streamingAgentName: null,
+  subagentStreaming: {},
   activeTools: [],
   tasks: [],
   subagents: [],

@@ -174,23 +174,33 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
       // failures (validation errors, crashes, empty output) are left as-is
       // so the parent LLM can handle them appropriately.
       if (toolName === "task" && toolResult.resultType !== "success") {
+        // Extract output from either textResultForLlm or sessionLog
         const text = (toolResult.textResultForLlm || "").trim();
+        const sessionLog = (
+          typeof toolResult.sessionLog === "string"
+            ? toolResult.sessionLog
+            : ""
+        ).trim();
+        const hasContent = text || sessionLog;
+        const output = text || sessionLog;
 
         // Known real-failure patterns from the SDK:
         const isRealFailure =
-          !text ||
-          text.startsWith("Task tool encountered an error:") ||
-          text.startsWith("Unknown agent_type:") ||
-          text.startsWith("Invalid input:") ||
-          (text.startsWith("Model '") && text.includes("is not available")) ||
-          (text.startsWith("Tool '") && text.includes("is not supported"));
+          !hasContent ||
+          output.startsWith("Task tool encountered an error:") ||
+          output.startsWith("Unknown agent_type:") ||
+          output.startsWith("Invalid input:") ||
+          (output.startsWith("Model '") && output.includes("is not available")) ||
+          (output.startsWith("Tool '") && output.includes("is not supported"));
 
         if (!isRealFailure) {
           // The subagent produced useful output — convert to success
+          // If textResultForLlm is empty but sessionLog has content, copy it over
           return {
             modifiedResult: {
               ...toolResult,
               resultType: "success" as const,
+              textResultForLlm: text || sessionLog,
             },
           };
         }

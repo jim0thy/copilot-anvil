@@ -304,6 +304,7 @@ export function App({ harness, renderer }: AppProps) {
               streamingContent={state.streamingContent}
               streamingReasoning={state.streamingReasoning}
               streamingAgentName={state.streamingAgentName}
+              subagentStreaming={state.subagentStreaming}
               isStreaming={state.status === "running"}
               height={contentHeight - inputBarHeight}
               theme={theme}
