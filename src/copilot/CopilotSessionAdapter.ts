@@ -330,20 +330,28 @@ export class CopilotSessionAdapter {
     if (this._activeAgent) {
       this.emit(createLogEvent("debug", `Building system message for active agent: ${this._activeAgent.displayName ?? this._activeAgent.name}`));
       
-      // Build list of OTHER agents available for delegation (excluding the active one)
+      // Build list of OTHER agents available for delegation (excluding the active one).
+      // IMPORTANT: the list must show the agent `name` (the SDK routing key) so the
+      // LLM passes the exact value the task tool needs for agent_type.
       const otherAgents = this._customAgents.filter(a => a.name !== this._activeAgent?.name);
       const agentList = otherAgents.length > 0
-        ? otherAgents.map(a => `- **${a.displayName || a.name}**: ${a.description || 'No description'}`).join('\n')
+        ? otherAgents.map(a => {
+            const label = a.displayName && a.displayName !== a.name
+              ? `**${a.name}** (${a.displayName})`
+              : `**${a.name}**`;
+            return `- ${label}: ${a.description || 'No description'}`;
+          }).join('\n')
         : '';
-      
+
       const subagentSection = otherAgents.length > 0 ? `
 
 <available_subagents>
-You can delegate to these specialist agents via the task tool:
+You can delegate to these specialist agents via the task tool.
+Use the exact agent identifier (bold text) as the agent_type value.
 
 ${agentList}
 
-To delegate: use task tool with agent name as agent_type parameter.
+Example: {"agent_type": "tech-lead", "prompt": "your task description"}
 </available_subagents>` : '';
 
       return {
@@ -359,26 +367,24 @@ ${subagentSection}
     if (this._customAgents.length === 0) return undefined;
 
     const agentList = this._customAgents
-      .map(a => `- **${a.displayName || a.name}**: ${a.description || 'No description'}`)
+      .map(a => {
+        const label = a.displayName && a.displayName !== a.name
+          ? `**${a.name}** (${a.displayName})`
+          : `**${a.name}**`;
+        return `- ${label}: ${a.description || 'No description'}`;
+      })
       .join('\n');
 
     return {
       mode: "append" as const,
       content: `
 <custom_agents>
-You have access to the following custom agents that you can delegate tasks to via the task tool:
+You have access to the following custom agents that you can delegate tasks to via the task tool.
+Use the exact agent identifier (bold text) as the agent_type value.
 
 ${agentList}
 
-When delegating to a custom agent:
-1. Use the task tool with the agent's name as the agent_type parameter
-2. Provide a clear, specific prompt describing what the agent should do
-3. Custom agents have specialized knowledge and should be preferred for their domain
-
-Example: To use the "intake" agent:
-\`\`\`json
-{"agent_type": "intake", "prompt": "Analyze this request for ambiguity: ..."}
-\`\`\`
+Example: {"agent_type": "intake", "prompt": "Analyze this request for ambiguity: ..."}
 </custom_agents>
 `,
     };
