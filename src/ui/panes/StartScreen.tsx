@@ -38,7 +38,7 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
     <box flexDirection="column" width="100%" height={height}>
       <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
         {/* Logo */}
-        <box flexDirection="column" alignItems="center" marginBottom={3}>
+        <box flexDirection="column" alignItems="center" marginBottom={2}>
           {LOGO_LINES.map((line, index) => (
             <text key={index} fg={RAINBOW_COLORS[index % RAINBOW_COLORS.length]}>
               {line}
@@ -46,6 +46,11 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
           ))}
         </box>
         
+        {/* Input Bar - positioned directly under ASCII art */}
+        <box width="60%" marginBottom={3}>
+          <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} />
+        </box>
+
         {/* Subtitle */}
         <box marginBottom={3}>
           <text fg={c.subtle}>Ask anything to get started</text>
@@ -74,7 +79,6 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
           <span fg={c.subtext0}> for model</span>
         </text>
       </box>
-      <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} />
     </box>
   );
 }

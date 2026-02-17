@@ -129,7 +129,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       setResetKey((k) => k + 1);
       // Reset height to minimum when message is sent
       if (onHeightChange) {
-        onHeightChange(3);
+        onHeightChange(5);
       }
     }
   };
@@ -299,7 +299,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const pasteIndicatorLines = pastedContent ? 1 : 0;
   const imageIndicatorLines = attachedImages.length;
   const helpTextLines = attachedImages.length > 0 && selectedAttachment === null ? 1 : 0;
-  const calculatedHeight = Math.max(3, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + 2); // Minimum 3, add 2 for top/bottom padding
+  const calculatedHeight = Math.max(5, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + 2); // Minimum 5, add 2 for top/bottom padding
 
   // Notify parent of height change
   useEffect(() => {
