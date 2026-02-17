@@ -880,29 +880,30 @@ ${agentEntries}
             });
 
             // Safety net: if a task tool completes but its subagent wasn't
-            // explicitly completed/failed by the SDK, emit a synthetic event
-            // so the subagent pane shows the correct final status.
+            // explicitly completed/failed by the SDK, emit a synthetic completion.
+            //
+            // The SDK only emits subagent.completed via session boundary events,
+            // but for "general-purpose" agents these boundaries may never fire.
+            // Without this, the subagent pane gets stuck on "running" or shows
+            // incorrect status.
+            //
+            // IMPORTANT: We always emit subagent.completed here, NOT subagent.failed.
+            // A subagent that was started and ran to completion is "completed" from
+            // the UI's perspective — even if the task tool reports resultType "failure"
+            // (which sets success=false). The tool-level success/failure is about the
+            // tool's return semantics, not whether the agent actually did its work.
+            // Showing "failed" causes the parent LLM to retry needlessly.
             const pendingSubagent = this.activeSubagents.get(completeToolCallId);
             if (pendingSubagent) {
-              this.emit(createLogEvent("debug", `${nf.warning} Subagent ${pendingSubagent.agentDisplayName} still tracked at tool completion — emitting synthetic ${toolSuccess ? 'completed' : 'failed'}`));
+              this.emit(createLogEvent("debug", `Subagent ${pendingSubagent.agentDisplayName} still tracked at tool completion — emitting synthetic completed (tool success=${toolSuccess})`));
               this.activeSubagents.delete(completeToolCallId);
 
-              if (toolSuccess) {
-                this.emit({
-                  type: "subagent.completed",
-                  runId: this.currentRunId,
-                  toolCallId: completeToolCallId,
-                  agentName: pendingSubagent.agentName,
-                });
-              } else {
-                this.emit({
-                  type: "subagent.failed",
-                  runId: this.currentRunId,
-                  toolCallId: completeToolCallId,
-                  agentName: pendingSubagent.agentName,
-                  error: event.data?.error?.message ?? "Task tool returned failure",
-                });
-              }
+              this.emit({
+                type: "subagent.completed",
+                runId: this.currentRunId,
+                toolCallId: completeToolCallId,
+                agentName: pendingSubagent.agentName,
+              });
             }
           }
           break;
