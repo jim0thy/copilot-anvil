@@ -37,10 +37,12 @@ interface InputBarProps {
   queuedCount?: number;
   theme: Theme;
   onHeightChange?: (height: number) => void;
+  agentName?: string;
+  modelName?: string;
 }
 
 // Custom keyboard-driven input (OpenTUI's <input> doesn't work in child components)
-export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange }: InputBarProps) {
+export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange, agentName, modelName }: InputBarProps) {
   const c = theme.colors;
   const [value, setValue] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
@@ -299,7 +301,8 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const pasteIndicatorLines = pastedContent ? 1 : 0;
   const imageIndicatorLines = attachedImages.length;
   const helpTextLines = attachedImages.length > 0 && selectedAttachment === null ? 1 : 0;
-  const calculatedHeight = Math.max(5, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + 2); // Minimum 5, add 2 for top/bottom padding
+  const footerLines = (agentName || modelName) ? 1 : 0;
+  const calculatedHeight = Math.max(5, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + footerLines + 2); // Minimum 5, add 2 for top/bottom padding
 
   // Notify parent of height change
   useEffect(() => {
@@ -357,6 +360,13 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
             </>
           )}
         </text>
+        {(agentName || modelName) && (
+          <text>
+            {agentName && <span fg={c.subtle}>{agentName}</span>}
+            {agentName && modelName && <span fg={c.subtle}> · </span>}
+            {modelName && <span fg={c.subtle}>{modelName}</span>}
+          </text>
+        )}
       </box>
     </box>
   );

@@ -303,6 +303,8 @@ export function App({ harness, renderer }: AppProps) {
               queuedCount={state.messageQueue.length}
               theme={theme}
               onHeightChange={handleInputHeightChange}
+              agentName={agentDisplay}
+              modelName={modelDisplay}
             />
           </box>
           <box flexDirection="column" width="17.5%" paddingLeft={2}>
@@ -329,6 +331,8 @@ export function App({ harness, renderer }: AppProps) {
             suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
             theme={theme}
             height={contentHeight}
+            agentName={agentDisplay}
+            modelName={modelDisplay}
           />
         </box>
       )}
@@ -347,8 +351,6 @@ export function App({ harness, renderer }: AppProps) {
             <span>{spinner}  </span>
           )}
           <span fg={statusColor}>{statusText}</span>
-          <span>  </span>
-          <span fg={c.accent}>{agentDisplay}</span>
           {(() => {
             const currentModelInfo = state.availableModels.find(m => m.id === state.currentModel);
             return currentModelInfo?.supportsReasoningEffort ? (
@@ -358,8 +360,6 @@ export function App({ harness, renderer }: AppProps) {
               </>
             ) : null;
           })()}
-          <span fg={c.subtle}> · </span>
-          <span fg={c.link}>{modelDisplay}</span>
           {/* Git status with Nerd Font icons: \uE0A0=, \uF111=, \uF44D=, \uF059=, \uF062=, \uF063=, \uF00C= */}
           {gitInfo.branch && (
             <>

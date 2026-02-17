@@ -8,6 +8,8 @@ interface StartScreenProps {
   suppressKeys?: boolean;
   theme: Theme;
   height: number;
+  agentName?: string;
+  modelName?: string;
 }
 
 const LOGO_LINES = [
@@ -32,7 +34,7 @@ const RAINBOW_COLORS = [
   "#ff00ff",
 ];
 
-export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, height }: StartScreenProps) {
+export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, height, agentName, modelName }: StartScreenProps) {
   const c = theme.colors;
   return (
     <box flexDirection="column" width="100%" height={height}>
@@ -48,7 +50,7 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
         
         {/* Input Bar - positioned directly under ASCII art */}
         <box width="60%" marginBottom={3}>
-          <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} />
+          <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} agentName={agentName} modelName={modelName} />
         </box>
 
         {/* Subtitle */}
