@@ -95,8 +95,7 @@ export class CopilotSessionAdapter {
    *  Populated in tool.execution_start, consumed in subagent.started to override
    *  the generic "general-purpose" display name with the actual specialist name. */
   private pendingAgentRoles = new Map<string, { role?: string; model?: string; taskTitle?: string }>();
-  /** Checklist items tracked for the enforce_checklist tool */
-  private checklistItems: { text: string; checked: boolean }[] = [];
+  /** Checklist items tracked for todo/checklist tools */
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -302,13 +301,19 @@ export class CopilotSessionAdapter {
     return this.isCancelled || !this.isProcessing || gen !== this.expectedRunGeneration;
   }
 
-  /** Reset streaming/reasoning buffers and per-turn tracking maps. */
-  private resetStreamingState(): void {
+  /** Reset per-turn streaming/reasoning buffers. */
+  private resetTurnStreamingBuffers(): void {
     this.streamingBuffers.clear();
     this.reasoningBuffer = "";
+  }
+
+  /** Reset all per-run transient tracking state. */
+  private resetRunTrackingState(): void {
+    this.resetTurnStreamingBuffers();
     this.activeSubagents.clear();
     this.pendingAgentRoles.clear();
     this.checklistItems = [];
+    this.sqlQueriesByToolCallId.clear();
   }
 
   private getStreamingBufferKey(messageId: string | undefined | null, parentToolCallId: string | undefined | null): string {
@@ -697,7 +702,7 @@ ${agentEntries}
         case "assistant.turn_start": {
           if (this.isEventStale(gen)) return;
 
-          this.resetStreamingState();
+          this.resetTurnStreamingBuffers();
 
           if (this.currentRunId) {
             this.emit({
@@ -819,7 +824,7 @@ ${agentEntries}
             });
           }
 
-          this.resetStreamingState();
+          this.resetTurnStreamingBuffers();
           break;
         }
 
@@ -835,8 +840,13 @@ ${agentEntries}
             if (intentArg && this.currentRunId) {
               this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg });
             }
-          } else if (toolName === "update_todo" && args && typeof args === "object") {
-            const todosArg = (args as any).todos;
+          } else if (toolName === "update_todo") {
+            const todosArg =
+              args && typeof args === "object"
+                ? (args as any).todos
+                : typeof args === "string"
+                ? args
+                : undefined;
             if (todosArg && this.currentRunId) {
               this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todosArg });
             }
@@ -846,7 +856,11 @@ ${agentEntries}
             const itemIndex = (args as any).item_index as number | undefined;
 
             if (action === "register" && items && items.length > 0) {
-              this.checklistItems = items.map(text => ({ text, checked: false }));
+              this.checklistItems = items.map((title, index) => ({
+                id: `checklist-${index}`,
+                title,
+                checked: false,
+              }));
               this.emitChecklistUpdate();
             } else if (
               action === "complete" &&
@@ -1013,7 +1027,7 @@ ${agentEntries}
             this.emit({ type: "run.finished", runId, createdAt: new Date() });
             this.emit(createLogEvent("info", "Response complete", runId));
 
-            this.resetStreamingState();
+            this.resetRunTrackingState();
             this.currentRunId = null;
             this.isProcessing = false;
           }
@@ -1191,7 +1205,7 @@ ${agentEntries}
     this.currentRunId = runId;
     this.isCancelled = false;
     this.isProcessing = true;
-    this.resetStreamingState();
+    this.resetRunTrackingState();
 
     const attachments = images?.map((imagePath) => ({
       type: "file" as const,
@@ -1219,7 +1233,7 @@ ${agentEntries}
         // Bump generation to invalidate stale events from the old session
         this.expectedRunGeneration++;
         this.currentRunGeneration = this.expectedRunGeneration;
-        this.resetStreamingState();
+        this.resetRunTrackingState();
 
         this.emit(createLogEvent("info", "Session renewed, retrying prompt...", runId));
         await this.session!.send(sendPayload);
@@ -1241,7 +1255,7 @@ ${agentEntries}
       try { await this.session.abort(); } catch { /* best-effort */ }
     }
 
-    this.resetStreamingState();
+    this.resetRunTrackingState();
     this.currentRunId = null;
 
     if (runId) {
