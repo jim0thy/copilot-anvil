@@ -12,6 +12,7 @@ import { AgentsModal } from './panes/AgentsModal.js'
 import { SkillsPane } from './panes/SkillsPane.js'
 import { ConfirmModal } from './panes/ConfirmModal.js'
 import { EphemeralModal } from './panes/EphemeralModal.js'
+import { SessionHistoryPane } from './panes/SessionHistoryPane.js'
 import { Sidebar } from './panes/Sidebar.js'
 import { DebugOverlay } from './panes/DebugOverlay.js'
 import { getTheme } from './theme.js'
@@ -48,6 +49,7 @@ export function App({ harness, renderer }: AppProps) {
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showSessionSwitcher, setShowSessionSwitcher] = useState(false);
+  const [showSessionHistory, setShowSessionHistory] = useState(true);
   const [showSkillsPane, setShowSkillsPane] = useState(false);
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
   const [showAgentsModal, setShowAgentsModal] = useState(false);
@@ -71,6 +73,10 @@ export function App({ harness, renderer }: AppProps) {
       }
     });
   }, [harness]);
+
+  useEffect(() => {
+    harness.dispatch({ type: "session.refresh" });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -219,7 +225,7 @@ export function App({ harness, renderer }: AppProps) {
       }
     }
     if (key.ctrl && key.name === "s") {
-      setShowSkillsPane(true);
+      setShowSessionHistory((prev) => !prev);
     }
     if (key.ctrl && key.name === "n") {
       if (state.status !== "running") {
@@ -271,12 +277,28 @@ export function App({ harness, renderer }: AppProps) {
   const agentDisplay = currentAgent?.name ?? "Copilot";
 
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
+  const sessionHistoryWidth = Math.floor(width * 0.175);
+  const sidebarWidth = Math.floor(width * 0.175);
+  const mainWidth = width - (showSessionHistory ? sessionHistoryWidth : 0) - sidebarWidth;
 
   return (
     <box flexDirection="column" width={width} height={height - 1}>
       {hasStarted ? (
         <box height={contentHeight} flexDirection="row">
-          <box flexDirection="column" width="82.5%">
+          {showSessionHistory && (
+            <box width="17.5%">
+              <SessionHistoryPane
+                sessions={state.availableSessions || []}
+                currentSessionId={state.currentSessionId || null}
+                onSelect={handleSelectSession}
+                onNewSession={handleNewSession}
+                height={contentHeight}
+                width={sessionHistoryWidth}
+                theme={theme}
+              />
+            </box>
+          )}
+          <box flexDirection="column" width={mainWidth}>
             <ChatPane
               transcript={state.transcript}
               streamingContent={state.streamingContent}
@@ -299,7 +321,7 @@ export function App({ harness, renderer }: AppProps) {
               reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
             />
           </box>
-          <box flexDirection="column" width="17.5%" paddingLeft={2}>
+          <box flexDirection="column" width={sidebarWidth} paddingLeft={2}>
             <Sidebar
               contextInfo={state.contextInfo}
               orchestrationMode={state.orchestrationMode}
@@ -311,23 +333,38 @@ export function App({ harness, renderer }: AppProps) {
               subagents={state.subagents}
               skills={state.skills}
               height={contentHeight}
-              width={Math.floor(width * 0.175) - 2}
+              width={sidebarWidth - 2}
               theme={theme}
             />
           </box>
         </box>
       ) : (
-        <box height={contentHeight} flexDirection="column">
-          <StartScreen
-            onSubmit={handleSubmit}
-            disabled={state.status === "running"}
-            suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
-            theme={theme}
-            height={contentHeight}
-            agentName={agentDisplay}
-            modelName={modelDisplay}
-            reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
-          />
+        <box height={contentHeight} flexDirection="row">
+          {showSessionHistory && (
+            <box width="17.5%">
+              <SessionHistoryPane
+                sessions={state.availableSessions || []}
+                currentSessionId={state.currentSessionId || null}
+                onSelect={handleSelectSession}
+                onNewSession={handleNewSession}
+                height={contentHeight}
+                width={sessionHistoryWidth}
+                theme={theme}
+              />
+            </box>
+          )}
+          <box flexDirection="column" width={width - (showSessionHistory ? sessionHistoryWidth : 0)}>
+            <StartScreen
+              onSubmit={handleSubmit}
+              disabled={state.status === "running"}
+              suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
+              theme={theme}
+              height={contentHeight}
+              agentName={agentDisplay}
+              modelName={modelDisplay}
+              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
+            />
+          </box>
         </box>
       )}
 
