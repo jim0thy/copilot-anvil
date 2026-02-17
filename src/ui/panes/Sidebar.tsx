@@ -209,7 +209,11 @@ function PlanSection({
         <b>Plan & Progress</b>
       </text>
 
-      {todoItems.length > 0 && (
+      {todoItems.length === 0 ? (
+        <box marginTop={1}>
+          <text fg={c.subtle}>No active tasks</text>
+        </box>
+      ) : (
         <box marginTop={1} flexDirection="column">
           {todoItems.map((item, idx) => {
             const isCurrent = idx === currentTaskIndex && !item.checked;
@@ -396,20 +400,10 @@ export const Sidebar = memo(function Sidebar({
 
   // Determine which sections have content
   const hasFiles = files.length > 0;
-
-  const hasPlanContent = useMemo(() => {
-    if (!currentTodo) return false;
-    return parseMarkdownChecklist(currentTodo).length > 0;
-  }, [currentTodo]);
-
   const hasSubagents = subagents.length > 0;
   const hasSkills = skills.length > 0;
   const hasSessionName = !!(currentSessionName && currentSessionName.trim().length > 0);
-  const headerTitle = hasSessionName
-    ? currentSessionName
-    : currentIntent && currentIntent.trim().length > 0
-    ? currentIntent
-    : null;
+  const headerTitle = hasSessionName ? currentSessionName : null;
 
   return (
     <box
@@ -458,16 +452,12 @@ export const Sidebar = memo(function Sidebar({
         </>
       )}
 
-      {/* Plan & Progress Section - Only when there's content */}
-      {hasPlanContent && (
-        <>
-          <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <PlanSection
-            currentTodo={currentTodo}
-            theme={theme}
-          />
-        </>
-      )}
+      {/* Plan & Progress Section - Always visible */}
+      <SectionDivider theme={theme} innerWidth={innerWidth} />
+      <PlanSection
+        currentTodo={currentTodo}
+        theme={theme}
+      />
 
       {/* Skills Section - Only when there are skills */}
       {hasSkills && (
