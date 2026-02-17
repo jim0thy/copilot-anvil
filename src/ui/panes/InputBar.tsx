@@ -315,6 +315,9 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       height={calculatedHeight}
       flexShrink={0}
       backgroundColor={c.mantle}
+      borderStyle="single"
+      border={["left"]}
+      borderColor={c.info}
       paddingLeft={2}
       paddingRight={2}
       justifyContent="center"
