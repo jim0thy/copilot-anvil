@@ -37,7 +37,9 @@ export const ContextPane = memo(function ContextPane({
     ? c.warning 
     : c.success;
 
-  const barWidth = 30;
+  const numericWidth = typeof width === "number" ? width : 0;
+  const innerWidth = Math.max(1, numericWidth - 4);
+  const barWidth = Math.max(10, innerWidth);
   const filledWidth = Math.round((contextPercent / 100) * barWidth);
   const progressBar = "█".repeat(filledWidth) + "░".repeat(barWidth - filledWidth);
 
@@ -81,7 +83,7 @@ export const ContextPane = memo(function ContextPane({
         </box>
       </box>
 
-      {/* Token usage display with progress bar on same line as percentage */}
+      {/* Token usage display */}
       <box flexDirection="column" marginTop={1}>
         <box flexDirection="row" justifyContent="space-between" alignItems="center">
           <text>
@@ -90,10 +92,10 @@ export const ContextPane = memo(function ContextPane({
             <span fg={c.subtext0}>{tokenLimit.toLocaleString()}</span>
             <span fg={c.subtext0}> tokens</span>
           </text>
-          <text>
-            <span fg={percentColor}>{progressBar}</span>
-            <span fg={percentColor}> <b>{contextPercent}%</b></span>
-          </text>
+          <text fg={percentColor}><b>{contextPercent}%</b></text>
+        </box>
+        <box>
+          <text fg={percentColor}>{progressBar}</text>
         </box>
       </box>
     </box>
