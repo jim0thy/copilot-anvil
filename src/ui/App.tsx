@@ -304,6 +304,7 @@ export function App({ harness, renderer }: AppProps) {
               contextInfo={state.contextInfo}
               orchestrationMode={state.orchestrationMode}
               files={modifiedFiles}
+              currentSessionName={state.currentSessionName}
               currentIntent={state.currentIntent}
               currentTodo={state.currentTodo}
               currentPlan={state.currentPlan}

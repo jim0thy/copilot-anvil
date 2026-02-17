@@ -12,6 +12,7 @@ interface SidebarProps {
   contextInfo: ContextInfo;
   orchestrationMode: OrchestrationMode;
   files: FileChange[];
+  currentSessionName?: string | null;
   currentIntent: string | null;
   currentTodo: string | null;
   currentPlan: string | null;
@@ -383,6 +384,7 @@ export const Sidebar = memo(function Sidebar({
   contextInfo,
   orchestrationMode,
   files,
+  currentSessionName,
   currentIntent,
   currentTodo,
   currentPlan,
@@ -406,6 +408,12 @@ export const Sidebar = memo(function Sidebar({
 
   const hasSubagents = subagents.length > 0;
   const hasSkills = skills.length > 0;
+  const hasSessionName = !!(currentSessionName && currentSessionName.trim().length > 0);
+  const headerTitle = hasSessionName
+    ? currentSessionName
+    : currentIntent && currentIntent.trim().length > 0
+    ? currentIntent
+    : null;
 
   return (
     <box
@@ -418,10 +426,20 @@ export const Sidebar = memo(function Sidebar({
       paddingTop={1}
       overflow="hidden"
     >
-      {/* Intent Title - shown at top when active */}
-      {currentIntent && currentIntent.trim().length > 0 && (
+      {/* Conversation Title */}
+      {headerTitle && (
         <box marginBottom={1}>
-          <text fg={c.accent}>{nf.arrowRight} {currentIntent}</text>
+          <text fg={c.primary}><b>{headerTitle}</b></text>
+        </box>
+      )}
+
+      {/* Current Intent (what the agent is doing right now) */}
+      {hasSessionName && currentIntent && currentIntent.trim().length > 0 && (
+        <box marginBottom={1}>
+          <text>
+            <span fg={c.subtext0}>Doing: </span>
+            <span fg={c.accent}>{nf.arrowRight} {currentIntent}</span>
+          </text>
         </box>
       )}
 
