@@ -119,7 +119,11 @@ export function processEvent(
       const messageWithReasoning: ChatMessage = {
         ...event.message,
         kind: "message",
-        reasoning: isSubagentMessage ? event.message.reasoning : (state.streamingReasoning || undefined),
+        // Prefer explicit reasoning attached to the message (newer SDK/tooling),
+        // otherwise fall back to the streamed reasoning buffer (older/evented flow).
+        reasoning: isSubagentMessage
+          ? event.message.reasoning
+          : (event.message.reasoning || state.streamingReasoning || undefined),
       };
       const newTranscript = [...state.transcript, messageWithReasoning];
       trimTranscript(newTranscript, ctx);

@@ -395,60 +395,170 @@ export class CopilotSessionAdapter {
       upperQuery.includes("TODOS");
     if (!isTodoMutation) return null;
 
-    // Column-aware INSERT: extract column list then match positionally
-    const insertMatch = query.match(
-      /INSERT\s+INTO\s+todos\s*\(([^)]+)\)\s*VALUES\s+([\s\S]+?)(?:;|$)/i
-    );
-    if (insertMatch) {
-      const columns = insertMatch[1].split(",").map(c => c.trim().toLowerCase());
-      const idIdx = columns.indexOf("id");
-      const titleIdx = columns.indexOf("title");
-      const statusIdx = columns.indexOf("status");
-      if (titleIdx === -1) return null; // can't proceed without a title column
+    try {
+      // --- Helpers (intentionally small, SQL-ish not fully general) ---
+      const unquote = (token: string | undefined): string | null => {
+        if (!token) return null;
+        const t = token.trim();
+        if (!t) return null;
+        if (/^null$/i.test(t)) return null;
+        if (t.startsWith("'") && t.endsWith("'")) {
+          // SQL escapes single-quote as doubled single-quote
+          return t.slice(1, -1).replace(/''/g, "'");
+        }
+        return t;
+      };
 
-      const valuesBlock = insertMatch[2];
-      // Extract each value row — handles quoted strings with commas inside
-      const rowMatches = [...valuesBlock.matchAll(/\((?:[^()']*|'[^']*')*\)/g)];
-      let changed = false;
-      for (const rowMatch of rowMatches) {
-        const vals = [...rowMatch[1].matchAll(/'([^']*?)'/g)].map(m => m[1]);
-        const id = idIdx >= 0 && idIdx < vals.length ? vals[idIdx] : undefined;
-        const title = vals[titleIdx];
-        const status = statusIdx >= 0 && statusIdx < vals.length ? vals[statusIdx] : "pending";
-        const checklistId = (id || title)?.trim();
-        if (!title || !checklistId) continue;
-        const checked = this.isDoneTodoStatus(status);
-        const existing = this.checklistItems.find(item => item.id === checklistId);
-        if (!existing) {
-          this.checklistItems.push({ id: checklistId, title, checked });
-          changed = true;
-        } else {
-          if (existing.title !== title || existing.checked !== checked) {
+      const splitTupleValues = (tuple: string): string[] => {
+        const vals: string[] = [];
+        let cur = "";
+        let inQuote = false;
+        let depth = 0; // nested parens (e.g. datetime('now'))
+        for (let i = 0; i < tuple.length; i++) {
+          const ch = tuple[i];
+          const next = tuple[i + 1];
+
+          if (ch === "'") {
+            if (inQuote && next === "'") {
+              // escaped quote inside string
+              cur += "''";
+              i++;
+              continue;
+            }
+            inQuote = !inQuote;
+            cur += ch;
+            continue;
+          }
+
+          if (!inQuote) {
+            if (ch === "(") depth++;
+            else if (ch === ")" && depth > 0) depth--;
+
+            if (ch === "," && depth === 0) {
+              vals.push(cur.trim());
+              cur = "";
+              continue;
+            }
+          }
+
+          cur += ch;
+        }
+        if (cur.trim().length > 0) vals.push(cur.trim());
+        return vals;
+      };
+
+      const extractValuesTuples = (valuesBlock: string): string[] => {
+        const tuples: string[] = [];
+        let inQuote = false;
+        let depth = 0;
+        let start = -1;
+
+        for (let i = 0; i < valuesBlock.length; i++) {
+          const ch = valuesBlock[i];
+          const next = valuesBlock[i + 1];
+
+          if (ch === "'") {
+            if (inQuote && next === "'") {
+              // escaped quote
+              i++;
+              continue;
+            }
+            inQuote = !inQuote;
+            continue;
+          }
+
+          if (inQuote) continue;
+
+          if (ch === "(") {
+            if (depth === 0) start = i + 1;
+            depth++;
+          } else if (ch === ")") {
+            depth = Math.max(0, depth - 1);
+            if (depth === 0 && start >= 0) {
+              tuples.push(valuesBlock.slice(start, i));
+              start = -1;
+            }
+          }
+        }
+
+        return tuples;
+      };
+
+      // --- INSERT ---
+      // Supports both: INSERT INTO todos (a,b,...) VALUES (...),(...)
+      // and (best-effort): INSERT INTO todos VALUES (...)
+      const insertMatch = query.match(
+        /INSERT\s+INTO\s+todos\s*(?:\(([^)]+)\))?\s*VALUES\s+([\s\S]+?)(?:;|$)/i
+      );
+      if (insertMatch) {
+        const columnsRaw = insertMatch[1];
+        const columns = columnsRaw
+          ? columnsRaw.split(",").map(c => c.trim().toLowerCase())
+          : null;
+
+        const valuesBlock = insertMatch[2];
+        const tuples = extractValuesTuples(valuesBlock);
+        if (tuples.length === 0) return null;
+
+        const colIdx = (colName: string, fallbackIndex: number): number => {
+          if (!columns) return fallbackIndex;
+          const idx = columns.indexOf(colName);
+          return idx >= 0 ? idx : -1;
+        };
+
+        const idIdx = colIdx("id", 0);
+        const titleIdx = colIdx("title", 1);
+        const statusIdx = colIdx("status", 3);
+
+        let changed = false;
+
+        for (const tuple of tuples) {
+          const rawVals = splitTupleValues(tuple);
+          const id = idIdx >= 0 ? unquote(rawVals[idIdx]) : unquote(rawVals[0]);
+          const title = titleIdx >= 0 ? unquote(rawVals[titleIdx]) : unquote(rawVals[1]);
+          const status = statusIdx >= 0 ? unquote(rawVals[statusIdx]) : unquote(rawVals[3]);
+
+          const checklistId = (id || title)?.trim();
+          if (!title || !checklistId) continue;
+
+          const checked = this.isDoneTodoStatus(status ?? undefined);
+          const existing = this.checklistItems.find(item => item.id === checklistId);
+
+          if (!existing) {
+            this.checklistItems.push({ id: checklistId, title, checked });
+            changed = true;
+          } else if (existing.title !== title || existing.checked !== checked) {
             existing.title = title;
             existing.checked = checked;
             changed = true;
           }
         }
+
+        return changed ? this.getChecklistMarkdown() : null;
       }
-      return changed ? this.getChecklistMarkdown() : null;
-    }
 
-    // Match UPDATE todos SET status = 'done' WHERE id = '...'
-    const updateMatch = query.match(
-      /UPDATE\s+todos\s+SET\s+status\s*=\s*'(done|in_progress|pending|blocked)'\s+WHERE\s+id\s*=\s*'([^']+)'/is
-    );
-    if (updateMatch) {
-      const newStatus = updateMatch[1];
-      const todoId = updateMatch[2];
-      const item = this.checklistItems.find(it => it.id === todoId);
-      if (!item) return null;
-      const checked = this.isDoneTodoStatus(newStatus);
-      if (item.checked === checked) return null;
-      item.checked = checked;
-      return this.getChecklistMarkdown();
-    }
+      // --- UPDATE ---
+      // Be liberal: allow additional SET fields (e.g. updated_at=...) and different spacing.
+      if (upperQuery.includes("UPDATE") && upperQuery.includes("TODOS")) {
+        const idMatch = query.match(/WHERE\s+id\s*=\s*'([^']+)'/i);
+        const statusMatch = query.match(/\bstatus\s*=\s*'(done|in_progress|pending|blocked)'/i);
+        if (idMatch && statusMatch) {
+          const todoId = idMatch[1];
+          const newStatus = statusMatch[1];
+          const item = this.checklistItems.find(it => it.id === todoId);
+          if (!item) return null;
+          const checked = this.isDoneTodoStatus(newStatus);
+          if (item.checked === checked) return null;
+          item.checked = checked;
+          return this.getChecklistMarkdown();
+        }
+      }
 
-    return null;
+      return null;
+    } catch (error) {
+      this.emit(createLogEvent("warn", `Failed to parse SQL todo mutation: ${String(error)}`));
+      return null;
+    }
   }
 
   /** Parse SQL SELECT todos results and replace checklist state from returned rows. */
@@ -459,6 +569,25 @@ export class CopilotSessionAdapter {
       upperQuery.includes("FROM") &&
       upperQuery.includes("TODOS");
     if (!isTodoSelect) return null;
+
+    // Prefer structured SQL results if available (newer sql tool implementations).
+    const structuredRows = this.extractSqlRows(result);
+    if (structuredRows && structuredRows.length > 0) {
+      const nextItems: { id: string; title: string; checked: boolean }[] = [];
+      for (const row of structuredRows) {
+        const title = typeof row.title === "string" ? row.title.trim() : String(row.title ?? "").trim();
+        if (!title) continue;
+        const idRaw = row.id ?? title;
+        const id = typeof idRaw === "string" ? idRaw.trim() : String(idRaw).trim();
+        const statusRaw = row.status ?? "pending";
+        const status = typeof statusRaw === "string" ? statusRaw.trim() : String(statusRaw).trim();
+        nextItems.push({ id, title, checked: this.isDoneTodoStatus(status) });
+      }
+      if (nextItems.length > 0) {
+        this.checklistItems = nextItems;
+        return this.getChecklistMarkdown();
+      }
+    }
 
     const resultText = this.extractSqlResultText(result);
     if (!resultText) return null;
@@ -526,6 +655,49 @@ export class CopilotSessionAdapter {
     }
     const fallback = extractToolOutput(result);
     return typeof fallback === "string" && fallback.trim() ? fallback : null;
+  }
+
+  /** Best-effort extraction for structured SQL results (rows/columns), if provided by a sql tool implementation. */
+  private extractSqlRows(result: unknown): Array<Record<string, unknown>> | null {
+    if (!result) return null;
+
+    // Some tools return the rows directly as an array.
+    if (Array.isArray(result)) {
+      const first = result[0];
+      if (first && typeof first === "object" && !Array.isArray(first)) {
+        return result as Array<Record<string, unknown>>;
+      }
+      return null;
+    }
+
+    if (typeof result !== "object") return null;
+    const obj = result as Record<string, unknown>;
+
+    const rows = obj.rows;
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+
+    const firstRow = rows[0];
+
+    // rows: Array<object>
+    if (firstRow && typeof firstRow === "object" && !Array.isArray(firstRow)) {
+      return rows as Array<Record<string, unknown>>;
+    }
+
+    // rows: Array<Array<any>> with columns: Array<string>
+    const columns = obj.columns;
+    if (Array.isArray(columns) && Array.isArray(firstRow)) {
+      const colNames = columns.map(c => String(c));
+      return (rows as unknown[]).map((r) => {
+        const rec: Record<string, unknown> = {};
+        const arr = r as unknown[];
+        for (let i = 0; i < colNames.length; i++) {
+          rec[colNames[i]] = arr[i];
+        }
+        return rec;
+      });
+    }
+
+    return null;
   }
 
   /** Tear down the current session and its plan watcher. Does not throw. */
@@ -945,6 +1117,13 @@ ${agentEntries}
 
           if (resolvedContent && this.currentRunId) {
             const message = createAssistantMessage(resolvedContent);
+
+            // Best-effort reasoning support: some SDK builds attach reasoning directly
+            // to the completed assistant message instead of emitting reasoning_delta events.
+            const directReasoning = (event.data as any)?.reasoning ?? (event.data as any)?.reasoningContent;
+            if (typeof directReasoning === "string" && directReasoning.trim()) {
+              (message as any).reasoning = directReasoning;
+            }
 
             // Add agent information - from subagent if available, otherwise from active agent
             if (parentToolCallId) {
