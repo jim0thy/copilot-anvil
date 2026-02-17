@@ -84,6 +84,8 @@ export class CopilotSessionAdapter {
   private _reasoningEffort: "low" | "medium" | "high" | "xhigh" = "medium";
   /** True while the onUserInputRequest callback is awaiting a user response */
   private hasPendingUserInput = false;
+  /** Guards against concurrent renewSessionWithAgents calls */
+  private _renewalPromise: Promise<void> | null = null;
   /** Map of tool call IDs to subagent information */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string }>();
 
@@ -141,12 +143,9 @@ export class CopilotSessionAdapter {
     );
     this._customAgents = [...orchestrationAgents, ...userAgents];
     this.emit(createLogEvent("info", `${nf.cog} Setting ${this._customAgents.length} agents (${orchestrationAgents.length} orchestration + ${userAgents.length} custom): ${this._customAgents.map(a => a.displayName || a.name).join(", ")}`));
-    
-    // If we have an active session, recreate it to include the new agents
-    if (this.session && this.client && !this.isProcessing) {
-      this.emit(createLogEvent("info", "Renewing session with custom agents..."));
-      await this.renewSessionWithAgents();
-    }
+
+    // Schedule a session renewal (coalesced with any pending renewal)
+    await this.scheduleRenewal("setCustomAgents");
   }
 
   /**
@@ -160,25 +159,24 @@ export class CopilotSessionAdapter {
    */
   async setActiveAgent(agentId: string | null, skipSessionRenew = false): Promise<void> {
     // Find the agent from registered custom agents
-    const agent = agentId 
+    const agent = agentId
       ? this._customAgents.find(a => a.name === agentId)
       : null;
-    
+
     this._activeAgent = agent ?? null;
-    
+
     // Log for debugging
     if (agentId && !agent) {
       this.emit(createLogEvent("warn", `${nf.warning} Agent '${agentId}' not found in registered agents. Available: ${this._customAgents.map(a => a.name).join(", ")}`));
     } else if (agent) {
       this.emit(createLogEvent("debug", `${nf.check} Active agent set: ${agent.displayName || agent.name}`));
     }
-    
-    // If we have an active session, recreate it with the new system prompt
-    // (unless skipSessionRenew is true, meaning caller will handle session update)
-    if (this.session && this.client && !this.isProcessing && !skipSessionRenew) {
+
+    // Schedule a session renewal (coalesced with any pending renewal)
+    if (!skipSessionRenew) {
       const agentName = agent?.displayName ?? agent?.name ?? "Copilot";
       this.emit(createLogEvent("info", `Activating agent: ${agentName}`));
-      await this.renewSessionWithAgents();
+      await this.scheduleRenewal("setActiveAgent");
     }
   }
 
@@ -202,9 +200,40 @@ export class CopilotSessionAdapter {
   }
 
   /**
-   * Recreate the current session with updated custom agents.
-   * Preserves the current session ID to maintain conversation history.
+   * Coalesces concurrent renewal requests so that only ONE
+   * destroy-then-resume cycle runs at a time. If a renewal is already
+   * in flight, callers share the same promise. The final renewal always
+   * uses the latest _customAgents / _activeAgent state.
    */
+  private async scheduleRenewal(source: string): Promise<void> {
+    if (!this.session || !this.client || this.isProcessing) return;
+
+    if (this._renewalPromise) {
+      // Another renewal is already in flight — just wait for it.
+      // It will pick up the latest state when it builds the session opts.
+      this.emit(createLogEvent("debug", `Renewal coalesced (from ${source}) — joining existing renewal`));
+      return this._renewalPromise;
+    }
+
+    // Defer one microtick so that synchronous setCustomAgents +
+    // setActiveAgent calls both land before the renewal starts.
+    this._renewalPromise = new Promise<void>(resolve => {
+      queueMicrotask(async () => {
+        try {
+          this.emit(createLogEvent("info", `Renewing session (trigger: ${source})...`));
+          await this.renewSessionWithAgents();
+        } catch (err) {
+          this.emit(createLogEvent("error", `Session renewal failed: ${err instanceof Error ? err.message : String(err)}`));
+        } finally {
+          this._renewalPromise = null;
+          resolve();
+        }
+      });
+    });
+
+    return this._renewalPromise;
+  }
+
   private async renewSessionWithAgents(): Promise<void> {
     if (!this.client) throw new Error("Client not initialized");
     
