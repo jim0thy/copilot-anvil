@@ -39,10 +39,11 @@ interface InputBarProps {
   onHeightChange?: (height: number) => void;
   agentName?: string;
   modelName?: string;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
 }
 
 // Custom keyboard-driven input (OpenTUI's <input> doesn't work in child components)
-export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange, agentName, modelName }: InputBarProps) {
+export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange, agentName, modelName, reasoningEffort }: InputBarProps) {
   const c = theme.colors;
   const [value, setValue] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
@@ -131,7 +132,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       setResetKey((k) => k + 1);
       // Reset height to minimum when message is sent
       if (onHeightChange) {
-        onHeightChange(5);
+        onHeightChange(3);
       }
     }
   };
@@ -302,7 +303,8 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const imageIndicatorLines = attachedImages.length;
   const helpTextLines = attachedImages.length > 0 && selectedAttachment === null ? 1 : 0;
   const footerLines = (agentName || modelName) ? 1 : 0;
-  const calculatedHeight = Math.max(5, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + footerLines + 2); // Minimum 5, add 2 for top/bottom padding
+  const footerSpacerLines = footerLines ? 1 : 0; // Blank line between input text and footer
+  const calculatedHeight = Math.max(3, lines + pasteIndicatorLines + imageIndicatorLines + helpTextLines + footerSpacerLines + footerLines); // Minimum 3
 
   // Notify parent of height change
   useEffect(() => {
@@ -323,9 +325,10 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       borderColor={c.info}
       paddingLeft={2}
       paddingRight={2}
-      justifyContent="center"
+      paddingTop={0}
+      paddingBottom={0}
     >
-      <box flexDirection="column" justifyContent="center">
+      <box flexDirection="column">
         {pastedContent && (
           <text>
             <span fg={c.text} bg={c.surface1}> {nf.clipboard} {pastedLineCount} lines pasted </span>
@@ -360,11 +363,28 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
             </>
           )}
         </text>
+        {(agentName || modelName) && <text> </text>}
         {(agentName || modelName) && (
           <text>
-            {agentName && <span fg={c.subtle}>{agentName}</span>}
+            {agentName && <span fg={c.accent}><b>{agentName}</b></span>}
             {agentName && modelName && <span fg={c.subtle}> · </span>}
-            {modelName && <span fg={c.subtle}>{modelName}</span>}
+            {modelName && <span fg={c.link}><b>{modelName}</b></span>}
+            {modelName && reasoningEffort && (
+              <>
+                <span fg={c.subtle}> (</span>
+                <span
+                  fg={
+                    reasoningEffort === "low" ? c.success :
+                    reasoningEffort === "medium" ? c.warning :
+                    reasoningEffort === "high" ? "#FFA500" :
+                    c.error
+                  }
+                >
+                  {reasoningEffort}
+                </span>
+                <span fg={c.subtle}>)</span>
+              </>
+            )}
           </text>
         )}
       </box>

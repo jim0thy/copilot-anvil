@@ -40,16 +40,6 @@ function useSpinner(active: boolean): string {
   return active ? SPINNER_FRAMES[frame] : "";
 }
 
-function getEffortColor(effort: "low" | "medium" | "high" | "xhigh", theme: ReturnType<typeof getTheme>): string {
-  const c = theme.colors;
-  switch (effort) {
-    case "low": return c.success;    // green
-    case "medium": return c.warning;  // yellow
-    case "high": return "#FFA500";    // orange
-    case "xhigh": return c.error;     // red
-  }
-}
-
 export function App({ harness, renderer }: AppProps) {
   const { width, height } = useTerminalDimensions();
   const [state, setState] = useState<HarnessState>(harness.getState());
@@ -305,6 +295,7 @@ export function App({ harness, renderer }: AppProps) {
               onHeightChange={handleInputHeightChange}
               agentName={agentDisplay}
               modelName={modelDisplay}
+              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
             />
           </box>
           <box flexDirection="column" width="17.5%" paddingLeft={2}>
@@ -333,6 +324,7 @@ export function App({ harness, renderer }: AppProps) {
             height={contentHeight}
             agentName={agentDisplay}
             modelName={modelDisplay}
+            reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
           />
         </box>
       )}
@@ -351,15 +343,6 @@ export function App({ harness, renderer }: AppProps) {
             <span>{spinner}  </span>
           )}
           <span fg={statusColor}>{statusText}</span>
-          {(() => {
-            const currentModelInfo = state.availableModels.find(m => m.id === state.currentModel);
-            return currentModelInfo?.supportsReasoningEffort ? (
-              <>
-                <span fg={c.subtle}> • </span>
-                <span fg={getEffortColor(state.reasoningEffort, theme)}>{state.reasoningEffort}</span>
-              </>
-            ) : null;
-          })()}
           {/* Git status with Nerd Font icons: \uE0A0=, \uF111=, \uF44D=, \uF059=, \uF062=, \uF063=, \uF00C= */}
           {gitInfo.branch && (
             <>
@@ -382,11 +365,6 @@ export function App({ harness, renderer }: AppProps) {
           <span fg={c.subtext0}>^N</span><span fg={c.text}> new  </span>
           <span fg={c.subtext0}>^O</span><span fg={c.text}> sessions  </span>
           <span fg={c.subtext0}>S-Tab</span><span fg={c.text}> model  </span>
-          {state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort && (
-            <>
-              <span fg={c.subtext0}>^T</span><span fg={c.text}> effort  </span>
-            </>
-          )}
           {gitInfo.hasChanges && (
             <><span fg={c.subtext0}>^G</span><span fg={c.text}> commit  </span></>
           )}
