@@ -6,6 +6,7 @@ import type { Subagent, Skill } from "../../harness/Harness.js";
 import type { OrchestrationMode } from "../../agents/types.js";
 import { getStatusIcon, getStatusColor, parseMarkdownChecklist } from "../formatters.js";
 import { nf } from "../icons.js";
+import { useSpinner } from "../hooks.js";
 
 interface SidebarProps {
   contextInfo: ContextInfo;
@@ -258,6 +259,8 @@ function SubagentsSection({
   theme: Theme;
 }) {
   const c = theme.colors;
+  const spinner = useSpinner();
+
   const { activeSubagents, completedSubagents } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents
@@ -277,7 +280,7 @@ function SubagentsSection({
   return (
     <box flexDirection="column">
       <text fg={c.primary}>
-        <b>Subagents</b>
+        <b>Specialists</b>
       </text>
 
       {!hasAnySubagents && orchestrationMode === "orchestrated" && (
@@ -289,11 +292,21 @@ function SubagentsSection({
       {activeSubagents.length > 0 && (
         <box marginTop={1} flexDirection="column">
           {activeSubagents.map((agent) => (
-            <box key={agent.toolCallId} flexDirection="row">
-              <text fg={getStatusColor(agent.status, theme)}>
-                {getStatusIcon(agent.status)}{" "}
-              </text>
-              <text fg={c.text}><b>{agent.agentDisplayName}</b></text>
+            <box key={agent.toolCallId} flexDirection="column">
+              <box flexDirection="row">
+                <text fg={getStatusColor(agent.status, theme)}>
+                  {spinner}{" "}
+                </text>
+                <text fg={c.text}><b>{agent.agentDisplayName}</b></text>
+                {agent.model && (
+                  <text fg={c.subtle}> {" "}({agent.model})</text>
+                )}
+              </box>
+              {agent.taskTitle && (
+                <box marginLeft={2}>
+                  <text fg={c.subtext0}>{agent.taskTitle}</text>
+                </box>
+              )}
             </box>
           ))}
         </box>
@@ -302,11 +315,21 @@ function SubagentsSection({
       {completedSubagents.length > 0 && (
         <box marginTop={activeSubagents.length > 0 ? 0 : 1} flexDirection="column">
           {completedSubagents.map((agent) => (
-            <box key={agent.toolCallId} flexDirection="row">
-              <text fg={getStatusColor(agent.status, theme)}>
-                {getStatusIcon(agent.status)}{" "}
-              </text>
-              <text fg={c.subtle}>{agent.agentDisplayName}</text>
+            <box key={agent.toolCallId} flexDirection="column">
+              <box flexDirection="row">
+                <text fg={getStatusColor(agent.status, theme)}>
+                  {getStatusIcon(agent.status)}{" "}
+                </text>
+                <text fg={c.subtle}>{agent.agentDisplayName}</text>
+                {agent.model && (
+                  <text fg={c.subtle}> {" "}({agent.model})</text>
+                )}
+              </box>
+              {agent.taskTitle && (
+                <box marginLeft={2}>
+                  <text fg={c.subtext0}>{agent.taskTitle}</text>
+                </box>
+              )}
             </box>
           ))}
         </box>
