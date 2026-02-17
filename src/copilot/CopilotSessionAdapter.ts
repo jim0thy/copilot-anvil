@@ -765,8 +765,8 @@ export class CopilotSessionAdapter {
         : '';
 
       return {
-        mode: "replace" as const,
-        content: `${this._activeAgent.prompt}\n\n${delegationGuide}`,
+        mode: "append" as const,
+        content: `\n\n${this._activeAgent.prompt}\n\n${delegationGuide}`,
       };
     }
 
