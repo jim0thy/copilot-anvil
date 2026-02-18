@@ -31,8 +31,6 @@ interface ChatPaneProps {
   isStreaming: boolean;
   height: number;
   theme: Theme;
-  /** Tool call IDs that represent launching subagents; their tool status is shown in the Specialists pane instead. */
-  subagentToolCallIds?: string[];
 }
 
 function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boolean {
@@ -247,23 +245,12 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   );
 });
 
-export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, isStreaming, height, theme, subagentToolCallIds: subagentToolCallIdsProp }: ChatPaneProps) {
+export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, isStreaming, height, theme }: ChatPaneProps) {
   const c = theme.colors;
   const subagentStreamingEntries = Object.entries(subagentStreamingProp);
   const hasSubagentStreaming = subagentStreamingEntries.length > 0;
   // Auto-scroll whenever streaming is happening (including waiting subagents)
   const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning) || hasSubagentStreaming;
-
-  // Build a Set of tool call IDs that correspond to subagents.
-  // Prefer the explicit list from state (so we can hide immediately on subagent start),
-  // and also learn from the transcript (messages tagged with parentToolCallId).
-  const subagentToolCallIds = new Set<string>(subagentToolCallIdsProp ?? []);
-  for (const item of transcript) {
-    if (item.kind === "message" && item.parentToolCallId) {
-      subagentToolCallIds.add(item.parentToolCallId);
-    }
-  }
-
   return (
     <scrollbox
       height={height}
@@ -287,10 +274,6 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
         if (item.kind === "tool-call") {
           // Skip report_intent - it's shown in the Plan & Progress pane
           if (item.toolName === "report_intent") {
-            return null;
-          }
-          // Skip task tool calls that correspond to subagents (shown in Specialists pane)
-          if (item.toolName === "task" && subagentToolCallIds.has(item.toolCallId)) {
             return null;
           }
           return <ToolCallInline key={item.id} tool={item} theme={theme} />;

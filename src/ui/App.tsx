@@ -278,7 +278,7 @@ export function App({ harness, renderer }: AppProps) {
 
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
   const sessionHistoryWidth = Math.floor(width * 0.175);
-  const sidebarWidth = Math.floor(width * 0.175);
+  const sidebarWidth = Math.floor(width * 0.20125);
   const mainWidth = width - (showSessionHistory ? sessionHistoryWidth : 0) - sidebarWidth;
 
   return (
@@ -308,7 +308,6 @@ export function App({ harness, renderer }: AppProps) {
               isStreaming={state.status === "running"}
               height={contentHeight - inputBarHeight}
               theme={theme}
-              subagentToolCallIds={state.subagents.map((s) => s.toolCallId)}
             />
             <InputBar
               onSubmit={handleSubmit}
