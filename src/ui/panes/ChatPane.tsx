@@ -289,9 +289,9 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
           if (item.toolName === "report_intent") {
             return null;
           }
-          // Skip task tool calls that correspond to subagents (they're shown in Specialists pane)
+          // Skip running task tool calls that correspond to subagents (shown in Specialists pane)
           if (item.toolName === "task" && subagentToolCallIds.has(item.toolCallId)) {
-            return null;
+            if (item.status !== "completed") return null;
           }
           return <ToolCallInline key={item.id} tool={item} theme={theme} />;
         }

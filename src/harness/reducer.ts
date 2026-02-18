@@ -127,12 +127,40 @@ export function processEvent(
       };
 
     case "reasoning.delta":
+      if (event.parentToolCallId) {
+        const existing = state.subagentStreaming[event.parentToolCallId];
+        return {
+          ...state,
+          subagentStreaming: {
+            ...state.subagentStreaming,
+            [event.parentToolCallId]: {
+              agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
+              content: existing?.content ?? "",
+              reasoning: (existing?.reasoning ?? "") + event.text,
+            },
+          },
+        };
+      }
       return {
         ...state,
         streamingReasoning: state.streamingReasoning + event.text,
       };
 
     case "reasoning.message":
+      if (event.parentToolCallId) {
+        const existing = state.subagentStreaming[event.parentToolCallId];
+        return {
+          ...state,
+          subagentStreaming: {
+            ...state.subagentStreaming,
+            [event.parentToolCallId]: {
+              agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
+              content: existing?.content ?? "",
+              reasoning: event.content,
+            },
+          },
+        };
+      }
       return state;
 
     case "assistant.message": {
@@ -144,7 +172,9 @@ export function processEvent(
         // Prefer explicit reasoning attached to the message (newer SDK/tooling),
         // otherwise fall back to the streamed reasoning buffer (older/evented flow).
         reasoning: isSubagentMessage
-          ? event.message.reasoning
+          ? (event.message.reasoning
+            || state.subagentStreaming[parentToolCallId!]?.reasoning
+            || undefined)
           : (event.message.reasoning || state.streamingReasoning || undefined),
       };
       const newTranscript = [...state.transcript, messageWithReasoning];

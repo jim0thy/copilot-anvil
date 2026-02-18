@@ -1359,6 +1359,8 @@ ${agentEntries}
 
           const reasoningDelta = event.data?.deltaContent ?? "";
           if (!reasoningDelta) return;
+          const parentToolCallId = (event.data as any)?.parentToolCallId;
+          const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
 
           this.reasoningBuffer += reasoningDelta;
 
@@ -1368,6 +1370,9 @@ ${agentEntries}
               runId: this.currentRunId,
               reasoningId: event.data?.reasoningId ?? "",
               text: reasoningDelta,
+              parentToolCallId,
+              agentName: subagent?.agentName,
+              agentDisplayName: subagent?.agentDisplayName,
             });
           }
           break;
@@ -1377,12 +1382,17 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
 
           const reasoningContent = event.data?.content ?? "";
+          const parentToolCallId = (event.data as any)?.parentToolCallId;
+          const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
           if (this.currentRunId && reasoningContent) {
             this.emit({
               type: "reasoning.message",
               runId: this.currentRunId,
               reasoningId: event.data?.reasoningId ?? "",
               content: reasoningContent,
+              parentToolCallId,
+              agentName: subagent?.agentName,
+              agentDisplayName: subagent?.agentDisplayName,
             });
           }
           break;

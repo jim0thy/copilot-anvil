@@ -83,6 +83,12 @@ export interface ReasoningDeltaEvent {
   runId: string;
   reasoningId: string;
   text: string;
+  /** Parent tool call ID if this reasoning delta is from a subagent */
+  parentToolCallId?: string;
+  /** Agent name if this reasoning delta is from a subagent */
+  agentName?: string;
+  /** Agent display name if this reasoning delta is from a subagent */
+  agentDisplayName?: string;
 }
 
 export interface ReasoningMessageEvent {
@@ -90,6 +96,12 @@ export interface ReasoningMessageEvent {
   runId: string;
   reasoningId: string;
   content: string;
+  /** Parent tool call ID if this reasoning message is from a subagent */
+  parentToolCallId?: string;
+  /** Agent name if this reasoning message is from a subagent */
+  agentName?: string;
+  /** Agent display name if this reasoning message is from a subagent */
+  agentDisplayName?: string;
 }
 
 export interface LogEvent {
