@@ -31,7 +31,7 @@ import { createSessionHooks } from "./hooks.js";
 // ── Types ────────────────────────────────────────────────────────
 
 export interface AnvilSessionOptions {
-  /** Model to use (e.g., "claude-sonnet-4.5", "gpt-5.2") */
+  /** Model to use (e.g., "claude-sonnet-4.6", "gpt-5.2") */
   model?: string;
   /** Reasoning effort for supported models */
   reasoningEffort?: "low" | "medium" | "high" | "xhigh";
@@ -88,7 +88,7 @@ export interface AnvilSession {
  *
  * @example
  * ```typescript
- * const session = await createAnvilSession({ model: "claude-sonnet-4.5" });
+ * const session = await createAnvilSession({ model: "claude-sonnet-4.6" });
  * const response = await session.send("Refactor the auth module");
  * await session.destroy();
  * ```

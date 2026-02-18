@@ -330,7 +330,7 @@ Create `.agent.md` files with YAML frontmatter:
 ---
 name: Security Analyst
 description: Analyses code for security vulnerabilities
-model: claude-sonnet-4.5
+model: claude-sonnet-4.6
 tools: ['read', 'search', 'grep']
 tier: specialist
 domain: review
@@ -354,7 +354,7 @@ following OWASP guidelines...
 |-------|----------|-------------|
 | `name` | Yes | Display name and identifier |
 | `description` | Yes | Short description for UI display |
-| `model` | No | Model to use (default: `claude-sonnet-4.5`) |
+| `model` | No | Model to use (default: `claude-sonnet-4.6`) |
 | `tools` | No | List of tools available to the agent |
 | `tier` | No | `junior`, `mid`, `senior`, or `specialist` (auto-inferred from name) |
 | `domain` | No | Routing domain (auto-inferred from name) |

@@ -9,7 +9,7 @@ Each agent file should start with YAML frontmatter (between `---` lines) followe
 ---
 name: My Custom Agent
 description: What this agent does
-model: claude-sonnet-4.5
+model: claude-sonnet-4.6
 tools: ['grep', 'view', 'edit']
 tier: mid
 domain: fullstack

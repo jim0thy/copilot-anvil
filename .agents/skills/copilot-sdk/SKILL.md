@@ -714,7 +714,7 @@ await using var session = await client.CreateSessionAsync(new SessionConfig { Mo
 
 | Option | Description |
 |--------|-------------|
-| `model` | LLM to use ("gpt-4.1", "claude-sonnet-4.5", etc.) |
+| `model` | LLM to use ("gpt-4.1", "claude-sonnet-4.6", etc.) |
 | `sessionId` | Custom session identifier |
 | `tools` | Custom tool definitions |
 | `mcpServers` | MCP server connections |
@@ -823,7 +823,7 @@ Query available models at runtime:
 
 ```typescript
 const models = await client.getModels();
-// Returns: ["gpt-4.1", "gpt-4o", "claude-sonnet-4.5", ...]
+// Returns: ["gpt-4.1", "gpt-4o", "claude-sonnet-4.6", ...]
 ```
 
 ## Best Practices

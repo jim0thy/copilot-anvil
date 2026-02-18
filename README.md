@@ -55,7 +55,7 @@ bun run dev
 
 # CLI (one-shot mode)
 bun run cli "Refactor the auth module to use JWT"
-bun run cli --model claude-sonnet-4.5 "Add dark mode support"
+bun run cli --model claude-sonnet-4.6 "Add dark mode support"
 ```
 
 ## Programmatic Usage
@@ -64,7 +64,7 @@ bun run cli --model claude-sonnet-4.5 "Add dark mode support"
 import { createAnvilSession } from "./src/cli/index.js";
 
 const session = await createAnvilSession({
-  model: "claude-sonnet-4.5",
+  model: "claude-sonnet-4.6",
   onDelta: (text) => process.stdout.write(text),
 });
 
@@ -131,7 +131,7 @@ Create `.agent.md` files to add or override agents:
 ---
 name: My Custom Agent
 description: What this agent does
-model: claude-sonnet-4.5
+model: claude-sonnet-4.6
 tier: mid
 domain: fullstack
 escalatesTo: Senior Fullstack Developer

@@ -5,7 +5,7 @@
  * ---
  * name: Agent Name
  * description: Short description
- * model: claude-sonnet-4.5
+ * model: claude-sonnet-4.6
  * tools: ['vscode', 'edit', 'search']
  * tier: mid
  * domain: frontend
@@ -124,7 +124,7 @@ export function parseAgentFile(
       id: nameToId(filename),
       name: filename,
       description: "Agent loaded from " + sourcePath,
-      model: "claude-sonnet-4.5",
+      model: "claude-sonnet-4.6",
       tools: [],
       tier: inferTier(filename),
       domain: inferDomain(filename),
@@ -167,13 +167,13 @@ export function parseAgentFile(
  * Normalize model names from various formats to our standard format.
  */
 function normalizeModel(model?: string): string {
-  if (!model) return "claude-sonnet-4.5";
+  if (!model) return "claude-sonnet-4.6";
   
   const lowerModel = model.toLowerCase();
   
   // Map common vscode-agents model names to our model IDs
   if (lowerModel.includes("sonnet 4.5") || lowerModel.includes("sonnet-4.5")) {
-    return "claude-sonnet-4.5";
+    return "claude-sonnet-4.6";
   }
   if (lowerModel.includes("opus 4.6") || lowerModel.includes("opus-4.6")) {
     return "claude-opus-4.6";

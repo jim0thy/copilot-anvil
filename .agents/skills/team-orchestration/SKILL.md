@@ -46,7 +46,7 @@ bun src/cli/index.ts "Refactor the authentication module to use JWT"
 import { createAnvilSession } from "./src/cli/index.js";
 
 const session = await createAnvilSession({
-  model: "claude-sonnet-4.5",
+  model: "claude-sonnet-4.6",
 });
 
 const response = await session.send("Add dark mode support");

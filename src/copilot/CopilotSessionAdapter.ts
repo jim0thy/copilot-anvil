@@ -99,6 +99,8 @@ export class CopilotSessionAdapter {
   private checklistItems: { id: string; title: string; checked: boolean }[] = [];
   /** SQL query text by sql tool call ID (used for parsing execution_complete results) */
   private sqlQueriesByToolCallId = new Map<string, string>();
+  /** Tool call IDs that have already emitted todo.updated (deduplication) */
+  private todoUpdatedToolCallIds = new Set<string>();
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -317,6 +319,7 @@ export class CopilotSessionAdapter {
     this.pendingAgentRoles.clear();
     this.checklistItems = [];
     this.sqlQueriesByToolCallId.clear();
+    this.todoUpdatedToolCallIds.clear();
   }
 
   private getStreamingBufferKey(messageId: string | undefined | null, parentToolCallId: string | undefined | null): string {
@@ -954,7 +957,7 @@ ${agentEntries}
 
       const models = await this.client.listModels();
       this._availableModels = models.map((m: ModelInfo) => {
-        // Extract provider from model ID (e.g., "claude-sonnet-4.5" -> "Claude")
+        // Extract provider from model ID (e.g., "claude-sonnet-4.6" -> "Claude")
         let provider = "Other";
         if (m.id.startsWith("claude")) provider = "Claude";
         else if (m.id.startsWith("gpt")) provider = "OpenAI";
@@ -1189,6 +1192,7 @@ ${agentEntries}
               this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg, toolCallId: subagentToolCallId });
             }
           } else if (toolName === "update_todo") {
+            const toolCallId = event.data?.toolCallId;
             const todosArg =
               args && typeof args === "object"
                 ? (args as any).todos
@@ -1196,7 +1200,11 @@ ${agentEntries}
                 ? args
                 : undefined;
             if (todosArg && this.currentRunId) {
-              this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todosArg });
+              // Deduplicate by toolCallId when available
+              if (!toolCallId || !this.todoUpdatedToolCallIds.has(toolCallId)) {
+                if (toolCallId) this.todoUpdatedToolCallIds.add(toolCallId);
+                this.emit({ type: "todo.updated", runId: this.currentRunId, todos: todosArg });
+              }
             }
           } else if (toolName === "enforce_checklist" && args && typeof args === "object") {
             const action = (args as any).action;

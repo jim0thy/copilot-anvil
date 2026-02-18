@@ -60,7 +60,7 @@ export interface AgentDefinition {
   /** Short description for UI */
   description: string;
   
-  /** Model to use (e.g., "claude-sonnet-4.5", "gemini-3-pro") */
+  /** Model to use (e.g., "claude-sonnet-4.6", "gemini-3-pro") */
   model: string;
 
   /** Reasoning effort level (maps to Copilot variant: max → xhigh) */

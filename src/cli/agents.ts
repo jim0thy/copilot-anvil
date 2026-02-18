@@ -149,7 +149,7 @@ Always structure your analysis as:
 };
 
 // ── Navigator (codebase knowledge) ──────────────────────────────
-// Model: claude-sonnet-4.5
+// Model: claude-sonnet-4.6
 
 export const navigator: CustomAgentConfig = {
   name: "navigator",
