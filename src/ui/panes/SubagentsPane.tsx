@@ -87,10 +87,7 @@ export const SubagentsPane = memo(function SubagentsPane({
               )}
               {agent.currentIntent && (
                 <box marginLeft={2}>
-                  <text>
-                    <span fg={c.subtext0}>Doing: </span>
-                    <span fg={c.accent}>{nf.arrowRight} {agent.currentIntent}</span>
-                  </text>
+                  <text fg={c.accent}>{agent.currentIntent}</text>
                 </box>
               )}
               <box marginLeft={2}>

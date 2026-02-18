@@ -132,9 +132,20 @@ export class Harness {
             infer: true, // Explicitly enable agent for LLM inference
           }));
           
-          // Fire and forget - session will be recreated with agents
-          this.adapter.setCustomAgents(customAgents).then(() => {
+          // Find the default entry-point agent (intake/clarification) from the
+          // loaded event payload so we can activate it AFTER setCustomAgents
+          // finishes. Without this, agent.changed fires before _customAgents is
+          // populated and setActiveAgent silently fails to find the agent.
+          const intakeAgent = event.type === "agents.loaded"
+            ? event.agents.find(a => a.domain === "clarification")
+            : null;
+          this.adapter.setCustomAgents(customAgents).then(async () => {
             this.emit(createLogEvent("info", `Registered ${customAgents.length} custom agents with SDK`));
+            if (intakeAgent) {
+              await this.adapter!.setActiveAgent(intakeAgent.id).catch((err) => {
+                this.emit(createLogEvent("error", `Failed to activate intake agent: ${err instanceof Error ? err.message : String(err)}`));
+              });
+            }
           }).catch((err) => {
             this.emit(createLogEvent("error", `Failed to register custom agents: ${err instanceof Error ? err.message : String(err)}`));
           });

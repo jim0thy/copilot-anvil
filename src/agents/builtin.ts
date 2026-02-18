@@ -153,9 +153,9 @@ Follow the delegation instructions in the <delegation_guide> section.
 Example:
 \`\`\`json
 {
-  "agent_type": "general-purpose",
+  "agent_type": "tech-lead",
   "model": "claude-opus-4.6",
-  "prompt": "## Role: Tech Lead\\nYou are the Tech Lead. Your role is to understand the user's intent, break down complex requests into clear tasks, and delegate them to the most appropriate specialist agents.\\n\\nTask: [Full clarified request with all details and context]"
+  "prompt": "Task: [Full clarified request with all details and context]"
 }
 \`\`\`
 
