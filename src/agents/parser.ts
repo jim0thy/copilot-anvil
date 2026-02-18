@@ -170,10 +170,12 @@ function normalizeModel(model?: string): string {
   if (!model) return "claude-sonnet-4.6";
   
   const lowerModel = model.toLowerCase();
-  
-  // Map common vscode-agents model names to our model IDs
-  if (lowerModel.includes("sonnet 4.5") || lowerModel.includes("sonnet-4.5")) {
+  // Normalize Sonnet naming variants to the supported model ID
+  if (lowerModel.includes("sonnet 4.6") || lowerModel.includes("sonnet-4.6")) {
     return "claude-sonnet-4.6";
+  }
+  if (lowerModel.includes("sonnet 4.5") || lowerModel.includes("sonnet-4.5")) {
+    return "claude-sonnet-4.5";
   }
   if (lowerModel.includes("opus 4.6") || lowerModel.includes("opus-4.6")) {
     return "claude-opus-4.6";

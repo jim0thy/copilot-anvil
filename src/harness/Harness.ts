@@ -153,10 +153,10 @@ export class Harness {
         }>("orchestration");
         
         const agent = orchestrationState?.availableAgents.find(a => a.id === event.agentId);
+        const targetModel = agent?.model ? this.resolveAvailableModel(agent.model) : null;
         const needsModelSwitch = Boolean(
-          agent?.model && 
-          agent.model !== this.state.currentModel && 
-          this.state.availableModels.some(m => m.id === agent.model)
+          targetModel &&
+          targetModel !== this.state.currentModel
         );
         
         this.adapter.setActiveAgent(event.agentId, needsModelSwitch).catch((err) => {
@@ -164,8 +164,11 @@ export class Harness {
         });
         
         // Also switch model if needed
-        if (needsModelSwitch && agent?.model) {
-          this.handleChangeModel(agent.model);
+        if (needsModelSwitch && targetModel) {
+          if (agent?.model && targetModel !== agent.model) {
+            this.emit(createLogEvent("warn", `Model ${agent.model} unavailable; falling back to ${targetModel}`));
+          }
+          this.handleChangeModel(targetModel);
         }
       }
     }
@@ -257,6 +260,9 @@ export class Harness {
         currentSessionId: this.adapter.currentSessionId,
         reasoningEffort: config.reasoningEffort,
       };
+
+      await this.applyCurrentAgentModel();
+      this.emit(createLogEvent("info", `Initialized with model: ${this.state.currentModel}`));
 
       this.emit(createLogEvent("info", "Copilot session ready"));
 
@@ -711,10 +717,10 @@ export class Harness {
     // Activate the agent in the adapter - this sets the agent's system prompt
     // as the top-level prompt for the session, making the LLM behave AS that agent
     // If we'll also switch models, skip the session renew here and let model switch handle it
+    const targetModel = agent?.model ? this.resolveAvailableModel(agent.model) : null;
     const needsModelSwitch = Boolean(
-      agent?.model && 
-      agent.model !== this.state.currentModel && 
-      this.state.availableModels.some(m => m.id === agent.model)
+      targetModel &&
+      targetModel !== this.state.currentModel
     );
     
     if (this.adapter) {
@@ -726,9 +732,12 @@ export class Harness {
     }
 
     // Also switch to the agent's required model (this will apply both agent prompt and model)
-    if (needsModelSwitch && agent?.model) {
-      this.emit(createLogEvent("info", `Switched to agent: ${agentName} (switching to ${agent.model})`));
-      await this.handleChangeModel(agent.model);
+    if (needsModelSwitch && targetModel) {
+      if (agent?.model && targetModel !== agent.model) {
+        this.emit(createLogEvent("warn", `Model ${agent.model} unavailable; falling back to ${targetModel}`));
+      }
+      this.emit(createLogEvent("info", `Switched to agent: ${agentName} (switching to ${targetModel})`));
+      await this.handleChangeModel(targetModel);
       return;
     }
 
@@ -796,5 +805,76 @@ export class Harness {
     }
 
     this.emit(createLogEvent("info", `Reasoning effort set to: ${effort}`));
+  }
+
+  private resolveAvailableModel(modelId: string): string | null {
+    if (this.state.availableModels.some(m => m.id === modelId)) {
+      return modelId;
+    }
+
+    const requested = modelId.match(/^(.*?)(\d+)\.(\d+)(.*)$/);
+    if (!requested) {
+      return null;
+    }
+
+    const [, prefix, major, minor, suffix] = requested;
+    const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const familyRegex = new RegExp(`^${escapedPrefix}(\\d+)\\.(\\d+)${escapedSuffix}$`);
+    const requestedMajor = Number.parseInt(major, 10);
+    const requestedMinor = Number.parseInt(minor, 10);
+
+    const familyCandidates = this.state.availableModels
+      .map((m) => {
+        const match = m.id.match(familyRegex);
+        if (!match) return null;
+        return {
+          id: m.id,
+          major: Number.parseInt(match[1], 10),
+          minor: Number.parseInt(match[2], 10),
+        };
+      })
+      .filter((candidate): candidate is { id: string; major: number; minor: number } => Boolean(candidate))
+      .sort((a, b) => (b.major - a.major) || (b.minor - a.minor));
+
+    if (familyCandidates.length === 0) {
+      return null;
+    }
+
+    const bestLowerOrEqual = familyCandidates.find((candidate) =>
+      candidate.major < requestedMajor ||
+      (candidate.major === requestedMajor && candidate.minor <= requestedMinor)
+    );
+
+    return bestLowerOrEqual?.id ?? familyCandidates[0].id;
+  }
+
+  private async applyCurrentAgentModel(): Promise<void> {
+    if (!this.adapter || !this.state.currentAgentId) {
+      return;
+    }
+
+    const agent = this.state.availableAgents.find(a => a.id === this.state.currentAgentId);
+    if (!agent?.model) {
+      return;
+    }
+
+    const targetModel = this.resolveAvailableModel(agent.model);
+    if (!targetModel || targetModel === this.state.currentModel) {
+      return;
+    }
+
+    if (targetModel !== agent.model) {
+      this.emit(createLogEvent("warn", `Model ${agent.model} unavailable; falling back to ${targetModel}`));
+    }
+
+    this.emit(createLogEvent("info", `Switching to model: ${targetModel}...`));
+    await this.adapter.switchModel(targetModel);
+    this.state = {
+      ...this.state,
+      currentModel: this.adapter.currentModel,
+      availableModels: this.adapter.availableModels,
+    };
+    this.emit(createLogEvent("info", `Model switched to: ${targetModel}`));
   }
 }

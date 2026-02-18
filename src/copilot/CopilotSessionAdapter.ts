@@ -201,8 +201,9 @@ export class CopilotSessionAdapter {
     this._reasoningEffort = effort;
   }
 
-  private getEffectiveReasoningEffort(): "low" | "medium" | "high" | "xhigh" | undefined {
-    const model = this._availableModels.find((m) => m.id === this._currentModel);
+  private getEffectiveReasoningEffort(targetModel?: string): "low" | "medium" | "high" | "xhigh" | undefined {
+    const modelId = targetModel ?? this._currentModel;
+    const model = this._availableModels.find((m) => m.id === modelId);
     if (!model?.supportsReasoningEffort) return undefined;
 
     if (model.supportedReasoningEfforts && !model.supportedReasoningEfforts.includes(this._reasoningEffort)) {
@@ -982,10 +983,12 @@ ${agentEntries}
         this._customAgents = getOrchestrationAgents();
       }
 
+      const selectedModel = model ?? this._availableModels[0]?.id;
+
       const session = await this.client.createSession({
         sessionId,
         streaming: true,
-        model,
+        model: selectedModel,
         onUserInputRequest: this.getUserInputCallback(),
         // NOTE: customAgents intentionally omitted. The CLI's setAuthInfo flow
         // calls loadCustomAgents() after every session.create, which async-overwrites
@@ -996,11 +999,11 @@ ${agentEntries}
         hooks: this._sessionHooks,
         skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
         systemMessage: this.buildSystemMessage(),
-        reasoningEffort: this.getEffectiveReasoningEffort(),
+        reasoningEffort: this.getEffectiveReasoningEffort(selectedModel),
       });
 
       this._currentSessionId = sessionId;
-      this._currentModel = model ?? this._availableModels[0]?.id ?? null;
+      this._currentModel = selectedModel ?? null;
       this.activateSession(session);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1679,7 +1682,7 @@ ${agentEntries}
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
       systemMessage: this.buildSystemMessage(),
-      reasoningEffort: this.getEffectiveReasoningEffort(),
+      reasoningEffort: this.getEffectiveReasoningEffort(modelId),
     };
 
     try {
@@ -1917,7 +1920,7 @@ ${agentEntries}
         model,
         infiniteSessions: { enabled: false },
         onUserInputRequest: this.getUserInputCallback(),
-        reasoningEffort: this.getEffectiveReasoningEffort(),
+        reasoningEffort: this.getEffectiveReasoningEffort(model),
       });
 
       let ephemeralStreamingBuffer = "";
