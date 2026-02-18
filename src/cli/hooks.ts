@@ -196,11 +196,22 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
         if (!isRealFailure) {
           // The subagent produced useful output — convert to success
           // If textResultForLlm is empty but sessionLog has content, copy it over
+          // Special case: SDK's "did not produce a response" false-positive.
+          // The agent DID work (called tools, made edits, etc.) but its final
+          // assistant message had empty content (e.g., ended with task_complete
+          // tool call and no text). Replace with sessionLog or a positive ack.
+          let finalText = text || sessionLog;
+          const noResponsePattern = /did not produce a response/i;
+          if (noResponsePattern.test(finalText)) {
+            finalText =
+              (sessionLog && !noResponsePattern.test(sessionLog) ? sessionLog : "") ||
+              "The agent completed its work successfully (task_complete was called). No additional text response was generated.";
+          }
           return {
             modifiedResult: {
               ...toolResult,
               resultType: "success" as const,
-              textResultForLlm: text || sessionLog,
+              textResultForLlm: finalText,
             },
           };
         }

@@ -7,6 +7,7 @@ interface StartScreenProps {
   disabled?: boolean;
   suppressKeys?: boolean;
   theme: Theme;
+  width: number;
   height: number;
   agentName?: string;
   modelName?: string;
@@ -35,8 +36,10 @@ const RAINBOW_COLORS = [
   "#ff00ff",
 ];
 
-export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, height, agentName, modelName, reasoningEffort }: StartScreenProps) {
+export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, theme, width, height, agentName, modelName, reasoningEffort }: StartScreenProps) {
   const c = theme.colors;
+  const inputBarWidth = Math.max(60, Math.floor(width * 0.4));
+  
   return (
     <box flexDirection="column" width="100%" height={height}>
       <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
@@ -50,8 +53,17 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
         </box>
         
         {/* Input Bar - positioned directly under ASCII art */}
-        <box width="40%" minWidth={60} marginBottom={3}>
-          <InputBar onSubmit={onSubmit} disabled={disabled} suppressKeys={suppressKeys} theme={theme} agentName={agentName} modelName={modelName} reasoningEffort={reasoningEffort} />
+        <box width={inputBarWidth} marginBottom={3}>
+          <InputBar 
+            onSubmit={onSubmit} 
+            disabled={disabled} 
+            suppressKeys={suppressKeys} 
+            theme={theme} 
+            agentName={agentName} 
+            modelName={modelName} 
+            reasoningEffort={reasoningEffort} 
+            containerWidth={inputBarWidth}
+          />
         </box>
 
         {/* Agent info */}

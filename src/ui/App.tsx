@@ -320,6 +320,7 @@ export function App({ harness, renderer }: AppProps) {
               agentName={agentDisplay}
               modelName={modelDisplay}
               reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
+              containerWidth={mainWidth}
             />
           </box>
           <box flexDirection="column" width={sidebarWidth} paddingLeft={2}>
@@ -360,6 +361,7 @@ export function App({ harness, renderer }: AppProps) {
               disabled={state.status === "running"}
               suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
               theme={theme}
+              width={width - (showSessionHistory ? sessionHistoryWidth : 0)}
               height={contentHeight}
               agentName={agentDisplay}
               modelName={modelDisplay}

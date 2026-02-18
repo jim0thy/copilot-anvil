@@ -40,10 +40,11 @@ interface InputBarProps {
   agentName?: string;
   modelName?: string;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+  containerWidth?: number;
 }
 
 // Custom keyboard-driven input (OpenTUI's <input> doesn't work in child components)
-export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange, agentName, modelName, reasoningEffort }: InputBarProps) {
+export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange, agentName, modelName, reasoningEffort, containerWidth: propContainerWidth }: InputBarProps) {
   const c = theme.colors;
   const [value, setValue] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
@@ -295,10 +296,15 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
   const showPlaceholder = !value && !pastedContent;
 
   // Calculate height based on wrapped text
-  // Account for: padding (left+right) + wrapped content + paste indicator + image indicators + help text
-  const contentWidth = Math.max(1, Math.floor(width * 0.825) - 4); // 82.5% width minus padding (matching ChatPane)
+  // Account for: borderLeft(1) + paddingLeft(2) + paddingRight(2) = 5
+  const contentWidth = propContainerWidth 
+    ? Math.max(1, propContainerWidth - 5)
+    : Math.max(1, Math.floor(width * 0.825) - 4);
   const displayText = showPlaceholder ? placeholder : value;
-  const lines = Math.ceil(displayText.length / contentWidth) || 1;
+  // Word wrapping can use more lines than simple ceil(len/width) because words
+  // that cross the boundary get pushed to the next line. Add 1 extra line as buffer.
+  const charLines = Math.ceil(displayText.length / contentWidth) || 1;
+  const lines = charLines + (charLines > 1 ? 1 : 0);
   const pasteIndicatorLines = pastedContent ? 1 : 0;
   const imageIndicatorLines = attachedImages.length;
   const helpTextLines = attachedImages.length > 0 && selectedAttachment === null ? 1 : 0;
@@ -330,7 +336,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
       paddingTop={0.5}
       paddingBottom={0.5}
     >
-      <box flexDirection="column">
+      <box flexDirection="column" width={contentWidth}>
         {pastedContent && (
           <text>
             <span fg={c.text} bg={c.surface1}> {nf.clipboard} {pastedLineCount} lines pasted </span>
