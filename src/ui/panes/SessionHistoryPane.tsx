@@ -13,30 +13,6 @@ interface SessionHistoryPaneProps {
   theme: Theme;
 }
 
-function getRelativeTime(date: Date): string {
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (seconds < 60) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days === 1) return "yesterday";
-  return `${days}d ago`;
-}
-
-function formatTime(date: Date): string {
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 || 12;
-  const displayMinutes = minutes.toString().padStart(2, "0");
-  return `${displayHours}:${displayMinutes} ${ampm}`;
-}
-
 function getDateGroup(date: Date): string {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -51,8 +27,10 @@ function getDateGroup(date: Date): string {
 }
 
 function truncate(value: string, max: number): string {
+  if (max <= 0) return "";
   if (value.length <= max) return value;
-  return `${value.slice(0, Math.max(0, max - 3))}...`;
+  if (max === 1) return "…";
+  return `${value.slice(0, Math.max(0, max - 1))}…`;
 }
 
 export const SessionHistoryPane = memo(function SessionHistoryPane({
@@ -65,7 +43,7 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
   theme,
 }: SessionHistoryPaneProps) {
   const c = theme.colors;
-  const maxNameLength = Math.max(12, width - 16);
+  const maxNameLength = Math.max(8, width - 2);
   const dividerWidth = Math.max(1, width - 2);
 
   const { recentSessions, projectGroups, otherGroups } = useMemo(() => {
@@ -122,22 +100,14 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
       paddingTop={1}
       overflow="hidden"
     >
-      <box marginBottom={1}>
+      <box flexDirection="row" justifyContent="space-between">
         <text>
-          <span fg={c.primary}>
-            <b>{nf.folder} Sessions</b>
-          </span>
+          <span fg={c.primary}><b>{nf.folder} Sessions</b></span>
           <span fg={c.subtext0}> ({recentSessions.length})</span>
         </text>
-      </box>
-
-      <box marginBottom={1} onMouseDown={onNewSession}>
-        <text>
-          <span fg={c.success}>{nf.plus} </span>
-          <span fg={c.success}>
-            <b>New Session</b>
-          </span>
-        </text>
+        <box onMouseDown={onNewSession}>
+          <text fg={c.success}><b>{nf.plus} New</b></text>
+        </box>
       </box>
 
       <box marginBottom={1}>
@@ -145,7 +115,7 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
       </box>
 
       <scrollbox
-        height={Math.max(1, height - 5)}
+        height={Math.max(1, height - 4)}
         contentOptions={{
           flexDirection: "column",
         }}
@@ -155,28 +125,27 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
         )}
 
         {projectGroups.map((group) => (
-          <box key={`project-${group.date}`} flexDirection="column" marginBottom={1}>
+          <box key={`project-${group.date}`} flexDirection="column">
             <text fg={c.subtext0}>
               <b>{group.date}</b>
             </text>
             {group.sessions.map((session) => {
-              const date = session.lastUsedAt || session.createdAt;
-              const relative = date ? getRelativeTime(date) : "";
-              const exact = date ? formatTime(date) : "";
               const isCurrent = session.id === currentSessionId;
-              const name = truncate(session.name || "Untitled", maxNameLength);
+              const indicator = isCurrent ? "▌" : " ";
+              const reservedWidth = isCurrent ? 4 : 2;
+              const name = truncate(session.name || "Untitled", Math.max(1, maxNameLength - reservedWidth));
 
               return (
-                <box key={session.id} onMouseDown={() => onSelect(session.id)}>
+                <box
+                  key={session.id}
+                  onMouseDown={() => onSelect(session.id)}
+                  backgroundColor={isCurrent ? c.surface0 : undefined}
+                  width="100%"
+                  height={1}
+                >
                   <text>
-                    <span fg={c.subtle}>{nf.angleRight} </span>
-                    <span fg={isCurrent ? c.info : c.text}>{name}</span>
-                    {relative && (
-                      <span fg={c.subtext0}> • {relative}</span>
-                    )}
-                    {exact && (
-                      <span fg={c.subtle}> ({exact})</span>
-                    )}
+                    <span fg={isCurrent ? c.info : c.subtle}>{indicator} </span>
+                    <span fg={c.text}>{isCurrent ? <b>{name}</b> : name}</span>
                     {isCurrent && (
                       <span fg={c.success}> {nf.check}</span>
                     )}
@@ -195,28 +164,27 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
               </text>
             </box>
             {otherGroups.map((group) => (
-              <box key={`other-${group.date}`} flexDirection="column" marginBottom={1}>
+              <box key={`other-${group.date}`} flexDirection="column">
                 <text fg={c.subtext0}>
                   <b>{group.date}</b>
                 </text>
                 {group.sessions.map((session) => {
-                  const date = session.lastUsedAt || session.createdAt;
-                  const relative = date ? getRelativeTime(date) : "";
-                  const exact = date ? formatTime(date) : "";
                   const isCurrent = session.id === currentSessionId;
-                  const name = truncate(session.name || "Untitled", maxNameLength);
+                  const indicator = isCurrent ? "▌" : " ";
+                  const reservedWidth = isCurrent ? 4 : 2;
+                  const name = truncate(session.name || "Untitled", Math.max(1, maxNameLength - reservedWidth));
 
                   return (
-                    <box key={session.id} onMouseDown={() => onSelect(session.id)}>
+                    <box
+                      key={session.id}
+                      onMouseDown={() => onSelect(session.id)}
+                      backgroundColor={isCurrent ? c.surface0 : undefined}
+                      width="100%"
+                      height={1}
+                    >
                       <text>
-                        <span fg={c.subtle}>{nf.angleRight} </span>
-                        <span fg={isCurrent ? c.info : c.text}>{name}</span>
-                        {relative && (
-                          <span fg={c.subtext0}> • {relative}</span>
-                        )}
-                        {exact && (
-                          <span fg={c.subtle}> ({exact})</span>
-                        )}
+                        <span fg={isCurrent ? c.info : c.subtle}>{indicator} </span>
+                        <span fg={c.text}>{isCurrent ? <b>{name}</b> : name}</span>
                         {isCurrent && (
                           <span fg={c.success}> {nf.check}</span>
                         )}

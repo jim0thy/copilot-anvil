@@ -9,7 +9,7 @@ import { getAnvilTools } from "../cli/tools.js";
 import { createSessionHooks } from "../cli/hooks.js";
 import { loadModelConfig, resolveAgentModel, type AgentModelOverride } from "../agents/modelConfig.js";
 import { nf } from "../ui/icons.js";
-import { getSessionTitle, setSessionTitle, truncateAtWordBoundary } from "../utils/sessionStore.js";
+import { getAllSessions, getSessionTitle, setSessionTitle, truncateAtWordBoundary } from "../utils/sessionStore.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -90,6 +90,8 @@ export class CopilotSessionAdapter {
   private hasPendingUserInput = false;
   /** Guards against concurrent renewSessionWithAgents calls */
   private _renewalPromise: Promise<void> | null = null;
+  /** True if a renewal was requested before the session existed and needs to run after init */
+  private _pendingRenewalAfterInit = false;
   /** Map of tool call IDs to subagent information */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string; model?: string }>();
   /** Map of tool call IDs to specialist metadata extracted from task tool prompts.
@@ -114,6 +116,12 @@ export class CopilotSessionAdapter {
 
   constructor() {
     this._projectPrefix = path.basename(process.cwd()) + "-";
+
+    // Pre-populate _sessionHasTitle from persisted store so we don't
+    // overwrite existing titles with the first-prompt fallback after a restart.
+    for (const s of getAllSessions()) {
+      this._sessionHasTitle.add(s.sessionId);
+    }
 
     // Auto-discover skill directories
     const cwd = process.cwd();
@@ -223,7 +231,15 @@ export class CopilotSessionAdapter {
    * uses the latest _customAgents / _activeAgent state.
    */
   private async scheduleRenewal(source: string): Promise<void> {
-    if (!this.session || !this.client || this.isProcessing) return;
+    if (!this.session || !this.client || this.isProcessing) {
+      this.emit(createLogEvent("info", `[scheduleRenewal] SKIPPED from ${source}: session=${!!this.session} client=${!!this.client} isProcessing=${this.isProcessing} activeAgent=${this._activeAgent?.name ?? 'none'}`));
+      // If skipped because session doesn't exist yet, mark that a renewal is needed
+      // after initialize() creates the session.
+      if (!this.session) {
+        this._pendingRenewalAfterInit = true;
+      }
+      return;
+    }
 
     if (this._renewalPromise) {
       // Another renewal is already in flight — just wait for it.
@@ -260,20 +276,16 @@ export class CopilotSessionAdapter {
     await this.teardownSession();
 
     // Resume the same session with updated agents, tools, hooks, and system message.
-      // Re-passing customAgents here is essential: setAuthInfo calls updateOptions without
-      // customAgents, which triggers loadCustomAgents() and overwrites our agents with disk
-      // state. By re-passing them on every resume we ensure they are always current.
-      const opts = {
-        streaming: true as const,
-        model: this._currentModel ?? undefined,
-        onUserInputRequest: this.getUserInputCallback(),
-        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
-        tools: this._anvilTools,
-        hooks: this._sessionHooks,
-        skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
-        systemMessage: this.buildSystemMessage(),
-        reasoningEffort: this.getEffectiveReasoningEffort(),
-      };
+    const opts = {
+      streaming: true as const,
+      model: this._currentModel ?? undefined,
+      onUserInputRequest: this.getUserInputCallback(),
+      tools: this._anvilTools,
+      hooks: this._sessionHooks,
+      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
+      systemMessage: this.buildSystemMessage(),
+      reasoningEffort: this.getEffectiveReasoningEffort(),
+    };
 
     try {
       this.session = await this.client.resumeSession(currentSessionId, opts);
@@ -753,20 +765,24 @@ export class CopilotSessionAdapter {
   /**
    * Build system message config for the session.
    *
-   * If an active agent is selected, uses that agent's system prompt directly
-   * (mode: "replace") so the LLM behaves AS that agent rather than as a general
-   * coding assistant with the agent's instructions tacked on.
+   * When an active agent is selected, REPLACES the entire system prompt with
+   * that agent's prompt + delegation guide (mode: "replace"). This is critical:
+   * "append" buries the agent instructions under the Copilot CLI's own lengthy
+   * system prompt, causing the model to ignore the agent's role.
    *
-   * Additionally, advertises other available agents so the active agent knows
-   * it can delegate to them via the task tool using their registered agent names
-   * as agent_type (e.g. agent_type: "tech-lead").
+   * The delegation guide instructs the LLM to use agent_type "general-purpose"
+   * for ALL delegations, with the specialist's role and prompt embedded in the
+   * task prompt field. This avoids the customAgents overwrite issue (see
+   * buildDelegationGuide for details).
    */
   private buildSystemMessage(): SystemMessageConfig | undefined {
-    // If an active agent is selected, use its system prompt as the primary instruction
+    // When an active agent is selected, REPLACE the entire system prompt with the
+    // agent's own instructions. Using "append" buries the agent prompt under the
+    // Copilot CLI's lengthy default system prompt, causing the model to follow
+    // general-assistant behaviour instead of the agent's role instructions.
     if (this._activeAgent) {
-      this.emit(createLogEvent("debug", `Building system message for active agent: ${this._activeAgent.displayName ?? this._activeAgent.name}`));
+      this.emit(createLogEvent("info", `[SystemMessage] Building REPLACE prompt for agent: ${this._activeAgent.displayName ?? this._activeAgent.name} (customAgents: ${this._customAgents.length})`));
 
-      // Build delegation guide for other available agents
       const otherAgents = this._customAgents.filter(a => a.name !== this._activeAgent?.name);
       const delegationGuide = otherAgents.length > 0
         ? this.buildDelegationGuide(otherAgents)
@@ -778,7 +794,9 @@ export class CopilotSessionAdapter {
       };
     }
 
-    // No active agent - just advertise all available agents as options
+    // No active agent — append the delegation guide to inform the base assistant
+    // about available agents without overriding its core behaviour.
+    this.emit(createLogEvent("info", `[SystemMessage] No active agent — using ${this._customAgents.length > 0 ? 'append delegation guide' : 'default Copilot prompt'}`));
     if (this._customAgents.length === 0) return undefined;
 
     return {
@@ -819,10 +837,14 @@ export class CopilotSessionAdapter {
   /**
    * Build a delegation guide that instructs the LLM how to delegate to specialists.
    *
-   * Agents are invoked by their registered name as agent_type (e.g. "tech-lead",
-   * "staff-engineer"). The CLI routes these to the matching customAgents entry and
-   * uses its prompt as the system message, so the agent's role is established
-   * automatically — no need to embed full prompts in the task call.
+   * Build a delegation guide that instructs the LLM how to delegate to specialists.
+   *
+   * Uses agent_type "general-purpose" for ALL delegations, with the specialist's
+   * role preamble embedded in the prompt. This avoids the customAgents overwrite
+   * issue: the CLI's setAuthInfo flow calls updateOptions({authInfo}) without
+   * customAgents, which triggers loadCustomAgents() and overwrites any customAgents
+   * we register with an empty array loaded from disk. Since "general-purpose" is a
+   * built-in type that doesn't require customAgents, it always works.
    *
    * CRITICAL DESIGN: Orchestrator agents (e.g., Tech Lead) need to sub-delegate
    * to other specialists. Since subagents get a fresh context (no access to the
@@ -840,18 +862,17 @@ export class CopilotSessionAdapter {
     // Identify orchestrator agents (agents that delegate but don't implement)
     const orchestratorNames = new Set(['tech-lead']);
 
+    // Build the sub-delegation block that gets embedded in orchestrator prompts.
+    // This replaces the <delegation_guide> reference in the Tech Lead's prompt.
     const nonOrchestrators = agents.filter(a => !orchestratorNames.has(a.name));
-
-    // Build the sub-delegation block embedded in the Tech Lead's prompt so it
-    // knows how to delegate to specialists. Specialists are invoked by their
-    // actual agent name as agent_type — the CLI routes these to the registered
-    // customAgents entry and uses its prompt as the system message.
     const specialistDir = this.buildSpecialistDirectory(nonOrchestrators);
 
     const subDelegationBlock = `## Delegation Instructions
 
-To delegate to a specialist, use the task tool with the specialist's agent name as agent_type.
-The CLI will route the call to the registered custom agent and use its system prompt automatically.
+To delegate to a specialist, use the task tool with these EXACT parameters:
+- **agent_type**: "general-purpose" (ALWAYS — never use specialist names as agent_type)
+- **model**: Use the specialist's model listed below
+- **prompt**: Start with "## Role: [Name]" then the task. Include enough context for the specialist to work independently.
 
 ### Specialist Directory
 ${specialistDir}
@@ -859,10 +880,10 @@ ${specialistDir}
 ### Delegation Format
 \`\`\`json
 {
-  "agent_type": "<specialist-name-from-directory>",
+  "agent_type": "general-purpose",
   "model": "[model from directory]",
   "description": "[3-5 word summary]",
-  "prompt": "Task: [detailed task description with all necessary context]"
+  "prompt": "## Role: [Specialist Name]\\n\\nTask: [detailed task description with all necessary context]"
 }
 \`\`\``;
 
@@ -872,76 +893,78 @@ ${specialistDir}
       const model = this.resolveModelForAgent(a.name);
 
       if (orchestratorNames.has(a.name)) {
-        // For orchestrators: augment their prompt with the sub-delegation block so
-        // they know how to delegate to specialists.
+        // For orchestrators: augment their prompt with inline sub-delegation instructions,
+        // replacing the <delegation_guide> reference with the actual content.
         const augmentedPrompt = a.prompt.replace(
           /Delegate to specialists using the task tool following the instructions in the <delegation_guide> section\./,
           ''
         ).trimEnd() + '\n\n' + subDelegationBlock;
 
         let entry = `### ${displayName} (ORCHESTRATOR)
-- **Description**: ${a.description || 'No description'}
-- **agent_type**: "${a.name}"`;
+- **Description**: ${a.description || 'No description'}`;
         if (model) entry += `\n- **Model**: "${model}"`;
-        entry += `\n- **IMPORTANT**: When delegating to this orchestrator, use agent_type "${a.name}".`;
-        entry += `\n  Its system prompt is managed automatically — just pass the task in the prompt field.`;
+        entry += `\n- **IMPORTANT**: When delegating to this agent, include its FULL prompt below verbatim.`;
+        entry += `\n  The orchestrator needs the embedded delegation instructions to sub-delegate.`;
+        entry += `\n<${a.name}_prompt>\n${augmentedPrompt}\n</${a.name}_prompt>`;
         return entry;
       }
 
-      // Non-orchestrator: compact entry
+      // Non-orchestrator: compact entry with preamble
+      const preamble = a.prompt.split('\n').find(l => l.trim())?.trim() ?? '';
       let entry = `### ${displayName}
-- **Description**: ${a.description || 'No description'}
-- **agent_type**: "${a.name}"`;
+- **Description**: ${a.description || 'No description'}`;
       if (model) entry += `\n- **Model**: "${model}"`;
+      entry += `\n- **Preamble**: "${preamble}"`;
       return entry;
     }).join('\n\n');
 
     // Pick a representative non-orchestrator for the simple delegation example
     const exampleAgent = nonOrchestrators.find(a => a.name === 'staff-engineer') ?? nonOrchestrators[0];
-    const exampleName = exampleAgent?.name || 'staff-engineer';
-    const exampleDisplay = exampleAgent?.displayName || exampleAgent?.name || 'Staff Engineer';
+    const exampleName = exampleAgent?.displayName || exampleAgent?.name || 'Specialist';
     const exampleModel = this.resolveModelForAgent(exampleAgent?.name ?? '');
     const exampleModelStr = exampleModel ? `\n  "model": "${exampleModel}",` : '';
 
     // Find the orchestrator for the orchestrator example
     const orchestrator = agents.find(a => orchestratorNames.has(a.name));
-    const orchAgentType = orchestrator?.name || 'tech-lead';
-    const orchDisplay = orchestrator?.displayName || 'Tech Lead';
+    const orchName = orchestrator?.displayName || orchestrator?.name || 'Tech Lead';
     const orchModel = this.resolveModelForAgent(orchestrator?.name ?? '');
     const orchModelStr = orchModel ? `\n  "model": "${orchModel}",` : '';
 
     return `<delegation_guide>
 ## How to Delegate
 
-Use the task tool with the agent's name as agent_type. The CLI routes by name to the
-registered custom agent and uses that agent's system prompt automatically.
+Use the task tool with agent_type "general-purpose" for ALL delegations.
+Each specialist runs on its own model — include the model parameter from the directory.
+Start every prompt with a role marker: ## Role: [Specialist Display Name]
 
 ## CRITICAL RULES
-1. Use the agent's exact name as agent_type (e.g. "tech-lead", "staff-engineer")
-2. ALWAYS include the model parameter if one is listed
-3. Pass the task description in the prompt field — the agent's role is set by its system prompt
+1. ALWAYS use agent_type "general-purpose" — never use specialist names as agent_type
+2. ALWAYS include the specialist's model parameter if one is listed
+3. ALWAYS start the prompt with: ## Role: [Specialist Display Name]
+4. For ORCHESTRATOR agents: include their FULL prompt (shown in the <*_prompt> block)
+5. For other specialists: include the role marker, then describe the task with full context
 
-## Available Agents
+## Available Specialists
 
 ${agentEntries}
 
 ## Delegation Examples
 
-### Delegating to a specialist:
+### Delegating to a specialist (simple):
 \`\`\`json
 {
-  "agent_type": "${exampleName}",${exampleModelStr}
+  "agent_type": "general-purpose",${exampleModelStr}
   "description": "Implement auth feature",
-  "prompt": "Task: [detailed task with context]"
+  "prompt": "## Role: ${exampleName}\\n\\nTask: [detailed task with context]"
 }
 \`\`\`
 
-### Delegating to the orchestrator (Tech Lead coordinates specialists):
+### Delegating to an orchestrator (include full prompt):
 \`\`\`json
 {
-  "agent_type": "${orchAgentType}",${orchModelStr}
+  "agent_type": "general-purpose",${orchModelStr}
   "description": "Coordinate feature implementation",
-  "prompt": "Task: [describe what needs to be done]"
+  "prompt": "## Role: ${orchName}\\n[INCLUDE THE FULL PROMPT FROM <${orchestrator?.name ?? 'tech-lead'}_prompt> ABOVE]\\n\\nTask: [describe what needs to be done]"
 }
 \`\`\`
 </delegation_guide>`;
@@ -982,22 +1005,28 @@ ${agentEntries}
 
       const sessionId = this.generateSessionId();
 
-      // Pre-load orchestration agents as defaults
+      // Pre-load orchestration agents as defaults ONLY if the plugin hasn't already
+      // set agents (loader.load() may have completed before this point)
       if (this._customAgents.length === 0) {
         this._customAgents = getOrchestrationAgents();
       }
 
       const selectedModel = model ?? this._availableModels[0]?.id;
 
+      // Log what system message we're building at session creation time
+      this.emit(createLogEvent("info", `[initialize] createSession: activeAgent=${this._activeAgent?.name ?? 'NONE'} customAgents=${this._customAgents.length}`));
+
       const session = await this.client.createSession({
         sessionId,
         streaming: true,
         model: selectedModel,
         onUserInputRequest: this.getUserInputCallback(),
-        // Pass customAgents so the task tool can route by agent name (e.g. agent_type: "tech-lead").
-        // We also re-pass them on every resumeSession so setAuthInfo's loadCustomAgents() call
-        // (which fires when customAgents is undefined) does not overwrite them.
-        customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
+        // NOTE: customAgents intentionally omitted. The CLI's setAuthInfo flow
+        // calls updateOptions({authInfo}) without customAgents, which triggers
+        // loadCustomAgents() and overwrites any customAgents we pass here with an
+        // empty array loaded from disk. We work around this by using
+        // agent_type: "general-purpose" for delegations, embedding role prompts
+        // in the task prompt field rather than relying on registered agent names.
         tools: this._anvilTools,
         hooks: this._sessionHooks,
         skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -1008,6 +1037,15 @@ ${agentEntries}
       this._currentSessionId = sessionId;
       this._currentModel = selectedModel ?? null;
       this.activateSession(session);
+
+      // If the plugin fired setCustomAgents/setActiveAgent before the session existed,
+      // those calls set _pendingRenewalAfterInit. Apply them now that we have a session.
+      if (this._pendingRenewalAfterInit) {
+        this._pendingRenewalAfterInit = false;
+        this.emit(createLogEvent("info", `[initialize] Applying deferred renewal: activeAgent=${this._activeAgent?.name ?? 'none'}`));
+        // Use scheduleRenewal so it picks up latest _activeAgent/_customAgents state
+        await this.scheduleRenewal("initialize-deferred");
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const lowerMessage = message.toLowerCase();
@@ -1247,10 +1285,9 @@ ${agentEntries}
             }
           }
 
-          // Capture the model parameter from task tool invocations for display in the UI.
-          // When agents are registered as customAgents, the SDK provides the correct
-          // agentName/agentDisplayName from the registry — but we still capture model
-          // for the subagent.started event metadata.
+          // Capture role and model from task tool invocations for display in the UI.
+          // The role marker "## Role: [Name]" embedded in the task prompt is how we
+          // identify which specialist is being invoked (since we use general-purpose).
           if (toolName === "task" && args && typeof args === "object") {
             const toolCallId = event.data?.toolCallId;
             if (toolCallId) {
@@ -1497,14 +1534,16 @@ ${agentEntries}
             let agentName = event.data?.agentName ?? "";
             let agentDisplayName = event.data?.agentDisplayName ?? "";
 
-            // The SDK provides agentName/agentDisplayName from the customAgents registry.
-            // We also capture the model parameter from pendingAgentRoles for metadata.
+            // Extract agent name/display name from the "## Role:" marker in the task prompt
+            // (since we use general-purpose, the SDK's agentName will be "general-purpose").
+            // Fall back to whatever the SDK provides if no role marker was found.
             const pendingData = this.pendingAgentRoles.get(toolCallId);
             let model: string | undefined;
             let taskTitle: string | undefined;
             if (pendingData) {
-              // Only use role override if the agent name wasn't set by the SDK
-              if (pendingData.role && !agentDisplayName) {
+              // Always use the role marker to override the generic "General Purpose Agent"
+              // name the SDK assigns when agent_type is "general-purpose".
+              if (pendingData.role) {
                 agentDisplayName = pendingData.role;
                 agentName = pendingData.role.toLowerCase().replace(/\s+/g, "-");
               }
@@ -1694,7 +1733,6 @@ ${agentEntries}
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -1718,7 +1756,6 @@ ${agentEntries}
       streaming: true as const,
       model: modelId,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -1754,7 +1791,6 @@ ${agentEntries}
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
@@ -1784,7 +1820,6 @@ ${agentEntries}
       streaming: true,
       model: this._currentModel ?? undefined,
       onUserInputRequest: this.getUserInputCallback(),
-      customAgents: this._customAgents.length > 0 ? this._customAgents : undefined,
       tools: this._anvilTools,
       hooks: this._sessionHooks,
       skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,

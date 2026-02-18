@@ -7,7 +7,7 @@ import { InputBar } from './panes/InputBar.js'
 import { StartScreen } from './panes/StartScreen.js'
 import { QuestionModal } from './panes/QuestionModal.js'
 import { ModelSelector } from './panes/ModelSelector.js'
-import { SessionSwitcher } from './panes/SessionSwitcher.js'
+
 import { AgentsModal } from './panes/AgentsModal.js'
 import { SkillsPane } from './panes/SkillsPane.js'
 import { ConfirmModal } from './panes/ConfirmModal.js'
@@ -48,7 +48,6 @@ export function App({ harness, renderer }: AppProps) {
   const [gitInfo, setGitInfo] = useState<GitInfo>(getGitInfo());
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
   const [showModelSelector, setShowModelSelector] = useState(false);
-  const [showSessionSwitcher, setShowSessionSwitcher] = useState(false);
   const [showSessionHistory, setShowSessionHistory] = useState(true);
   const [showSkillsPane, setShowSkillsPane] = useState(false);
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
@@ -160,10 +159,6 @@ export function App({ harness, renderer }: AppProps) {
     harness.dispatch({ type: "session.new" });
   }, [harness]);
 
-  const handleCloseSessionSwitcher = useCallback(() => {
-    setShowSessionSwitcher(false);
-  }, []);
-
   const handleInputHeightChange = useCallback((height: number) => {
     setInputBarHeight(height);
   }, []);
@@ -203,7 +198,7 @@ export function App({ harness, renderer }: AppProps) {
   }, [harness]);
 
   useKeyboard((key) => {
-    if (state.pendingQuestion || showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || state.ephemeralRun) return;
+    if (state.pendingQuestion || showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || state.ephemeralRun) return;
 
     if (key.name === "escape") {
       renderer.destroy();
@@ -232,14 +227,7 @@ export function App({ harness, renderer }: AppProps) {
         handleNewSession();
       }
     }
-    if (key.ctrl && key.name === "o") {
-      if (state.status !== "running") {
-        // Refresh sessions when opening switcher
-        harness.dispatch({ type: "session.refresh" }).then(() => {
-          setShowSessionSwitcher(true);
-        });
-      }
-    }
+
     if (key.ctrl && key.name === "g") {
       if (state.status !== "running" && gitInfo.hasChanges) {
         setShowCommitConfirm(true);
@@ -312,7 +300,7 @@ export function App({ harness, renderer }: AppProps) {
             <InputBar
               onSubmit={handleSubmit}
               disabled={state.status === "running" || !!state.pendingQuestion}
-              suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || !!state.pendingQuestion}
+              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || !!state.pendingQuestion}
               queuedCount={state.messageQueue.length}
               theme={theme}
               onHeightChange={handleInputHeightChange}
@@ -358,7 +346,7 @@ export function App({ harness, renderer }: AppProps) {
             <StartScreen
               onSubmit={handleSubmit}
               disabled={state.status === "running"}
-              suppressKeys={showModelSelector || showSkillsPane || showSessionSwitcher || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
+              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
               theme={theme}
               width={width - (showSessionHistory ? sessionHistoryWidth : 0)}
               height={contentHeight}
@@ -404,7 +392,6 @@ export function App({ harness, renderer }: AppProps) {
           <span fg={c.subtext0}>Tab</span><span fg={c.text}> agent  </span>
           <span fg={c.subtext0}>esc</span><span fg={c.text}> quit  </span>
           <span fg={c.subtext0}>^N</span><span fg={c.text}> new  </span>
-          <span fg={c.subtext0}>^O</span><span fg={c.text}> sessions  </span>
           <span fg={c.subtext0}>S-Tab</span><span fg={c.text}> model  </span>
           {gitInfo.hasChanges && (
             <><span fg={c.subtext0}>^G</span><span fg={c.text}> commit  </span></>
@@ -432,20 +419,6 @@ export function App({ harness, renderer }: AppProps) {
           skills={state.skills}
           onSelect={handleSelectSkill}
           onClose={handleCloseSkillsPane}
-          theme={theme}
-          width={width}
-          height={height - 1}
-        />
-      )}
-
-      {/* Session Switcher Modal */}
-      {showSessionSwitcher && (
-        <SessionSwitcher
-          sessions={state.availableSessions}
-          currentSessionId={state.currentSessionId}
-          onSelect={handleSelectSession}
-          onNewSession={handleNewSession}
-          onClose={handleCloseSessionSwitcher}
           theme={theme}
           width={width}
           height={height - 1}
