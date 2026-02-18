@@ -2,7 +2,7 @@
  * Orchestration Plugin for the Harness.
  * 
  * This plugin adds orchestrated mode support where prompts are routed through
- * the Intake → Tech Lead → Specialist agents pipeline instead of going
+ * the Engineering Manager → Specialist agents pipeline instead of going
  * directly to the default Copilot agent.
  * 
  * The plugin:
@@ -65,13 +65,12 @@ export function createOrchestrationPlugin(): HarnessPlugin {
         
         // Emit agents.loaded event so harness can update its state
         // Top-level agents are specialists that users can directly select:
-        // - Intake: first point of contact for ambiguous requests
-        // - Tech Lead: coordinates work delegation
+        // - Engineering Manager: coordinates work delegation
         // - Strategist: creates implementation plans
         // - Reviewer: code review and security checks
         const topLevelAgents = agents
           .filter(a => a.tier === "specialist" && 
-            (a.domain === "clarification" || a.domain === "orchestration" || a.domain === "planning" || a.domain === "review"))
+            (a.domain === "orchestration" || a.domain === "planning" || a.domain === "review"))
           .map(a => ({ id: a.id, name: a.name, description: a.description, model: a.model, tier: a.tier, domain: a.domain }));
         
         ctx!.emit({
@@ -79,31 +78,28 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           agents: topLevelAgents,
         } as any);
         
-        // Set Intake as the default agent (always entry point in team mode)
-        const intakeAgent = agents.find(a => a.domain === "clarification");
-        if (intakeAgent) {
-          // Switch to orchestrated mode
+        // Set Engineering Manager as the default agent (always entry point in team mode)
+        const entryAgent = agents.find(a => a.domain === "orchestration");
+        if (entryAgent) {
           ctx!.state.update<OrchestrationState>(ORCHESTRATION_STATE_KEY, { mode: "orchestrated" });
 
           ctx!.emit({
             type: "log",
             runId: null,
             level: "info",
-            message: `${nf.target} Team mode enabled — using ${intakeAgent.name} as entry point`,
+            message: `${nf.target} Team mode enabled — using ${entryAgent.name} as entry point`,
             createdAt: new Date(),
           });
 
-          // Emit mode change event
           ctx!.emit({
             type: "orchestration.mode.changed",
             mode: "orchestrated",
           } as any);
 
-          // Emit agent.changed event to switch to intake
           ctx!.emit({
             type: "agent.changed",
-            agentId: intakeAgent.id,
-            agentName: intakeAgent.name,
+            agentId: entryAgent.id,
+            agentName: entryAgent.name,
           } as any);
         }
         
@@ -148,7 +144,7 @@ export function createOrchestrationPlugin(): HarnessPlugin {
           runId: null,
           level: "info",
           message: mode === "orchestrated" 
-            ? `${nf.target} Team mode enabled — prompts will be routed through Intake → Tech Lead`
+            ? `${nf.target} Team mode enabled — prompts will be routed through Engineering Manager`
             : `${nf.bolt} Direct mode enabled — prompts go directly to Copilot`,
           createdAt: new Date(),
         });
@@ -276,12 +272,12 @@ export function buildOrchestrationContext(
   const state = getOrchestrationState(ctx);
   if (state.mode !== "orchestrated") return "";
   
-  const techLead = loader.getTechLead();
-  if (!techLead) return "";
+  const em = loader.getEngineeringManager();
+  if (!em) return "";
   
   const agents = loader.getAgents();
   const agentList = agents
-    .filter(a => a.domain !== "orchestration" && a.domain !== "clarification")
+    .filter(a => a.domain !== "orchestration")
     .map(a => `- **${a.name}** (${a.tier}/${a.domain}): ${a.description}`)
     .join("\n");
   
@@ -290,14 +286,14 @@ export function buildOrchestrationContext(
 You are operating in TEAM MODE with access to specialized agents.
 
 ## Your Role
-You are the Tech Lead. Break down complex requests into tasks and delegate to specialist agents.
+You are the Engineering Manager. Break down complex requests into tasks and delegate to specialist agents.
 Do NOT implement anything yourself - coordinate work through subagents.
 
 ## Available Agents
 ${agentList}
 
 ## Execution Flow
-1. For ambiguous requests, clarify first
+1. For ambiguous requests, ask the user for clarification first
 2. Create an execution plan with phases
 3. Delegate tasks to appropriate agents (start with junior/mid level)
 4. Escalate if agents struggle

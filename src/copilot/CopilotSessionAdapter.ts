@@ -7,7 +7,7 @@ import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { getOrchestrationAgents } from "../cli/agents.js";
 import { getAnvilTools } from "../cli/tools.js";
 import { createSessionHooks } from "../cli/hooks.js";
-import { loadModelConfig, resolveAgentModel, type AgentModelOverride } from "../agents/modelConfig.js";
+import { loadModelConfig, resolveAgentModel} from "../agents/modelConfig.js";
 import { nf } from "../ui/icons.js";
 import { getAllSessions, getSessionTitle, setSessionTitle, truncateAtWordBoundary } from "../utils/sessionStore.js";
 
@@ -92,8 +92,25 @@ export class CopilotSessionAdapter {
   private _renewalPromise: Promise<void> | null = null;
   /** True if a renewal was requested before the session existed and needs to run after init */
   private _pendingRenewalAfterInit = false;
-  /** Map of tool call IDs to subagent information */
+  /** Map of tool call IDs to subagent information (insertion-order = start order) */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string; model?: string }>();
+
+  /**
+   * When the SDK omits parentToolCallId on a delta but subagents are running,
+   * infer the most-recently-started subagent as the source.
+   * Returns [resolvedToolCallId, subagentInfo] or [undefined, undefined].
+   */
+  private inferActiveSubagent(): [string | undefined, { agentName: string; agentDisplayName: string; model?: string } | undefined] {
+    if (this.activeSubagents.size === 0) return [undefined, undefined];
+    // Map iterates in insertion order; last entry = most recently started
+    let lastKey: string | undefined;
+    let lastVal: { agentName: string; agentDisplayName: string; model?: string } | undefined;
+    for (const [k, v] of this.activeSubagents) {
+      lastKey = k;
+      lastVal = v;
+    }
+    return [lastKey, lastVal];
+  }
   /** Map of tool call IDs to specialist metadata extracted from task tool prompts.
    *  Populated in tool.execution_start, consumed in subagent.started to override
    *  the generic "general-purpose" display name with the actual specialist name. */
@@ -147,15 +164,15 @@ export class CopilotSessionAdapter {
 
   /**
    * Set custom agents to be registered with the SDK.
-   * These agents will be available for delegation by the tech lead.
+   * These agents will be available for delegation by the engineering manager.
    * If a session is already active, it will be recreated with the new agents.
    */
   async setCustomAgents(agents: CustomAgentDef[]): Promise<void> {
     // Merge orchestration agents with existing builtin agents.
     // Orchestration agents supersede existing agents that serve the same role:
-    //   tech-lead and strategist are the new coordination agents.
+    //   engineering-manager and strategist are the new coordination agents.
     // All other existing agents (developers, specialists) are kept as-is
-    // since the tech-lead references them by name in its delegation table.
+    // since the engineering-manager references them by name in its delegation table.
     const orchestrationAgents = getOrchestrationAgents();
     const orchestrationNames = new Set(orchestrationAgents.map(a => a.name));
 
@@ -176,7 +193,7 @@ export class CopilotSessionAdapter {
    * Set the active agent whose system prompt will be used for the session.
    * When an agent is selected, the session uses that agent's system prompt
    * directly, making the LLM behave AS that agent (not just delegate to it).
-   * 
+   *
    * @param agentId - The agent ID to activate, or null for default Copilot behavior
    * @param skipSessionRenew - If true, just sets the agent without recreating the session.
    *                           Use when you'll be switching models immediately after.
@@ -269,7 +286,7 @@ export class CopilotSessionAdapter {
 
   private async renewSessionWithAgents(): Promise<void> {
     if (!this.client) throw new Error("Client not initialized");
-    
+
     const currentSessionId = this._currentSessionId;
     if (!currentSessionId) return;
 
@@ -846,7 +863,7 @@ export class CopilotSessionAdapter {
    * we register with an empty array loaded from disk. Since "general-purpose" is a
    * built-in type that doesn't require customAgents, it always works.
    *
-   * CRITICAL DESIGN: Orchestrator agents (e.g., Tech Lead) need to sub-delegate
+    * CRITICAL DESIGN: Orchestrator agents (e.g., Engineering Manager) need to sub-delegate
    * to other specialists. Since subagents get a fresh context (no access to the
    * top-level system message), the delegation instructions must be embedded
    * directly in the orchestrator's prompt. This method:
@@ -860,10 +877,10 @@ export class CopilotSessionAdapter {
    */
   private buildDelegationGuide(agents: CustomAgentDef[]): string {
     // Identify orchestrator agents (agents that delegate but don't implement)
-    const orchestratorNames = new Set(['tech-lead']);
+    const orchestratorNames = new Set(['engineering-manager']);
 
     // Build the sub-delegation block that gets embedded in orchestrator prompts.
-    // This replaces the <delegation_guide> reference in the Tech Lead's prompt.
+    // This replaces the <delegation_guide> reference in the Engineering Manager's prompt.
     const nonOrchestrators = agents.filter(a => !orchestratorNames.has(a.name));
     const specialistDir = this.buildSpecialistDirectory(nonOrchestrators);
 
@@ -926,7 +943,7 @@ ${specialistDir}
 
     // Find the orchestrator for the orchestrator example
     const orchestrator = agents.find(a => orchestratorNames.has(a.name));
-    const orchName = orchestrator?.displayName || orchestrator?.name || 'Tech Lead';
+    const orchName = orchestrator?.displayName || orchestrator?.name || 'Engineering Manager';
     const orchModel = this.resolveModelForAgent(orchestrator?.name ?? '');
     const orchModelStr = orchModel ? `\n  "model": "${orchModel}",` : '';
 
@@ -964,7 +981,7 @@ ${agentEntries}
 {
   "agent_type": "general-purpose",${orchModelStr}
   "description": "Coordinate feature implementation",
-  "prompt": "## Role: ${orchName}\\n[INCLUDE THE FULL PROMPT FROM <${orchestrator?.name ?? 'tech-lead'}_prompt> ABOVE]\\n\\nTask: [describe what needs to be done]"
+    "prompt": "## Role: ${orchName}\\n[INCLUDE THE FULL PROMPT FROM <${orchestrator?.name ?? 'engineering-manager'}_prompt> ABOVE]\\n\\nTask: [describe what needs to be done]"
 }
 \`\`\`
 </delegation_guide>`;
@@ -991,7 +1008,7 @@ ${agentEntries}
         else if (m.id.startsWith("gpt")) provider = "OpenAI";
         else if (m.id.startsWith("gemini")) provider = "Google";
         else if (m.id.startsWith("o1") || m.id.startsWith("o3")) provider = "OpenAI";
-        
+
         return {
           id: m.id,
           name: m.name,
@@ -1101,12 +1118,21 @@ ${agentEntries}
 
           const deltaContent = event.data?.deltaContent ?? "";
           if (!deltaContent) return;
-          const parentToolCallId = event.data?.parentToolCallId;
+          let parentToolCallId: string | undefined = event.data?.parentToolCallId;
+          let subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+
+          // SDK sometimes omits parentToolCallId for subagent deltas — infer from active subagents
+          if (!parentToolCallId && !subagent) {
+            const [inferredId, inferredAgent] = this.inferActiveSubagent();
+            if (inferredId && inferredAgent) {
+              parentToolCallId = inferredId;
+              subagent = inferredAgent;
+            }
+          }
+
           const bufferKey = this.getStreamingBufferKey(event.data?.messageId, parentToolCallId);
 
           const existingBuffer = this.streamingBuffers.get(bufferKey);
-          // Check if this is from a subagent, otherwise use active agent
-          const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
           const agentInfo = subagent || (this._activeAgent ? {
             agentName: this._activeAgent.name,
             agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
@@ -1163,9 +1189,17 @@ ${agentEntries}
 
             // Best-effort reasoning support: some SDK builds attach reasoning directly
             // to the completed assistant message instead of emitting reasoning_delta events.
-            const directReasoning = (event.data as any)?.reasoning ?? (event.data as any)?.reasoningContent;
+            // Check all known field names the SDK uses across versions.
+            const directReasoning = (event.data as any)?.reasoning
+              ?? (event.data as any)?.reasoningContent
+              ?? (event.data as any)?.reasoningText;
             if (typeof directReasoning === "string" && directReasoning.trim()) {
               (message as any).reasoning = directReasoning;
+            } else if (this.reasoningBuffer.trim()) {
+              // Fall back to the buffer accumulated from assistant.reasoning_delta events.
+              // This handles the case where reasoning_delta events fired but the message
+              // didn't carry reasoning inline.
+              (message as any).reasoning = this.reasoningBuffer;
             }
 
             // Add agent information - from subagent if available, otherwise from active agent
@@ -1184,11 +1218,11 @@ ${agentEntries}
                 this.emit(createLogEvent("warn", `${nf.warning} No subagent found for toolCallId: ${parentToolCallId}. Active subagents: ${Array.from(this.activeSubagents.keys()).join(", ")}`));
               }
             } else if (this._activeAgent) {
-              // Message from top-level active agent (e.g., Intake)
+              // Message from top-level active agent (e.g., Engineering Manager)
               message.agentName = this._activeAgent.name;
               message.agentDisplayName = this._activeAgent.displayName || this._activeAgent.name;
             }
-            
+
             this.emit({
               type: "assistant.message",
               runId: this.currentRunId,
@@ -1399,8 +1433,16 @@ ${agentEntries}
           const reasoningDelta = event.data?.deltaContent ?? "";
           if (!reasoningDelta) return;
           const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
-          const parentToolCallId = typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
-          const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+          let parentToolCallId = typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
+          let subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+
+          if (!parentToolCallId && !subagent) {
+            const [inferredId, inferredAgent] = this.inferActiveSubagent();
+            if (inferredId && inferredAgent) {
+              parentToolCallId = inferredId;
+              subagent = inferredAgent;
+            }
+          }
 
           this.reasoningBuffer += reasoningDelta;
 
@@ -1422,9 +1464,18 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
 
           const reasoningContent = event.data?.content ?? "";
-          const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
-          const parentToolCallId = typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
-          const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+          const parentToolCallIdRaw2 = (event.data as any)?.parentToolCallId;
+          let parentToolCallId = typeof parentToolCallIdRaw2 === "string" && parentToolCallIdRaw2 ? parentToolCallIdRaw2 : undefined;
+          let subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
+
+          if (!parentToolCallId && !subagent) {
+            const [inferredId, inferredAgent] = this.inferActiveSubagent();
+            if (inferredId && inferredAgent) {
+              parentToolCallId = inferredId;
+              subagent = inferredAgent;
+            }
+          }
+
           if (this.currentRunId && reasoningContent) {
             this.emit({
               type: "reasoning.message",
@@ -1492,6 +1543,7 @@ ${agentEntries}
         case "session.title_changed": {
           const title = (event.data as any)?.title;
           if (title && this._currentSessionId) {
+            // Always use SDK-generated title, overwriting any raw-prompt fallback
             setSessionTitle(this._currentSessionId, title);
             this._sessionHasTitle.add(this._currentSessionId);
             // Refresh session list so UI picks up the new title
@@ -1575,10 +1627,10 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             const toolCallId = event.data?.toolCallId ?? "";
-            
+
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
-            
+
             this.emit({
               type: "subagent.completed",
               runId: this.currentRunId,
@@ -1655,12 +1707,13 @@ ${agentEntries}
     this.isProcessing = true;
     this.resetRunTrackingState();
 
-    // Set fallback title from first prompt if no SDK title yet
+    // Set a temporary fallback title from the first prompt so the session list
+    // shows something meaningful immediately. Do NOT add to _sessionHasTitle so
+    // the SDK's session.title_changed event can overwrite this with the real title.
     if (this._currentSessionId && !this._sessionHasTitle.has(this._currentSessionId)) {
       const fallbackTitle = truncateAtWordBoundary(prompt, 50);
       setSessionTitle(this._currentSessionId, fallbackTitle);
-      this._sessionHasTitle.add(this._currentSessionId);
-      // Refresh session list so UI picks up the title
+      // Refresh session list so UI picks up the temporary title
       this.listSessions().then((sessions) => {
         this.emit({ type: "session.list.updated", sessions });
       }).catch(() => {});

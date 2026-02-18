@@ -8,14 +8,13 @@ Anvil models a **software engineering team** as a set of AI agents, each with a 
 
 ```mermaid
 flowchart LR
-    User([User]) --> Intake
-    Intake --> TechLead[Tech Lead]
-    TechLead --> Specialists
+    User([User]) --> EM[Engineering Manager]
+    EM --> Specialists
     Specialists --> Reviewer
-    Reviewer -->|PASS| TechLead
-    TechLead -->|Summary| User
-    Reviewer -->|FAIL| TechLead
-    TechLead -->|Fix| Specialists
+    Reviewer -->|PASS| EM
+    EM -->|Summary| User
+    Reviewer -->|FAIL| EM
+    EM -->|Fix| Specialists
 ```
 
 The key constraint: **all of this happens within a single premium request**. The SDK's `customAgents` mechanism allows agent-to-agent delegation via its built-in `task` tool without consuming additional API calls.
@@ -28,12 +27,8 @@ The key constraint: **all of this happens within a single premium request**. The
 
 ```mermaid
 graph TD
-    subgraph Entry["Entry Point"]
-        Intake[Intake<br/><i>Clarification</i>]
-    end
-
     subgraph Coordination["Coordination Layer"]
-        TL[Tech Lead<br/><i>Orchestration</i>]
+        EM[Engineering Manager<br/><i>Orchestration</i>]
         Strat[Strategist<br/><i>Planning</i>]
         Adv[Advisor<br/><i>Plan Validation</i>]
     end
@@ -66,25 +61,24 @@ graph TD
         Rev[Reviewer]
     end
 
-    Intake --> TL
-    TL --> Strat
-    TL --> Adv
-    TL --> Arch
-    TL --> Nav
-    TL --> Scout
-    TL --> SE
-    TL --> JD
-    TL --> FD
-    TL --> BD
-    TL --> FSD
-    TL --> SFD
-    TL --> SBD
-    TL --> SFSD
-    TL --> DE
-    TL --> Des
-    TL --> PW
-    TL --> DO
-    TL --> Rev
+    EM --> Strat
+    EM --> Adv
+    EM --> Arch
+    EM --> Nav
+    EM --> Scout
+    EM --> SE
+    EM --> JD
+    EM --> FD
+    EM --> BD
+    EM --> FSD
+    EM --> SFD
+    EM --> SBD
+    EM --> SFSD
+    EM --> DE
+    EM --> Des
+    EM --> PW
+    EM --> DO
+    EM --> Rev
     Strat -.-> Adv
 ```
 
@@ -92,8 +86,7 @@ graph TD
 
 | Agent | Source | Role | When to Use |
 |-------|--------|------|-------------|
-| **Intake** | `builtin.ts` | Entry point | Every request (mandatory first step) |
-| **Tech Lead** | `cli/agents.ts` | Coordinator | Decomposes tasks, delegates, coordinates |
+| **Engineering Manager** | `cli/agents.ts` | Coordinator | Decomposes tasks, delegates, coordinates |
 | **Strategist** | `cli/agents.ts` | Planner | Complex tasks needing phased plans |
 | **Advisor** | `cli/agents.ts` | Plan critic | Validate plans before execution |
 | **Staff Engineer** | `cli/agents.ts` | Deep worker | Autonomous multi-file implementations |
@@ -122,62 +115,57 @@ graph TD
 ```mermaid
 sequenceDiagram
     actor User
-    participant Intake
-    participant TechLead as Tech Lead
+    participant EM as Engineering Manager
     participant Strategist
     participant Advisor
     participant Specialist as Specialist(s)
     participant Reviewer
 
-    User->>Intake: Send prompt
+    User->>EM: Send prompt
 
     alt Request is ambiguous
-        Intake->>User: ask_user (clarifying questions)
-        User->>Intake: Answer
+        EM->>User: ask_user (clarifying questions)
+        User->>EM: Answer
     end
 
-    Intake->>TechLead: Clarified request (via task tool)
-
     alt Complex task
-        TechLead->>Strategist: Request implementation plan
-        Strategist-->>TechLead: Phased plan
-        TechLead->>Advisor: Validate plan
-        Advisor-->>TechLead: Approval or revision notes
+        EM->>Strategist: Request implementation plan
+        Strategist-->>EM: Phased plan
+        EM->>Advisor: Validate plan
+        Advisor-->>EM: Approval or revision notes
     end
 
     loop For each task/phase
-        TechLead->>Specialist: Delegate task (via task tool)
-        Specialist-->>TechLead: Work output
+        EM->>Specialist: Delegate task (via task tool)
+        Specialist-->>EM: Work output
     end
 
-    TechLead->>Reviewer: Submit work for review
+    EM->>Reviewer: Submit work for review
 
     alt Review passes
-        Reviewer-->>TechLead: PASS
-        TechLead-->>User: Final summary
+        Reviewer-->>EM: PASS
+        EM-->>User: Final summary
     else Review fails
-        Reviewer-->>TechLead: FAIL + issues
-        TechLead->>Specialist: Fix issues
-        Specialist-->>TechLead: Fixes
-        TechLead->>Reviewer: Re-submit
+        Reviewer-->>EM: FAIL + issues
+        EM->>Specialist: Fix issues
+        Specialist-->>EM: Fixes
+        EM->>Reviewer: Re-submit
     end
 ```
 
 ### Step-by-Step
 
-1. **Intake** (mandatory): Receives the user's raw request. If the request is ambiguous, uses the `ask_user` tool to gather clarification. Once clear, delegates to the Tech Lead via the `task` tool.
+1. **Engineering Manager** (coordinator): Analyses the request. If the request is ambiguous, uses the `ask_user` tool to gather clarification. For complex tasks, asks the Strategist for a plan and the Advisor to validate it. Breaks work into tasks and delegates each to the appropriate specialist agent.
 
-2. **Tech Lead** (coordinator): Analyses the clarified request. For complex tasks, asks the Strategist for a plan and the Advisor to validate it. Breaks work into tasks and delegates each to the appropriate specialist agent.
+2. **Specialists** (workers): Execute their assigned tasks. They have access to file read/write/search tools. If stuck, they can signal the need for escalation.
 
-3. **Specialists** (workers): Execute their assigned tasks. They have access to file read/write/search tools. If stuck, they can signal the need for escalation.
-
-4. **Reviewer** (quality gate): Reviews all work product before the final response. Returns PASS or FAIL with specific issues. Failed reviews are routed back through the Tech Lead for fixes.
+3. **Reviewer** (quality gate): Reviews all work product before the final response. Returns PASS or FAIL with specific issues. Failed reviews are routed back through the Engineering Manager for fixes.
 
 ---
 
 ## Escalation
 
-The Tech Lead follows a **start-low, escalate-up** strategy:
+The Engineering Manager follows a **start-low, escalate-up** strategy:
 
 ```mermaid
 flowchart LR
@@ -197,7 +185,7 @@ flowchart LR
 - Performance-critical path detected
 - Task scope exceeds the agent's tier capability
 
-The Tech Lead never retries the same agent — it always escalates to a more capable one.
+The Engineering Manager never retries the same agent — it always escalates to a more capable one.
 
 ---
 
@@ -234,9 +222,9 @@ flowchart TD
 
 ### The `task` Tool
 
-The SDK provides a built-in `task` tool that enables agent-to-agent delegation. When the Tech Lead needs to delegate:
+The SDK provides a built-in `task` tool that enables agent-to-agent delegation. When the Engineering Manager needs to delegate:
 
-1. The Tech Lead calls `task` with the target agent name and prompt
+1. The Engineering Manager calls `task` with the target agent name and prompt
 2. The SDK routes the call to the specified `customAgent`
 3. The subagent executes within the same request context
 4. The result is returned to the calling agent
@@ -275,13 +263,13 @@ Anvil has two categories of agents that are merged at session creation time:
 
 These 7 agents are defined as SDK `CustomAgentConfig` objects and are registered directly with the SDK. They provide the coordination layer:
 
-- Tech Lead, Staff Engineer, Architect, Navigator, Scout, Strategist, Advisor
+- Engineering Manager, Staff Engineer, Architect, Navigator, Scout, Strategist, Advisor
 
 ### Builtin Agents (`src/agents/builtin.ts`)
 
 These 13 agents are defined as `AgentDefinition` objects and loaded via the `AgentLoader`. They provide the implementation and specialist layer:
 
-- Intake, Junior Dev, Frontend Dev, Backend Dev, Fullstack Dev, Sr. Frontend, Sr. Backend, Sr. Fullstack, Data Engineer, Designer, Prompt Writer, DevOps, Reviewer
+- Engineering Manager (metadata), Junior Dev, Frontend Dev, Backend Dev, Fullstack Dev, Sr. Frontend, Sr. Backend, Sr. Fullstack, Data Engineer, Designer, Prompt Writer, DevOps, Reviewer
 
 ### Merge Strategy
 
@@ -292,7 +280,7 @@ flowchart TD
     GA["Global Agents<br/>(~/.config/anvil/agents/)"] --> Merge
     PA["Project Agents<br/>(.agents/*.agent.md)"] --> Merge
 
-    Merge["Merge & Deduplicate<br/>(later sources override earlier)"] --> Final["Final Agent Set<br/>(20+ agents)"]
+    Merge["Merge & Deduplicate<br/>(later sources override earlier)"] --> Final["Final Agent Set<br/>(19+ agents)"]
 
     Final --> Session["SDK Session"]
 ```
@@ -312,11 +300,11 @@ The TUI supports two modes:
 | Mode | Command | Behavior |
 |------|---------|----------|
 | **Direct** | `/direct` | Prompts go directly to the default Copilot model |
-| **Team** | `/team` | Prompts route through Intake -> Tech Lead -> Specialists |
+| **Team** | `/team` | Prompts route through Engineering Manager -> Specialists |
 
-Team mode is enabled automatically when agents are loaded. The `OrchestrationPlugin` manages the mode state and sets Intake as the entry-point agent.
+Team mode is enabled automatically when agents are loaded. The `OrchestrationPlugin` manages the mode state and sets Engineering Manager as the entry-point agent.
 
-In CLI mode, orchestration agents are always active. The user's prompt is sent directly, and the system prompt instructs the model to delegate to the Tech Lead for complex tasks.
+In CLI mode, orchestration agents are always active. The user's prompt is sent directly, and the system prompt instructs the model to delegate to the Engineering Manager for complex tasks.
 
 ---
 
@@ -470,10 +458,6 @@ The original design (from the `vscode-agents` model) used separate sessions per 
 1. **Cost**: 1 session = 1 premium request. Multiple sessions = multiple requests.
 2. **Context**: Agents within the same session share context automatically.
 3. **Simplicity**: No manual state passing between sessions.
-
-### Why the Intake agent?
-
-Intake exists to prevent wasted work. Without it, vague requests like "make it better" would go directly to the Tech Lead, which would delegate to specialists who would guess at requirements. Intake catches ambiguity early and uses `ask_user` to get clarification before any work begins.
 
 ### Why enforce escalation?
 

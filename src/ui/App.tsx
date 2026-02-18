@@ -1,6 +1,6 @@
-import { useKeyboard, useTerminalDimensions } from '@opentui/react'
+import { useKeyboard, useTerminalDimensions, flushSync } from '@opentui/react'
 import type { CliRenderer } from '@opentui/core'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
 import { InputBar } from './panes/InputBar.js'
@@ -55,21 +55,22 @@ export function App({ harness, renderer }: AppProps) {
   const [inputBarHeight, setInputBarHeight] = useState(MIN_INPUT_BAR_HEIGHT);
   const spinner = useSpinner(state.status === "running");
 
-  // Coalesce rapid events into a single setState per microtask
-  const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     return harness.subscribe((event) => {
-      if (rafRef.current === null) {
-        rafRef.current = setTimeout(() => {
-          rafRef.current = null;
-          setState(harness.getState());
-        }, 0);
-      }
-      
-      // Handle show agents modal event
-      if (event.type === "show.agents.modal") {
-        setShowAgentsModal(true);
-      }
+      // Use flushSync to force an immediate synchronous re-render for each
+      // harness event. React 18 Concurrent Mode automatically batches setState
+      // calls that occur within the same microtask/task — without flushSync,
+      // all streaming delta events (assistant.delta, reasoning.delta, etc.)
+      // would be coalesced into a single render after the run finishes, making
+      // streaming content invisible to the user during a run.
+      flushSync(() => {
+        setState(harness.getState());
+
+        // Handle show agents modal event
+        if (event.type === "show.agents.modal") {
+          setShowAgentsModal(true);
+        }
+      });
     });
   }, [harness]);
 

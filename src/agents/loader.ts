@@ -156,17 +156,10 @@ export class AgentLoader {
   }
   
   /**
-   * Get the tech lead agent (coordinates work delegation).
+   * Get the engineering manager agent (coordinates work delegation).
    */
-  getTechLead(): AgentDefinition | undefined {
+  getEngineeringManager(): AgentDefinition | undefined {
     return this.agents.find(a => a.domain === "orchestration");
-  }
-  
-  /**
-   * Get the intake agent (first point of contact).
-   */
-  getIntake(): AgentDefinition | undefined {
-    return this.agents.find(a => a.domain === "clarification");
   }
   
   /**

@@ -70,9 +70,9 @@ function inferTier(name: string): AgentTier {
   if (lowerName.includes("junior") || lowerName.includes("jr-") || lowerName.includes("jr ")) {
     return "junior";
   }
-  if (lowerName.includes("orchestrator") || lowerName.includes("tech-lead") || lowerName.includes("tech lead") ||
+  if (lowerName.includes("orchestrator") || lowerName.includes("engineering-manager") || lowerName.includes("engineering manager") ||
       lowerName.includes("planner") || lowerName.includes("strategist") ||
-      lowerName.includes("clarifier") || lowerName.includes("intake") || lowerName.includes("reviewer")) {
+      lowerName.includes("reviewer")) {
     return "specialist";
   }
   return "mid";
@@ -92,8 +92,7 @@ function inferDomain(name: string): AgentDomain {
   if (lowerName.includes("prompt")) return "prompt";
   if (lowerName.includes("review")) return "review";
   if (lowerName.includes("plan") || lowerName.includes("strategist")) return "planning";
-  if (lowerName.includes("orchestrat") || lowerName.includes("tech-lead") || lowerName.includes("tech lead")) return "orchestration";
-  if (lowerName.includes("clarif") || lowerName.includes("intake")) return "clarification";
+  if (lowerName.includes("orchestrat") || lowerName.includes("engineering-manager") || lowerName.includes("engineering manager")) return "orchestration";
   return "general";
 }
 

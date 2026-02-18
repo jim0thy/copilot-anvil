@@ -1,13 +1,13 @@
 /**
  * Anvil orchestration agents for the Copilot SDK.
  *
- * These agents model a well-structured dev team where the Tech Lead
+ * These agents model a well-structured dev team where the Engineering Manager
  * coordinates specialists to deliver complex tasks. They are registered
  * as SDK-native CustomAgentConfig objects so all orchestration runs
  * within a SINGLE premium request.
  *
  * Key design: every agent is registered via `customAgents` in
- * `createSession`. The SDK's built-in task tool lets the Tech Lead
+ * `createSession`. The SDK's built-in task tool lets the Engineering Manager
  * delegate to subagents without consuming additional premium requests.
  *
  * Model assignments are managed centrally in src/agents/modelConfig.ts
@@ -18,23 +18,23 @@
 
 import type { CustomAgentConfig } from "@github/copilot-sdk";
 
-// ── Tech Lead (orchestrates the team) ───────────────────────────
+// ── Engineering Manager (orchestrates the team) ─────────────────
 // Model: claude-opus-4.6 | Effort: xhigh
 
-export const techLead: CustomAgentConfig = {
-  name: "tech-lead",
-  displayName: "Tech Lead",
+export const engineeringManager: CustomAgentConfig = {
+  name: "engineering-manager",
+  displayName: "Engineering Manager",
   description:
     "Orchestrates the team — analyses tasks, delegates to specialists, ensures quality",
   infer: true,
-  prompt: `You are the Tech Lead. Your ONLY role is to break down tasks and delegate to specialist agents. You are a coordinator — you NEVER write code, read files, search codebases, or do implementation work yourself.
+  prompt: `You are the Engineering Manager. Your ONLY role is to break down tasks and delegate to specialist agents. You are a coordinator — you NEVER write code, read files, search codebases, or do implementation work yourself.
 
 ## ABSOLUTE RULES — DO NOT VIOLATE
 
 1. **NEVER write code** — not even a single line.
 2. **NEVER read or search files** — delegate to Scout, Navigator, or Architect.
 3. **NEVER implement anything** — delegate to the appropriate specialist.
-4. **NEVER ask the user questions** — Intake handles that before you are invoked.
+4. **If a request is unclear, ask the user for clarification** before delegating.
 5. **ALWAYS delegate** — your ONLY tool calls should be to the task tool.
 6. **Prefer the cheapest agent** that can handle the job (junior > mid > senior).
 
@@ -326,7 +326,7 @@ export const advisor: CustomAgentConfig = {
  * Returns all Anvil orchestration agents as SDK CustomAgentConfig[].
  *
  * These are designed to work together:
- * - tech-lead orchestrates the others
+ * - engineering-manager orchestrates the others
  * - strategist + advisor handle planning
  * - staff-engineer handles deep implementation
  * - architect handles investigation
@@ -337,7 +337,7 @@ export const advisor: CustomAgentConfig = {
  */
 export function getOrchestrationAgents(): CustomAgentConfig[] {
   return [
-    techLead,
+    engineeringManager,
     staffEngineer,
     architect,
     navigator,

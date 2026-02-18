@@ -145,7 +145,7 @@ The TUI includes a multi-agent orchestration system based on the [vscode-agents]
 #### Modes
 
 - **Direct Mode** (default): Prompts go directly to Copilot
-- **Team Mode**: Prompts route through Intake → Tech Lead → Specialist agents
+- **Team Mode**: Prompts route through Engineering Manager → Specialist agents
 
 #### Keyboard Shortcuts
 
@@ -163,7 +163,7 @@ The TUI includes a multi-agent orchestration system based on the [vscode-agents]
 
 | Agent | Tier | Domain | Description |
 |-------|------|--------|-------------|
-| Intake | specialist | clarification | First point of contact — clarifies ambiguous requests |
+| Engineering Manager | specialist | orchestration | Orchestrates the team — delegates to specialists, ensures quality |
 | Junior Developer | junior | general | Quick fixes, simple tasks |
 | Frontend Developer | mid | frontend | UI components, client-side logic |
 | Backend Developer | mid | backend | APIs, databases, server logic |
@@ -181,7 +181,7 @@ The TUI includes a multi-agent orchestration system based on the [vscode-agents]
 
 | Agent | Role | Description |
 |-------|------|-------------|
-| Tech Lead | Coordinator | Decomposes tasks, delegates to specialists, ensures quality |
+| Engineering Manager | Coordinator | Decomposes tasks, delegates to specialists, ensures quality |
 | Staff Engineer | Deep worker | Thorough autonomous execution across many files |
 | Architect | Analyst | Root-cause analysis, architecture review, debugging |
 | Navigator | Knowledge | Codebase exploration, pattern identification |

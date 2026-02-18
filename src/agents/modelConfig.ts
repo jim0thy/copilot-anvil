@@ -51,7 +51,7 @@ const CONFIG_FILE = join(CONFIG_DIR, "agents.json");
 
 export const DEFAULT_AGENT_MODELS: Record<string, AgentModelOverride> = {
   // ── CLI orchestration agents ─────────────────────────────────
-  "tech-lead":       { model: "claude-opus-4.6",       reasoningEffort: "xhigh"  },
+  "engineering-manager":{ model: "claude-opus-4.6",       reasoningEffort: "xhigh"  },
   "staff-engineer":  { model: "gpt-5.3-codex",         reasoningEffort: "medium" },
   "architect":       { model: "gpt-5.2",               reasoningEffort: "high"   },
   "navigator":       { model: "claude-sonnet-4.6"                                },
@@ -60,7 +60,6 @@ export const DEFAULT_AGENT_MODELS: Record<string, AgentModelOverride> = {
   "advisor":         { model: "claude-opus-4.6",       reasoningEffort: "xhigh"  },
 
   // ── Built-in TUI agents ──────────────────────────────────────
-  "intake":                    { model: "claude-sonnet-4.6"                                },
   "junior-developer":          { model: "claude-haiku-4.5"                                 },
   "frontend-developer":        { model: "gemini-3-pro-preview"                             },
   "backend-developer":         { model: "claude-sonnet-4.6"                                },

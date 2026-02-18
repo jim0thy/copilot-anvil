@@ -161,7 +161,13 @@ export function processEvent(
           },
         };
       }
-      return state;
+      // Top-level reasoning message (no subagent): store it in streamingReasoning
+      // so that the subsequent assistant.message event can attach it, and so the
+      // "Thinking" block is visible while the full reasoning is available.
+      return {
+        ...state,
+        streamingReasoning: event.content,
+      };
 
     case "assistant.message": {
       const parentToolCallId = event.message.parentToolCallId;

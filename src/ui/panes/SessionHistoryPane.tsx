@@ -142,6 +142,7 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
                   backgroundColor={isCurrent ? c.surface0 : undefined}
                   width="100%"
                   height={1}
+                  marginBottom={1}
                 >
                   <text>
                     <span fg={isCurrent ? c.info : c.subtle}>{indicator} </span>
@@ -181,6 +182,7 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
                       backgroundColor={isCurrent ? c.surface0 : undefined}
                       width="100%"
                       height={1}
+                      marginBottom={1}
                     >
                       <text>
                         <span fg={isCurrent ? c.info : c.subtle}>{indicator} </span>

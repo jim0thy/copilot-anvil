@@ -13,20 +13,15 @@
  * so even complex multi-agent flows consume only 1 premium request.
  */
 
-import { CopilotClient } from "@github/copilot-sdk";
-import type {
-  CopilotSession,
-  SessionConfig,
-  CustomAgentConfig,
-  Tool,
-} from "@github/copilot-sdk";
-import { execSync } from "node:child_process";
-import * as path from "node:path";
-import { existsSync } from "node:fs";
+import type { CopilotSession, CustomAgentConfig, SessionConfig, Tool, } from '@github/copilot-sdk'
+import { CopilotClient } from '@github/copilot-sdk'
+import { execSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import * as path from 'node:path'
 
-import { getOrchestrationAgents } from "./agents.js";
-import { getAnvilTools } from "./tools.js";
-import { createSessionHooks } from "./hooks.js";
+import { getOrchestrationAgents } from './agents.js'
+import { createSessionHooks } from './hooks.js'
+import { getAnvilTools } from './tools.js'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -99,8 +94,7 @@ export async function createAnvilSession(
   // Fix Bun's execPath for the SDK
   if (process.execPath.includes("bun")) {
     try {
-      const nodePath = execSync("which node", { encoding: "utf-8" }).trim();
-      (process as any).execPath = nodePath;
+      (process as any).execPath = execSync("which node", { encoding: "utf-8" }).trim();
     } catch {
       // fall through
     }
@@ -203,10 +197,10 @@ export async function createAnvilSession(
   });
 
   // Build the session wrapper
-  const anvilSession: AnvilSession = {
+  return {
     session,
 
-    async send(prompt, attachments) {
+    async send (prompt, attachments) {
       responseBuffer = "";
 
       const payload: { prompt: string; attachments?: Array<{ type: "file"; path: string }> } = {
@@ -232,7 +226,7 @@ export async function createAnvilSession(
       return response;
     },
 
-    async abort() {
+    async abort () {
       try {
         await session.abort();
       } catch {
@@ -240,7 +234,7 @@ export async function createAnvilSession(
       }
     },
 
-    async destroy() {
+    async destroy () {
       try {
         await session.destroy();
       } catch {
@@ -253,8 +247,6 @@ export async function createAnvilSession(
       }
     },
   };
-
-  return anvilSession;
 }
 
 // ── System prompt appendix ──────────────────────────────────────
@@ -272,7 +264,7 @@ ${agentList}
 
 ## Orchestration Guidelines
 
-1. For complex tasks, delegate to **tech-lead** who will coordinate specialists.
+1. For complex tasks, delegate to **engineering-manager** who will coordinate specialists.
 2. For quick code searches, use **scout** directly.
 3. For investigation/debugging, use **architect**.
 4. For planning, use **strategist** then validate with **advisor**.

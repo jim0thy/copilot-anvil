@@ -132,18 +132,18 @@ export class Harness {
             infer: true, // Explicitly enable agent for LLM inference
           }));
           
-          // Find the default entry-point agent (intake/clarification) from the
+          // Find the default entry-point agent (engineering-manager/orchestration) from the
           // loaded event payload so we can activate it AFTER setCustomAgents
           // finishes. Without this, agent.changed fires before _customAgents is
           // populated and setActiveAgent silently fails to find the agent.
-          const intakeAgent = event.type === "agents.loaded"
-            ? event.agents.find(a => a.domain === "clarification")
+          const entryAgent = event.type === "agents.loaded"
+            ? event.agents.find(a => a.domain === "orchestration")
             : null;
           this.adapter.setCustomAgents(customAgents).then(async () => {
             this.emit(createLogEvent("info", `Registered ${customAgents.length} custom agents with SDK`));
-            if (intakeAgent) {
-              await this.adapter!.setActiveAgent(intakeAgent.id).catch((err) => {
-                this.emit(createLogEvent("error", `Failed to activate intake agent: ${err instanceof Error ? err.message : String(err)}`));
+            if (entryAgent) {
+              await this.adapter!.setActiveAgent(entryAgent.id).catch((err) => {
+                this.emit(createLogEvent("error", `Failed to activate entry-point agent: ${err instanceof Error ? err.message : String(err)}`));
               });
             }
           }).catch((err) => {
@@ -697,7 +697,7 @@ export class Harness {
     this.emit(createLogEvent(
       "info",
       newMode === "orchestrated"
-        ? `${nf.target} Team mode enabled — prompts route through Intake → Tech Lead → Specialists`
+        ? `${nf.target} Team mode enabled — prompts route through Engineering Manager → Specialists`
         : `${nf.bolt} Direct mode enabled — prompts go directly to Copilot`
     ));
   }

@@ -1,6 +1,6 @@
 # Copilot Anvil
 
-A terminal UI and CLI for GitHub Copilot, built on `@github/copilot-sdk`. Anvil extends Copilot with a **multi-agent orchestration system** modeled after a well-run engineering team, where a Tech Lead coordinates specialist agents to deliver complex tasks — all within a single premium request.
+A terminal UI and CLI for GitHub Copilot, built on `@github/copilot-sdk`. Anvil extends Copilot with a **multi-agent orchestration system** modeled after a well-run engineering team, where an Engineering Manager coordinates specialist agents to deliver complex tasks — all within a single premium request.
 
 ## Key Concepts
 
@@ -9,11 +9,10 @@ A terminal UI and CLI for GitHub Copilot, built on `@github/copilot-sdk`. Anvil 
 Anvil ships with a team of specialist agents that collaborate to handle complex tasks:
 
 ```
-User prompt --> Intake --> Tech Lead --> Specialists --> Reviewer --> Final output
+User prompt --> Engineering Manager --> Specialists --> Reviewer --> Final output
 ```
 
-- **Intake** analyses requests, asks clarifying questions, and ensures requirements are clear before work begins
-- **Tech Lead** decomposes tasks, assigns them to the right specialists, and coordinates execution
+- **Engineering Manager** analyses requests, asks clarifying questions if needed, decomposes tasks, and coordinates execution
 - **Specialists** (Staff Engineer, Architect, Navigator, Strategist, etc.) do the actual work
 - **Reviewer** validates quality before the final output is returned
 
@@ -110,12 +109,11 @@ await session.destroy();
 
 ## Agent Team
 
-Anvil includes 20 agents organized into functional layers:
+Anvil includes 19 agents organized into functional layers:
 
 | Layer | Agents | Purpose |
 |-------|--------|---------|
-| **Entry** | Intake | Clarify requirements before work begins |
-| **Coordination** | Tech Lead, Strategist, Advisor | Plan and coordinate work |
+| **Coordination** | Engineering Manager, Strategist, Advisor | Plan and coordinate work |
 | **Investigation** | Architect, Navigator, Scout | Analyse, explore, search |
 | **Implementation** | Staff Engineer, Junior/Mid/Senior Devs | Write code |
 | **Specialist** | Designer, Data Engineer, DevOps, Prompt Writer | Domain expertise |
@@ -170,7 +168,7 @@ Your system prompt here...
 
 ## Features
 
-- **Multi-agent orchestration**: Team of 20 agents with automatic delegation and escalation
+- **Multi-agent orchestration**: Team of 19 agents with automatic delegation and escalation
 - **Single-request guarantee**: Complex multi-agent flows consume only 1 premium request
 - **Multi-session support**: Create and switch between conversation sessions
 - **Skills integration**: Invoke project-specific skills

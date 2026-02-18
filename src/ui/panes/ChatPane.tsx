@@ -110,6 +110,16 @@ function formatToolArgsSummary(toolName: string, args?: Record<string, unknown>)
     if (typeof pattern === "string") return pattern;
   }
 
+  if (toolName === "task") {
+    const prompt = args.prompt;
+    if (typeof prompt === "string") {
+      const roleMatch = prompt.match(/^## Role:\s*(.+)/m);
+      if (roleMatch) return roleMatch[1].trim();
+    }
+    const desc = args.description;
+    if (typeof desc === "string") return desc;
+  }
+
   const keys = Object.keys(args);
   if (keys.length === 0) return null;
   
@@ -298,18 +308,11 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
         </box>
       )}
 
-      {subagentStreamingEntries.map(([toolCallId, stream]) => {
-        const isWaiting = !stream.content && !stream.reasoning;
-        return (
+      {subagentStreamingEntries.map(([toolCallId, stream]) => (
           <box key={toolCallId} flexDirection="column" marginBottom={1}>
             <text fg={c.secondary}>
-              <b>{stream.agentDisplayName || "Subagent"}</b> <span fg={isWaiting ? c.warning : c.success}>▮</span>
+              <b>{stream.agentDisplayName || "Subagent"}</b> <span fg={c.success}>▮</span>
             </text>
-            {isWaiting && (
-              <box paddingLeft={1}>
-                <text fg={c.subtle}><i>Working...</i></text>
-              </box>
-            )}
             {stream.reasoning && (
               <box flexDirection="column" paddingLeft={1} marginBottom={1}>
                 <text fg={c.accent}>Thinking...</text>
@@ -322,8 +325,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
               </box>
             )}
           </box>
-        );
-      })}
+        ))}
 
       {streamingContent && (() => {
         const lastItem = transcript.length > 0 ? transcript[transcript.length - 1] : null;

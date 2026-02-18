@@ -11,7 +11,7 @@ import type { ReasoningEffort } from "../utils/config.js";
 
 /**
  * Complexity level for agent selection.
- * Used by the tech lead to pick the right agent based on task scope.
+ * Used by the engineering manager to pick the right agent based on task scope.
  */
 export type AgentTier = "junior" | "mid" | "senior" | "specialist";
 
@@ -100,7 +100,7 @@ export interface AgentContext {
   /** Current working directory */
   cwd: string;
   
-  /** Available agents for delegation (for tech lead) */
+  /** Available agents for delegation (for engineering manager) */
   availableAgents: AgentDefinition[];
   
   /** Current orchestration mode */
