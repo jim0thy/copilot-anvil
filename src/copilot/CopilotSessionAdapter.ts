@@ -1359,7 +1359,8 @@ ${agentEntries}
 
           const reasoningDelta = event.data?.deltaContent ?? "";
           if (!reasoningDelta) return;
-          const parentToolCallId = (event.data as any)?.parentToolCallId;
+          const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
+          const parentToolCallId = typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
           const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
 
           this.reasoningBuffer += reasoningDelta;
@@ -1382,7 +1383,8 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
 
           const reasoningContent = event.data?.content ?? "";
-          const parentToolCallId = (event.data as any)?.parentToolCallId;
+          const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
+          const parentToolCallId = typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
           const subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
           if (this.currentRunId && reasoningContent) {
             this.emit({
