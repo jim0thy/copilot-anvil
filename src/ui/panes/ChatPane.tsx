@@ -66,7 +66,7 @@ const MessageItem = memo(function MessageItem({ msg, showLabel, theme }: { msg: 
 
       {msg.role === "user" ? (
         <box justifyContent="flex-end">
-          <box borderStyle="single" border={["top", "right", "bottom"]} borderColor={c.info} backgroundColor={c.mantle} paddingLeft={1} paddingRight={1} maxWidth="66%" flexDirection="column">
+          <box borderStyle="single" border={["right"]} borderColor={c.info} backgroundColor={c.mantle} paddingLeft={1} paddingRight={1} maxWidth="66%" flexDirection="column">
             {showLabel && <text fg={c.info}><b>{labelText}</b></text>}
             <text fg={c.text} wrapMode="word">{msg.content}</text>
           </box>
@@ -250,8 +250,8 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
 export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, isStreaming, height, theme, subagentToolCallIds: subagentToolCallIdsProp }: ChatPaneProps) {
   const c = theme.colors;
   const subagentStreamingEntries = Object.entries(subagentStreamingProp);
-  const hasSubagentStreaming = subagentStreamingEntries.some(([, stream]) => Boolean(stream.content || stream.reasoning));
-  // Only auto-scroll when actively receiving streaming content, not when user is typing
+  const hasSubagentStreaming = subagentStreamingEntries.length > 0;
+  // Auto-scroll whenever streaming is happening (including waiting subagents)
   const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning) || hasSubagentStreaming;
 
   // Build a Set of tool call IDs that correspond to subagents.
@@ -289,9 +289,9 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
           if (item.toolName === "report_intent") {
             return null;
           }
-          // Skip running task tool calls that correspond to subagents (shown in Specialists pane)
+          // Skip task tool calls that correspond to subagents (shown in Specialists pane)
           if (item.toolName === "task" && subagentToolCallIds.has(item.toolCallId)) {
-            if (item.status === "running") return null;
+            return null;
           }
           return <ToolCallInline key={item.id} tool={item} theme={theme} />;
         }
@@ -318,12 +318,17 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
       )}
 
       {subagentStreamingEntries.map(([toolCallId, stream]) => {
-        if (!stream.content && !stream.reasoning) return null;
+        const isWaiting = !stream.content && !stream.reasoning;
         return (
           <box key={toolCallId} flexDirection="column" marginBottom={1}>
             <text fg={c.secondary}>
-              <b>{stream.agentDisplayName || "Subagent"}</b> <span fg={c.success}>▮</span>
+              <b>{stream.agentDisplayName || "Subagent"}</b> <span fg={isWaiting ? c.warning : c.success}>▮</span>
             </text>
+            {isWaiting && (
+              <box paddingLeft={1}>
+                <text fg={c.subtle}><i>Working...</i></text>
+              </box>
+            )}
             {stream.reasoning && (
               <box flexDirection="column" paddingLeft={1} marginBottom={1}>
                 <text fg={c.accent}>Thinking...</text>

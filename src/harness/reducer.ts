@@ -393,11 +393,22 @@ export function processEvent(
         (s) => s.status === "running" && s.agentDisplayName === event.agentDisplayName
       );
 
+      // Create an initial streaming entry so the agent is visible immediately
+      const newSubagentStreaming = {
+        ...state.subagentStreaming,
+        [event.toolCallId]: {
+          agentDisplayName: event.agentDisplayName || event.agentName || "Subagent",
+          content: "",
+          reasoning: undefined,
+        },
+      };
+
       // If a running one exists, just append (allow parallel instances)
       if (runningWithSameName) {
         return {
           ...state,
           subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+          subagentStreaming: newSubagentStreaming,
         };
       }
 
@@ -411,6 +422,7 @@ export function processEvent(
         return {
           ...state,
           subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+          subagentStreaming: newSubagentStreaming,
         };
       }
 
@@ -427,6 +439,7 @@ export function processEvent(
         return {
           ...state,
           subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
+          subagentStreaming: newSubagentStreaming,
         };
       }
 
@@ -437,6 +450,7 @@ export function processEvent(
       return {
         ...state,
         subagents: updatedSubagents,
+        subagentStreaming: newSubagentStreaming,
       };
     }
 
