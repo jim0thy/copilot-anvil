@@ -15,32 +15,6 @@ interface SessionSwitcherProps {
   height: number;
 }
 
-// Helper: Get relative time string
-function getRelativeTime(date: Date): string {
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (seconds < 60) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days === 1) return "yesterday";
-  return `${days}d ago`;
-}
-
-// Helper: Format time as HH:MM AM/PM
-function formatTime(date: Date): string {
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 || 12;
-  const displayMinutes = minutes.toString().padStart(2, "0");
-  return `${displayHours}:${displayMinutes} ${ampm}`;
-}
-
 // Helper: Get date group label
 function getDateGroup(date: Date): string {
   const now = new Date();
@@ -66,8 +40,9 @@ export const SessionSwitcher = memo(function SessionSwitcher({
   height,
 }: SessionSwitcherProps) {
   const c = theme.colors;
-  // Sort by most recent and limit to last 10 sessions
+  // Filter to current project only, sort by most recent, limit to 10
   const recentSessions = sessions
+    .filter((s) => s.isCurrentProject)
     .sort((a, b) => {
       const dateA = (a.lastUsedAt || a.createdAt)?.getTime() || 0;
       const dateB = (b.lastUsedAt || b.createdAt)?.getTime() || 0;
@@ -89,45 +64,19 @@ export const SessionSwitcher = memo(function SessionSwitcher({
     }
     group.sessions.push(session);
   });
-
-  // Separate by project
-  const projectGroups = groupedSessions.map((group) => ({
-    ...group,
-    sessions: group.sessions.filter((s) => s.isCurrentProject),
-  })).filter((g) => g.sessions.length > 0);
-
-  const otherGroups = groupedSessions.map((group) => ({
-    ...group,
-    sessions: group.sessions.filter((s) => !s.isCurrentProject),
-  })).filter((g) => g.sessions.length > 0);
   
   // Build flat list of items for navigation
-  const items: Array<{ type: "new" | "divider" | "session"; id: string; name: string; session?: SessionInfo; time?: string }> = [
+  const items: Array<{ type: "new" | "divider" | "session"; id: string; name: string; session?: SessionInfo }> = [
     { type: "new", id: "__new__", name: "New Session" },
   ];
 
-  // Add current project sessions grouped by date
-  projectGroups.forEach((group, groupIdx) => {
+  // Add sessions grouped by date
+  groupedSessions.forEach((group, groupIdx) => {
     items.push({ type: "divider", id: `__divider_proj_${groupIdx}__`, name: group.date });
     group.sessions.forEach((s) => {
-      const date = s.lastUsedAt || s.createdAt;
-      const time = date ? formatTime(date) : "";
-      items.push({ type: "session", id: s.id, name: s.name, session: s, time });
+      items.push({ type: "session", id: s.id, name: s.name, session: s });
     });
   });
-
-  // Add divider and other project sessions
-  if (otherGroups.length > 0) {
-    items.push({ type: "divider", id: "__divider_other__", name: "Other Projects" });
-    otherGroups.forEach((group, groupIdx) => {
-      items.push({ type: "divider", id: `__divider_other_${groupIdx}__`, name: group.date });
-      group.sessions.forEach((s) => {
-        const date = s.lastUsedAt || s.createdAt;
-        const time = date ? formatTime(date) : "";
-        items.push({ type: "session", id: s.id, name: s.name, session: s, time });
-      });
-    });
-  }
 
   const currentIndex = items.findIndex(
     (item) => item.type === "session" && item.id === currentSessionId
@@ -198,11 +147,10 @@ export const SessionSwitcher = memo(function SessionSwitcher({
     if (item.type === "divider") {
       return `── ${item.name} ──`;
     }
-    // Show session name + time
+    // Show session name only (no timestamp)
     const name = item.name || "Untitled";
-    const time = item.time ? ` • ${item.time}` : "";
-    const displayName = name.length > 30 ? name.slice(0, 27) + "..." : name;
-    return displayName + time;
+    const displayName = name.length > 50 ? name.slice(0, 47) + "..." : name;
+    return displayName;
   };
 
   return (

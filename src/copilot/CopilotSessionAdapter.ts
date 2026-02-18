@@ -9,6 +9,7 @@ import { getAnvilTools } from "../cli/tools.js";
 import { createSessionHooks } from "../cli/hooks.js";
 import { loadModelConfig, resolveAgentModel, type AgentModelOverride } from "../agents/modelConfig.js";
 import { nf } from "../ui/icons.js";
+import { getSessionTitle, setSessionTitle, truncateAtWordBoundary } from "../utils/sessionStore.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -101,6 +102,8 @@ export class CopilotSessionAdapter {
   private sqlQueriesByToolCallId = new Map<string, string>();
   /** Tool call IDs that have already emitted todo.updated (deduplication) */
   private todoUpdatedToolCallIds = new Set<string>();
+  /** Session IDs that already have a title in the store (avoids overwriting SDK titles with fallback) */
+  private _sessionHasTitle = new Set<string>();
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -1449,6 +1452,19 @@ ${agentEntries}
           break;
         }
 
+        case "session.title_changed": {
+          const title = (event.data as any)?.title;
+          if (title && this._currentSessionId) {
+            setSessionTitle(this._currentSessionId, title);
+            this._sessionHasTitle.add(this._currentSessionId);
+            // Refresh session list so UI picks up the new title
+            this.listSessions().then((sessions) => {
+              this.emit({ type: "session.list.updated", sessions });
+            }).catch(() => {});
+          }
+          break;
+        }
+
         case "assistant.usage": {
           const quotaSnapshots = event.data?.quotaSnapshots;
           let remainingPremiumRequests: number | null = null;
@@ -1599,6 +1615,17 @@ ${agentEntries}
     this.isCancelled = false;
     this.isProcessing = true;
     this.resetRunTrackingState();
+
+    // Set fallback title from first prompt if no SDK title yet
+    if (this._currentSessionId && !this._sessionHasTitle.has(this._currentSessionId)) {
+      const fallbackTitle = truncateAtWordBoundary(prompt, 50);
+      setSessionTitle(this._currentSessionId, fallbackTitle);
+      this._sessionHasTitle.add(this._currentSessionId);
+      // Refresh session list so UI picks up the title
+      this.listSessions().then((sessions) => {
+        this.emit({ type: "session.list.updated", sessions });
+      }).catch(() => {});
+    }
 
     const attachments = images?.map((imagePath) => ({
       type: "file" as const,
@@ -1813,20 +1840,21 @@ ${agentEntries}
     try {
       const sessions = await this.client.listSessions();
 
-      return sessions.map((s: any) => {
-        const isCurrentProject = s.sessionId.startsWith(this._projectPrefix);
-        const name = s.summary || (isCurrentProject
-          ? s.sessionId.slice(this._projectPrefix.length)
-          : s.sessionId);
+      return sessions
+        .filter((s: any) => s.sessionId.startsWith(this._projectPrefix))
+        .map((s: any) => {
+          // Priority: sessionStore title > SDK summary > "New session"
+          const storeTitle = getSessionTitle(s.sessionId);
+          const name = storeTitle || s.summary || "New session";
 
-        return {
-          id: s.sessionId,
-          name,
-          createdAt: s.startTime ? new Date(s.startTime) : undefined,
-          lastUsedAt: s.modifiedTime ? new Date(s.modifiedTime) : undefined,
-          isCurrentProject,
-        };
-      });
+          return {
+            id: s.sessionId,
+            name,
+            createdAt: s.startTime ? new Date(s.startTime) : undefined,
+            lastUsedAt: s.modifiedTime ? new Date(s.modifiedTime) : undefined,
+            isCurrentProject: true,
+          };
+        });
     } catch (error) {
       this.emit(createLogEvent("error", `Failed to list sessions: ${error}`));
       return [];
