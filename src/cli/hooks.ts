@@ -302,10 +302,10 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
     /**
      * Session-start hook: injects project-level context.
      *
-     * - Loads CLAUDE.md / AGENTS.md if present
+     * - Loads AGENTS.md if present
      */
     onSessionStart: async (_input: SessionStartInput) => {
-      const contextFiles = ["CLAUDE.md", "AGENTS.md"];
+      const contextFiles = ["AGENTS.md"];
       const contextParts: string[] = [];
 
       for (const file of contextFiles) {
@@ -315,6 +315,10 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
             const content = readFileSync(filePath, "utf-8");
             if (content.length < 5000) {
               contextParts.push(content);
+            } else {
+              contextParts.push(
+                `[${file} is available in the repo (${Math.round(content.length / 1024)}KB) — read it for comprehensive project documentation.]`
+              );
             }
           } catch {
             // ignore

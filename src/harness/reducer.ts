@@ -107,14 +107,16 @@ export function processEvent(
     case "assistant.delta":
       if (event.parentToolCallId) {
         const existing = state.subagentStreaming[event.parentToolCallId];
+        const resetFromTranscript = Boolean(existing?.contentInTranscript);
         return {
           ...state,
           subagentStreaming: {
             ...state.subagentStreaming,
             [event.parentToolCallId]: {
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
-              content: (existing?.content ?? "") + event.text,
-              reasoning: existing?.reasoning,
+              content: resetFromTranscript ? event.text : (existing?.content ?? "") + event.text,
+              reasoning: resetFromTranscript ? undefined : existing?.reasoning,
+              contentInTranscript: false,
             },
           },
         };
@@ -129,14 +131,16 @@ export function processEvent(
     case "reasoning.delta":
       if (event.parentToolCallId) {
         const existing = state.subagentStreaming[event.parentToolCallId];
+        const resetFromTranscript = Boolean(existing?.contentInTranscript);
         return {
           ...state,
           subagentStreaming: {
             ...state.subagentStreaming,
             [event.parentToolCallId]: {
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
-              content: existing?.content ?? "",
-              reasoning: (existing?.reasoning ?? "") + event.text,
+              content: resetFromTranscript ? "" : (existing?.content ?? ""),
+              reasoning: resetFromTranscript ? event.text : (existing?.reasoning ?? "") + event.text,
+              contentInTranscript: false,
             },
           },
         };
@@ -149,14 +153,16 @@ export function processEvent(
     case "reasoning.message":
       if (event.parentToolCallId) {
         const existing = state.subagentStreaming[event.parentToolCallId];
+        const resetFromTranscript = Boolean(existing?.contentInTranscript);
         return {
           ...state,
           subagentStreaming: {
             ...state.subagentStreaming,
             [event.parentToolCallId]: {
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
-              content: existing?.content ?? "",
+              content: resetFromTranscript ? "" : (existing?.content ?? ""),
               reasoning: event.content,
+              contentInTranscript: false,
             },
           },
         };
@@ -172,6 +178,8 @@ export function processEvent(
     case "assistant.message": {
       const parentToolCallId = event.message.parentToolCallId;
       const isSubagentMessage = Boolean(parentToolCallId);
+      const consumedStreamingReasoning = state.streamingReasoning;
+      const existingSubagentStream = parentToolCallId ? state.subagentStreaming[parentToolCallId] : undefined;
       const messageWithReasoning: ChatMessage = {
         ...event.message,
         kind: "message",
@@ -179,9 +187,9 @@ export function processEvent(
         // otherwise fall back to the streamed reasoning buffer (older/evented flow).
         reasoning: isSubagentMessage
           ? (event.message.reasoning
-            || state.subagentStreaming[parentToolCallId!]?.reasoning
+            || existingSubagentStream?.reasoning
             || undefined)
-          : (event.message.reasoning || state.streamingReasoning || undefined),
+          : (event.message.reasoning || consumedStreamingReasoning || undefined),
       };
       const newTranscript = [...state.transcript, messageWithReasoning];
       trimTranscript(newTranscript, ctx);
@@ -189,7 +197,15 @@ export function processEvent(
         return {
           ...state,
           transcript: newTranscript,
-          subagentStreaming: removeSubagentStreamingEntry(state.subagentStreaming, parentToolCallId!),
+          subagentStreaming: {
+            ...state.subagentStreaming,
+            [parentToolCallId!]: {
+              agentDisplayName: event.message.agentDisplayName ?? existingSubagentStream?.agentDisplayName ?? event.message.agentName ?? "Subagent",
+              content: event.message.content || existingSubagentStream?.content || "",
+              reasoning: event.message.reasoning || existingSubagentStream?.reasoning || undefined,
+              contentInTranscript: true,
+            },
+          },
         };
       }
       return {
@@ -406,6 +422,7 @@ export function processEvent(
           agentDisplayName: event.agentDisplayName || event.agentName || "Subagent",
           content: "",
           reasoning: undefined,
+          contentInTranscript: false,
         },
       };
 
@@ -586,7 +603,13 @@ export function processEvent(
       return { ...state, currentAgentId: event.agentId };
 
     case "agents.loaded":
-      return { ...state, availableAgents: event.agents };
+      return {
+        ...state,
+        availableAgents: event.agents.map(agent => ({
+          ...agent,
+          reasoningEffort: agent.reasoningEffort,
+        })),
+      };
 
     default:
       return state;

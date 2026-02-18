@@ -17,6 +17,7 @@ import type { CopilotSessionAdapter } from "../copilot/CopilotSessionAdapter.js"
 import { CommandRegistry, parseSlashCommand } from "../commands/CommandLoader.js";
 import type { CommandDefinition } from "../commands/CommandLoader.js";
 import { loadConfig, saveConfig } from "../utils/config.js";
+import type { ReasoningEffort } from "../utils/config.js";
 import { nf } from "../ui/icons.js";
 
 // Re-export state types so existing consumers don't need to change imports
@@ -160,10 +161,12 @@ export class Harness {
             id: string;
             name: string;
             model: string;
+            reasoningEffort?: ReasoningEffort;
           }>;
         }>("orchestration");
         
         const agent = orchestrationState?.availableAgents.find(a => a.id === event.agentId);
+        this.adapter.setReasoningEffort(agent?.reasoningEffort ?? this.state.reasoningEffort);
         const targetModel = agent?.model ? this.resolveAvailableModel(agent.model) : null;
         const needsModelSwitch = Boolean(
           targetModel &&
@@ -733,6 +736,10 @@ export class Harness {
       targetModel &&
       targetModel !== this.state.currentModel
     );
+
+    if (this.adapter) {
+      this.adapter.setReasoningEffort(agent?.reasoningEffort ?? this.state.reasoningEffort);
+    }
     
     if (this.adapter) {
       try {
@@ -783,7 +790,7 @@ export class Harness {
     await this.handleSwitchAgent(newAgent.id);
   }
 
-  private handleChangeReasoningEffort(effort: "low" | "medium" | "high" | "xhigh"): void {
+  private handleChangeReasoningEffort(effort: ReasoningEffort): void {
     if (this.state.status === "running") {
       this.emit(createLogEvent("warn", "Cannot change reasoning effort while a run is in progress"));
       return;
@@ -866,7 +873,13 @@ export class Harness {
     }
 
     const agent = this.state.availableAgents.find(a => a.id === this.state.currentAgentId);
-    if (!agent?.model) {
+    if (!agent) {
+      return;
+    }
+
+    this.adapter.setReasoningEffort(agent.reasoningEffort ?? this.state.reasoningEffort);
+
+    if (!agent.model) {
       return;
     }
 

@@ -264,6 +264,7 @@ export function App({ harness, renderer }: AppProps) {
     ? state.availableAgents.find(a => a.id === state.currentAgentId)
     : null;
   const agentDisplay = currentAgent?.name ?? "Copilot";
+  const effectiveReasoningEffort = currentAgent?.reasoningEffort ?? state.reasoningEffort;
 
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
   const sessionHistoryWidth = Math.floor(width * 0.175);
@@ -307,7 +308,7 @@ export function App({ harness, renderer }: AppProps) {
               onHeightChange={handleInputHeightChange}
               agentName={agentDisplay}
               modelName={modelDisplay}
-              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
+              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? effectiveReasoningEffort : undefined}
               containerWidth={mainWidth}
             />
           </box>
@@ -353,7 +354,7 @@ export function App({ harness, renderer }: AppProps) {
               height={contentHeight}
               agentName={agentDisplay}
               modelName={modelDisplay}
-              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? state.reasoningEffort : undefined}
+              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? effectiveReasoningEffort : undefined}
             />
           </box>
         </box>

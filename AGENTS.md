@@ -49,6 +49,18 @@ This section helps AI coding assistants understand and work with this codebase e
 2. `Harness` — manages state, emits events, handles `UIAction`s
 3. UI — subscribes to events, dispatches actions
 
+### Available Skills
+
+This project has specialized skills in `.agents/skills/`. Invoke them via the `skill` tool before doing manual research:
+
+| Skill | Use for | Trigger keywords |
+|-------|---------|------------------|
+| `copilot-tui-harness` | Harness architecture, events, plugins, panes | harness, events, plugin, pane, HarnessEvent, UIAction, subscriber |
+| `copilot-sdk` | SDK client API, sessions, streaming, tools, MCP | CopilotClient, session, SDK, tool, streaming, MCP |
+| `opentui` | TUI components, layout, keyboard handling, animation | Box, Text, component, layout, keyboard, useInput, animation |
+
+**Always invoke a relevant skill before writing code** — they contain detailed API references, patterns, and known gotchas that prevent common mistakes.
+
 ### Directory Map
 
 | Path | Purpose |
@@ -291,12 +303,20 @@ Only touch `src/copilot/CopilotSessionAdapter.ts`. Never import SDK elsewhere.
 
 ## Development Conventions
 
+### Runtime
+
+- **Runtime**: Bun (not Node.js). Use `bun` for all script execution and package management.
+
 ### TypeScript
 
 - Strict mode enabled
 - ESM imports (`import/export`)
 - No `any` types without explicit justification
 - Prefer interfaces over type shapes for object types
+
+### Cross-layer Communication
+
+- **Cross-layer communication**: All communication between layers uses `HarnessEvent` and `UIAction` types — no direct method calls across layer boundaries.
 
 ### React/OpenTUI
 

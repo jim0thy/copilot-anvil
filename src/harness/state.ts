@@ -86,7 +86,7 @@ export interface HarnessState {
   streamingReasoning: string;
   /** Agent display name for the currently streaming content */
   streamingAgentName: string | null;
-  subagentStreaming: Record<string, { agentDisplayName: string; content: string; reasoning?: string }>;
+  subagentStreaming: Record<string, { agentDisplayName: string; content: string; reasoning?: string; contentInTranscript?: boolean }>;
   activeTools: ActiveTool[];
   tasks: Task[];
   subagents: Subagent[];
@@ -106,7 +106,7 @@ export interface HarnessState {
   /** Current agent ID (null = SDK default, or agent ID from agents module) */
   currentAgentId: string | null;
   /** Available top-level agents for Tab cycling */
-  availableAgents: Array<{ id: string; name: string; description: string; model: string; tier: string; domain: string }>;
+  availableAgents: Array<{ id: string; name: string; description: string; model: string; tier: string; domain: string; reasoningEffort?: "low" | "medium" | "high" | "xhigh" }>;
   /** Current reasoning effort level */
   reasoningEffort: "low" | "medium" | "high" | "xhigh";
   contextInfo: {

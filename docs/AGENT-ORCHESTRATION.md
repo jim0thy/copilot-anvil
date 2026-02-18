@@ -251,7 +251,7 @@ Four hooks add guardrails to the execution pipeline:
 | `onPreToolUse` | Before any tool runs | Warns about destructive commands; injects convention context |
 | `onPostToolUse` | After any tool runs | Flags TODO/FIXME markers in written files |
 | `onUserPromptSubmitted` | When user sends a message | Enriches prompt with git branch and project stack info |
-| `onSessionStart` | When session is created | Loads CLAUDE.md/AGENTS.md as project context |
+| `onSessionStart` | When session is created | Loads .github/copilot-instructions.md/AGENTS.md as project context |
 
 ---
 

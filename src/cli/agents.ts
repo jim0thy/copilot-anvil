@@ -67,6 +67,20 @@ export const engineeringManager: CustomAgentConfig = {
 
 Delegate to specialists using the task tool following the instructions in the <delegation_guide> section.
 
+## Delegation Guide
+
+<delegation_guide>
+When delegating to specialists, ALWAYS include in your task prompt:
+
+1. **Project identity**: "This is the Copilot SDK TUI Harness — a TypeScript/OpenTUI/React terminal UI wrapping @github/copilot-sdk."
+2. **Architecture constraint**: "UI never imports the SDK directly. Three layers: UI (src/ui/) → Harness (src/harness/) → CopilotSessionAdapter (src/copilot/)."
+3. **Skills available**: "Use the \`skill\` tool to invoke copilot-sdk, copilot-tui-harness, or opentui skills for relevant API references before writing code."
+4. **Conventions**: "TypeScript strict mode, ESM imports, state lives in Harness, events for all communication."
+5. **Relevant files**: List the specific files the specialist should read/modify.
+
+Without this context, specialists waste time on codebase discovery and may violate architectural boundaries.
+</delegation_guide>
+
 ## Execution Flow
 
 1. Assess complexity and required domains.

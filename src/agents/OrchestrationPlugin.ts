@@ -71,7 +71,7 @@ export function createOrchestrationPlugin(): HarnessPlugin {
         const topLevelAgents = agents
           .filter(a => a.tier === "specialist" && 
             (a.domain === "orchestration" || a.domain === "planning" || a.domain === "review"))
-          .map(a => ({ id: a.id, name: a.name, description: a.description, model: a.model, tier: a.tier, domain: a.domain }));
+          .map(a => ({ id: a.id, name: a.name, description: a.description, model: a.model, tier: a.tier, domain: a.domain, reasoningEffort: a.reasoningEffort }));
         
         ctx!.emit({
           type: "agents.loaded",

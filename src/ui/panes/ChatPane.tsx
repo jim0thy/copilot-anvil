@@ -27,7 +27,7 @@ interface ChatPaneProps {
   streamingContent: string;
   streamingReasoning: string;
   streamingAgentName: string | null;
-  subagentStreaming?: Record<string, { agentDisplayName: string; content: string; reasoning?: string }>;
+  subagentStreaming?: Record<string, { agentDisplayName: string; content: string; reasoning?: string; contentInTranscript?: boolean }>;
   isStreaming: boolean;
   height: number;
   theme: Theme;
@@ -313,16 +313,20 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
             <text fg={c.secondary}>
               <b>{stream.agentDisplayName || "Subagent"}</b> <span fg={c.success}>▮</span>
             </text>
-            {stream.reasoning && (
-              <box flexDirection="column" paddingLeft={1} marginBottom={1}>
-                <text fg={c.accent}>Thinking...</text>
-                <text fg={c.subtle}>{stream.reasoning}</text>
-              </box>
-            )}
-            {stream.content && (
-              <box paddingLeft={1}>
-                <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={stream.content} streaming />
-              </box>
+            {!stream.contentInTranscript && (
+              <>
+                {stream.reasoning && (
+                  <box flexDirection="column" paddingLeft={1} marginBottom={1}>
+                    <text fg={c.accent}>Thinking...</text>
+                    <text fg={c.subtle}>{stream.reasoning}</text>
+                  </box>
+                )}
+                <box paddingLeft={1}>
+                  {stream.content
+                    ? <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={stream.content} streaming />
+                    : <text fg={c.subtle}><i>...</i></text>}
+                </box>
+              </>
             )}
           </box>
         ))}

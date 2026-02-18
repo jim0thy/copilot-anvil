@@ -107,8 +107,13 @@ export function loadModelConfig(): AgentModelConfig {
         // Strip "github-copilot/" prefix if present (gist format compat)
         entry.model = o.model.replace(/^github-copilot\//, "");
       }
-      if (typeof o.reasoningEffort === "string" && validEfforts.includes(o.reasoningEffort as ReasoningEffort)) {
-        entry.reasoningEffort = o.reasoningEffort as ReasoningEffort;
+      const reasoningEffort = typeof o.reasoningEffort === "string"
+        ? o.reasoningEffort
+        : typeof o.reasoning_effort === "string"
+          ? o.reasoning_effort
+          : undefined;
+      if (reasoningEffort && validEfforts.includes(reasoningEffort as ReasoningEffort)) {
+        entry.reasoningEffort = reasoningEffort as ReasoningEffort;
       }
       // Also support "variant" as an alias (oh-my-opencode format)
       if (typeof o.variant === "string" && !entry.reasoningEffort) {

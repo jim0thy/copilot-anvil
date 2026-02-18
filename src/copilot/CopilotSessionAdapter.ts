@@ -1180,6 +1180,8 @@ ${agentEntries}
 
           const resolvedContent = content || bufferedMessage?.text || "";
           const parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId;
+          const isSubagentMessage = Boolean(parentToolCallId);
+          const hadBufferedDelta = Boolean(bufferedMessage?.text);
           this.streamingBuffers.delete(bufferKey);
 
           this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
@@ -1195,11 +1197,15 @@ ${agentEntries}
               ?? (event.data as any)?.reasoningText;
             if (typeof directReasoning === "string" && directReasoning.trim()) {
               (message as any).reasoning = directReasoning;
-            } else if (this.reasoningBuffer.trim()) {
+              if (!isSubagentMessage) {
+                this.reasoningBuffer = "";
+              }
+            } else if (!isSubagentMessage && this.reasoningBuffer.trim()) {
               // Fall back to the buffer accumulated from assistant.reasoning_delta events.
               // This handles the case where reasoning_delta events fired but the message
               // didn't carry reasoning inline.
               (message as any).reasoning = this.reasoningBuffer;
+              this.reasoningBuffer = "";
             }
 
             // Add agent information - from subagent if available, otherwise from active agent
@@ -1221,6 +1227,17 @@ ${agentEntries}
               // Message from top-level active agent (e.g., Engineering Manager)
               message.agentName = this._activeAgent.name;
               message.agentDisplayName = this._activeAgent.displayName || this._activeAgent.name;
+            }
+
+            if (parentToolCallId && !hadBufferedDelta) {
+              this.emit({
+                type: "assistant.delta",
+                runId: this.currentRunId,
+                text: resolvedContent,
+                parentToolCallId,
+                agentName: message.agentName,
+                agentDisplayName: message.agentDisplayName,
+              });
             }
 
             this.emit({
@@ -1444,7 +1461,9 @@ ${agentEntries}
             }
           }
 
-          this.reasoningBuffer += reasoningDelta;
+          if (!parentToolCallId) {
+            this.reasoningBuffer += reasoningDelta;
+          }
 
           if (this.currentRunId) {
             this.emit({

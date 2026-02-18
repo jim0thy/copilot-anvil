@@ -215,7 +215,7 @@ export const checkConventions = defineTool("check_conventions", {
   description:
     "Scan the current project for coding convention files and return a summary " +
     "of conventions that should be followed. Checks for CONVENTIONS.md, " +
-    ".editorconfig, eslint/prettier configs, and CLAUDE.md.",
+    ".github/copilot-instructions.md, AGENTS.md, and .editorconfig / eslint / prettier configs.",
   parameters: {
     type: "object",
     properties: {
@@ -232,7 +232,7 @@ export const checkConventions = defineTool("check_conventions", {
 
     const conventionFiles = [
       "CONVENTIONS.md",
-      "CLAUDE.md",
+      ".github/copilot-instructions.md",
       "AGENTS.md",
       ".editorconfig",
       ".eslintrc",

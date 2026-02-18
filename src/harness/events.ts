@@ -303,7 +303,7 @@ export interface AgentChangedEvent {
 
 export interface AgentsLoadedEvent {
   type: "agents.loaded";
-  agents: Array<{ id: string; name: string; description: string; model: string; tier: string; domain: string }>;
+  agents: Array<{ id: string; name: string; description: string; model: string; tier: string; domain: string; reasoningEffort?: "low" | "medium" | "high" | "xhigh" }>;
 }
 
 export interface ShowAgentsModalEvent {
