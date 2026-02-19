@@ -127,31 +127,6 @@ export function processEvent(
           },
         };
       }
-      // Defense-in-depth: if parentToolCallId is missing but there are
-      // running subagents, route to the most recently started running
-      // subagent rather than polluting top-level streamingContent.
-      {
-        const runningSubagents = state.subagents.filter(s => s.status === "running");
-        if (runningSubagents.length > 0) {
-          const lastRunning = runningSubagents[runningSubagents.length - 1];
-          const inferredId = lastRunning.toolCallId;
-          const existing = state.subagentStreaming[inferredId];
-          const resetFromTranscript = Boolean(existing?.contentInTranscript);
-          return {
-            ...state,
-            subagentStreaming: {
-              ...state.subagentStreaming,
-              [inferredId]: {
-                ...existing,
-                agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? lastRunning.agentDisplayName ?? "Subagent",
-                content: resetFromTranscript ? event.text : (existing?.content ?? "") + event.text,
-                reasoning: resetFromTranscript ? undefined : existing?.reasoning,
-                contentInTranscript: false,
-              },
-            },
-          };
-        }
-      }
       return {
         ...state,
         streamingContent: state.streamingContent + event.text,
@@ -175,29 +150,6 @@ export function processEvent(
             },
           },
         };
-      }
-      // Defense-in-depth: route reasoning to running subagent if present
-      {
-        const runningSubagents = state.subagents.filter(s => s.status === "running");
-        if (runningSubagents.length > 0) {
-          const lastRunning = runningSubagents[runningSubagents.length - 1];
-          const inferredId = lastRunning.toolCallId;
-          const existing = state.subagentStreaming[inferredId];
-          const resetFromTranscript = Boolean(existing?.contentInTranscript);
-          return {
-            ...state,
-            subagentStreaming: {
-              ...state.subagentStreaming,
-              [inferredId]: {
-                ...existing,
-                agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? lastRunning.agentDisplayName ?? "Subagent",
-                content: resetFromTranscript ? "" : (existing?.content ?? ""),
-                reasoning: resetFromTranscript ? event.text : (existing?.reasoning ?? "") + event.text,
-                contentInTranscript: false,
-              },
-            },
-          };
-        }
       }
       return {
         ...state,
@@ -266,45 +218,6 @@ export function processEvent(
               : updatedSubagentStreaming,
         };
       }
-      // For non-subagent (top-level/EM) messages, protect any content that
-      // leaked into streamingContent while subagents were running.  If there
-      // are running subagents and streamingContent is non-empty but doesn't
-      // match the committed message, rescue it into the last running
-      // subagent's streaming entry before clearing.
-      {
-        const runningSubagents = state.subagents.filter(s => s.status === "running");
-        if (
-          runningSubagents.length > 0
-          && state.streamingContent
-          && state.streamingContent !== event.message.content
-        ) {
-          const rescueTarget = runningSubagents[runningSubagents.length - 1];
-          const existingRescue = state.subagentStreaming[rescueTarget.toolCallId];
-          if (!existingRescue?.content) {
-            // Only rescue if the subagent streaming entry has no content yet.
-            // If it has content, Fix 2 already routed deltas there correctly;
-            // rescuing again would duplicate the content.
-            const rescuedStreaming = {
-              ...state.subagentStreaming,
-              [rescueTarget.toolCallId]: {
-                ...existingRescue,
-                agentDisplayName: existingRescue?.agentDisplayName ?? rescueTarget.agentDisplayName ?? "Subagent",
-                content: state.streamingContent,
-                reasoning: existingRescue?.reasoning,
-                contentInTranscript: false,
-              },
-            };
-            return {
-              ...state,
-              transcript: newTranscript,
-              streamingContent: "",
-              streamingReasoning: "",
-              streamingAgentName: null,
-              subagentStreaming: rescuedStreaming,
-            };
-          }
-        }
-      }
       return {
         ...state,
         transcript: newTranscript,
@@ -334,6 +247,7 @@ export function processEvent(
         const finalMessage: ChatMessage = {
           ...createAssistantMessage(state.streamingContent),
           reasoning: state.streamingReasoning || undefined,
+          agentDisplayName: state.streamingAgentName || undefined,
         };
         newTranscript.push(finalMessage);
       }

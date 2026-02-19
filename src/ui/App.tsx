@@ -75,8 +75,19 @@ export function App({ harness, renderer }: AppProps) {
           setShowAgentsModal(true);
         }
       });
+
+      // Keep the renderer's render loop alive during active runs so
+      // streaming deltas are painted to the terminal every frame.
+      // Without this, requestRender() defers to process.nextTick and
+      // all intermediate states (streaming content, spinner, reasoning)
+      // are lost by the time the deferred render fires.
+      if (event.type === "run.started") {
+        renderer.requestLive();
+      } else if (event.type === "run.finished" || event.type === "run.cancelled") {
+        renderer.dropLive();
+      }
     });
-  }, [harness]);
+  }, [harness, renderer]);
 
   useEffect(() => {
     harness.dispatch({ type: "session.refresh" });

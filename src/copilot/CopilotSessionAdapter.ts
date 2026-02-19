@@ -10,6 +10,7 @@ import { createSessionHooks } from "../cli/hooks.js";
 import { loadModelConfig, resolveAgentModel} from "../agents/modelConfig.js";
 import { nf } from "../ui/icons.js";
 import { getAllSessions, getSessionTitle, setSessionTitle, truncateAtWordBoundary } from "../utils/sessionStore.js";
+import { debugLog } from "../utils/debugLog.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
@@ -96,6 +97,7 @@ export class CopilotSessionAdapter {
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string; model?: string }>();
   /** Subagents whose last streamed message is complete but completion event has not arrived yet. */
   private closedSubagentStreams = new Set<string>();
+  private executingSubagentToolCalls = new Set<string>();
 
   /**
    * When the SDK omits parentToolCallId on a delta but subagents are running,
@@ -105,17 +107,21 @@ export class CopilotSessionAdapter {
   private inferActiveSubagent(): [string | undefined, { agentName: string; agentDisplayName: string; model?: string } | undefined] {
     if (this.activeSubagents.size === 0) return [undefined, undefined];
 
-    // Map iterates in insertion order; prefer most recently started with an active tool buffer.
-    let lastBufferedKey: string | undefined;
-    let lastBufferedVal: { agentName: string; agentDisplayName: string; model?: string } | undefined;
+    // Map iterates in insertion order; return the most recently started
+    // subagent that hasn't been closed yet.  Previous versions required a
+    // pre-existing streaming buffer entry, which caused inference to fail
+    // when the first delta arrived before the buffer was seeded.
+    let lastActiveKey: string | undefined;
+    let lastActiveVal: { agentName: string; agentDisplayName: string; model?: string } | undefined;
     for (const [k, v] of this.activeSubagents) {
       if (this.closedSubagentStreams.has(k)) continue;
-      if (this.streamingBuffers.has(this.getStreamingBufferKey(undefined, k))) {
-        lastBufferedKey = k;
-        lastBufferedVal = v;
-      }
+      lastActiveKey = k;
+      lastActiveVal = v;
     }
-    return [lastBufferedKey, lastBufferedVal];
+    if (lastActiveKey) {
+      this.emit(createLogEvent("debug", `inferActiveSubagent: inferred toolCallId=${lastActiveKey} (${lastActiveVal?.agentDisplayName})`));
+    }
+    return [lastActiveKey, lastActiveVal];
   }
 
   private ensureSubagentStreamingBuffer(
@@ -374,6 +380,7 @@ export class CopilotSessionAdapter {
     this.resetTurnStreamingBuffers();
     this.activeSubagents.clear();
     this.closedSubagentStreams.clear();
+    this.executingSubagentToolCalls.clear();
     this.pendingAgentRoles.clear();
     this.checklistItems = [];
     this.sqlQueriesByToolCallId.clear();
@@ -1183,6 +1190,8 @@ ${agentEntries}
         case "assistant.message_delta": {
           if (this.isEventStale(gen)) return;
 
+          debugLog(`[ADAPTER] delta: content="${(event.data?.deltaContent ?? "").substring(0,30)}" msgId=${event.data?.messageId} ptcId=${event.data?.parentToolCallId || "none"} runId=${this.currentRunId || "null"} execSubagents=${this.executingSubagentToolCalls.size}`);
+
           const deltaContent = event.data?.deltaContent ?? "";
           if (!deltaContent) return;
 
@@ -1197,11 +1206,16 @@ ${agentEntries}
           let subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
 
           // SDK sometimes omits parentToolCallId for subagent deltas — infer from active subagents.
+          // Only infer sub-agent attribution if we're currently executing
+          // a sub-agent tool call. This prevents EM deltas from being
+          // misattributed to sub-agents.
           if (!parentToolCallId && !subagent) {
-            const [inferredId, inferredAgent] = this.inferActiveSubagent();
-            if (inferredId && inferredAgent) {
-              parentToolCallId = inferredId;
-              subagent = inferredAgent;
+            if (this.executingSubagentToolCalls.size > 0) {
+              const [inferredId, inferredAgent] = this.inferActiveSubagent();
+              if (inferredId && inferredAgent) {
+                parentToolCallId = inferredId;
+                subagent = inferredAgent;
+              }
             }
           }
 
@@ -1244,6 +1258,8 @@ ${agentEntries}
               agentName: agentInfo?.agentName,
               agentDisplayName: agentInfo?.agentDisplayName,
             });
+          } else {
+            debugLog(`[ADAPTER] delta DROPPED - no currentRunId`);
           }
           break;
         }
@@ -1251,9 +1267,16 @@ ${agentEntries}
         case "assistant.message": {
           if (this.isEventStale(gen)) return;
 
+          debugLog(`[ADAPTER] message: content="${(event.data?.content ?? "").substring(0,30)}" msgId=${event.data?.messageId} ptcId=${event.data?.parentToolCallId || "none"} runId=${this.currentRunId || "null"}`);
+
           const content = event.data?.content ?? "";
           const parentToolCallIdFromEvent = event.data?.parentToolCallId;
-          const [inferredToolCallId] = this.inferActiveSubagent();
+          // Only use inference for buffer resolution when the event itself carries a parentToolCallId.
+          // If the SDK explicitly omits parentToolCallId, this is an EM message — don't let
+          // inference steal the buffer match from a subagent.
+          const [inferredToolCallId] = parentToolCallIdFromEvent
+            ? this.inferActiveSubagent()
+            : [undefined, undefined];
           const bufferedMatch = this.findBufferedMessage(
             event.data?.messageId,
             parentToolCallIdFromEvent,
@@ -1262,15 +1285,35 @@ ${agentEntries}
           const bufferKey = bufferedMatch?.[0];
           const bufferedMessage = bufferedMatch?.[1];
           const resolvedContent = content || bufferedMessage?.text || "";
-          const parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId;
+          let parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId;
+
+          // CRITICAL FALLBACK: if parentToolCallId is still unresolved, no buffer
+          // matched, but there IS an active subagent — this message is from that
+          // subagent. This handles the common case where sub-agents produce no
+          // streaming deltas (content only in the final assistant.message) and the
+          // SDK omits parentToolCallId.
+          if (!parentToolCallId && !bufferedMatch && resolvedContent) {
+            const [fallbackId] = this.inferActiveSubagent();
+            if (fallbackId) {
+              parentToolCallId = fallbackId;
+              this.emit(createLogEvent("debug", `${nf.pencil} Attributed unbuffered message to subagent via fallback inference: toolCallId=${fallbackId}`));
+            }
+          }
+
           const isSubagentMessage = Boolean(parentToolCallId);
           const hadBufferedDelta = Boolean(bufferedMessage?.text);
           if (bufferKey) this.streamingBuffers.delete(bufferKey);
           if (parentToolCallId) this.closedSubagentStreams.add(parentToolCallId);
 
-          this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
+          // Use a fallback runId so content is never silently dropped
+          // when this.currentRunId is temporarily null.
+          const effectiveRunId = this.currentRunId || "unknown";
 
-          if (resolvedContent && this.currentRunId) {
+          this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}, runId=${effectiveRunId}`));
+
+          if (!resolvedContent) {
+            this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: skipping empty content`));
+          } else {
             const message = createAssistantMessage(resolvedContent);
 
             // Best-effort reasoning support: some SDK builds attach reasoning directly
@@ -1316,7 +1359,7 @@ ${agentEntries}
             if (parentToolCallId && !hadBufferedDelta) {
               this.emit({
                 type: "assistant.delta",
-                runId: this.currentRunId,
+                runId: effectiveRunId,
                 text: resolvedContent,
                 parentToolCallId,
                 agentName: message.agentName,
@@ -1326,7 +1369,7 @@ ${agentEntries}
 
             this.emit({
               type: "assistant.message",
-              runId: this.currentRunId,
+              runId: effectiveRunId,
               message,
             });
           }
@@ -1442,6 +1485,8 @@ ${agentEntries}
                 this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
                 this.closedSubagentStreams.delete(toolCallId);
                 this.ensureSubagentStreamingBuffer(toolCallId, { agentName, agentDisplayName, model });
+                this.executingSubagentToolCalls.add(toolCallId);
+                this.emit(createLogEvent("debug", `Pre-registered subagent from task tool: ${agentDisplayName} (toolCallId=${toolCallId}), buffer seeded`));
               }
             }
           }
@@ -1488,6 +1533,7 @@ ${agentEntries}
 
           if (this.currentRunId) {
             const completeToolCallId = event.data?.toolCallId ?? "";
+            this.executingSubagentToolCalls.delete(completeToolCallId);
             const toolSuccess = event.data?.success ?? false;
             const sqlQuery = this.sqlQueriesByToolCallId.get(completeToolCallId);
             if (sqlQuery) this.sqlQueriesByToolCallId.delete(completeToolCallId);
@@ -1535,10 +1581,12 @@ ${agentEntries}
           let subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
 
           if (!parentToolCallId && !subagent) {
-            const [inferredId, inferredAgent] = this.inferActiveSubagent();
-            if (inferredId && inferredAgent) {
-              parentToolCallId = inferredId;
-              subagent = inferredAgent;
+            if (this.executingSubagentToolCalls.size > 0) {
+              const [inferredId, inferredAgent] = this.inferActiveSubagent();
+              if (inferredId && inferredAgent) {
+                parentToolCallId = inferredId;
+                subagent = inferredAgent;
+              }
             }
           }
 
@@ -1569,10 +1617,12 @@ ${agentEntries}
           let subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
 
           if (!parentToolCallId && !subagent) {
-            const [inferredId, inferredAgent] = this.inferActiveSubagent();
-            if (inferredId && inferredAgent) {
-              parentToolCallId = inferredId;
-              subagent = inferredAgent;
+            if (this.executingSubagentToolCalls.size > 0) {
+              const [inferredId, inferredAgent] = this.inferActiveSubagent();
+              if (inferredId && inferredAgent) {
+                parentToolCallId = inferredId;
+                subagent = inferredAgent;
+              }
             }
           }
 
@@ -1710,6 +1760,7 @@ ${agentEntries}
             this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
             this.closedSubagentStreams.delete(toolCallId);
             this.ensureSubagentStreamingBuffer(toolCallId, { agentName, agentDisplayName, model });
+            this.emit(createLogEvent("debug", `Subagent registered + buffer seeded: ${agentDisplayName} (toolCallId=${toolCallId})`));
 
             this.emit({
               type: "subagent.started",
@@ -1733,6 +1784,7 @@ ${agentEntries}
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
             this.closedSubagentStreams.delete(toolCallId);
+            this.executingSubagentToolCalls.delete(toolCallId);
 
             this.emit({
               type: "subagent.completed",
@@ -1754,6 +1806,7 @@ ${agentEntries}
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
             this.closedSubagentStreams.delete(toolCallId);
+            this.executingSubagentToolCalls.delete(toolCallId);
 
             this.emit(createLogEvent("info", `Subagent ${failedAgentName} reported as "failed" by SDK (${failError}) — converting to completed for UI`));
 
