@@ -150,7 +150,9 @@ export function processEvent(
     case "reasoning.message":
       if (event.parentToolCallId) {
         const existing = state.subagentStreaming[event.parentToolCallId];
-        const resetFromTranscript = Boolean(existing?.contentInTranscript);
+        if (existing?.contentInTranscript) {
+          return state;
+        }
         return {
           ...state,
           subagentStreaming: {
@@ -158,17 +160,14 @@ export function processEvent(
             [event.parentToolCallId]: {
               ...existing,
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
-              content: resetFromTranscript ? "" : (existing?.content ?? ""),
+              content: existing?.content ?? "",
               reasoning: event.content,
               contentInTranscript: false,
             },
           },
         };
       }
-      return {
-        ...state,
-        streamingReasoning: event.content,
-      };
+      return state;
 
     case "assistant.message": {
       const parentToolCallId = event.message.parentToolCallId;

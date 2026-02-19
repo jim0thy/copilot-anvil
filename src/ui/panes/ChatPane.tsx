@@ -304,17 +304,6 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
         );
       })}
 
-      {streamingReasoning && (
-        <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
-          <text fg={c.accent}>
-            <b>{streamingAgentName ? `${streamingAgentName} is thinking` : "Thinking"}</b> <span fg={c.warning}>▮</span>
-          </text>
-          <text fg={c.subtle}>
-            {streamingReasoning}
-          </text>
-        </box>
-      )}
-
       {subagentStreamingEntries.map(([toolCallId, stream]) => {
           if (stream.contentInTranscript && !stream.currentIntent && !stream.lastProgress) {
             return null;
@@ -356,23 +345,26 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
           );
         })}
 
-      {streamingContent && (() => {
-        const lastItem = transcript.length > 0 ? transcript[transcript.length - 1] : null;
-        const showStreamingLabel = !lastItem || lastItem.kind === "tool-call" || (lastItem.kind === "message" && lastItem.role === "user");
-        const agentLabel = streamingAgentName || "Assistant";
-        return (
-          <box flexDirection="column" marginBottom={1}>
-            {showStreamingLabel && (
-              <text fg={c.secondary}>
-                <b>{agentLabel}</b> <span fg={c.success}>▮</span>
+      {(streamingReasoning || streamingContent) && (
+        <box flexDirection="column" marginBottom={1}>
+          <text fg={c.secondary}>
+            <b>{streamingAgentName || "Assistant"}</b> <span fg={c.success}>▮</span>
+          </text>
+          {streamingReasoning && !streamingContent && (
+            <box flexDirection="column" paddingLeft={1}>
+              <text fg={c.accent}>
+                <b>{streamingAgentName ? `${streamingAgentName} is thinking` : "Thinking"}</b>
               </text>
-            )}
+              <text fg={c.subtle}>{streamingReasoning}</text>
+            </box>
+          )}
+          {streamingContent && (
             <box paddingLeft={1}>
               <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={streamingContent} streaming />
             </box>
-          </box>
-        );
-      })()}
+          )}
+        </box>
+      )}
     </scrollbox>
   );
 }
