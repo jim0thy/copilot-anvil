@@ -188,19 +188,25 @@ export function processEvent(
       const newTranscript = [...state.transcript, messageWithReasoning];
       trimTranscript(newTranscript, ctx);
       if (isSubagentMessage) {
+        const subagentToolCallId = parentToolCallId!;
+        const updatedSubagentStreaming = {
+          ...state.subagentStreaming,
+          [subagentToolCallId]: {
+            ...existingSubagentStream,
+            agentDisplayName: event.message.agentDisplayName ?? existingSubagentStream?.agentDisplayName ?? event.message.agentName ?? "Subagent",
+            content: event.message.content || existingSubagentStream?.content || "",
+            reasoning: event.message.reasoning || existingSubagentStream?.reasoning || undefined,
+            contentInTranscript: true,
+          },
+        };
+        const matchingSubagent = state.subagents.find(agent => agent.toolCallId === subagentToolCallId);
         return {
           ...state,
           transcript: newTranscript,
-          subagentStreaming: {
-            ...state.subagentStreaming,
-            [parentToolCallId!]: {
-              ...existingSubagentStream,
-              agentDisplayName: event.message.agentDisplayName ?? existingSubagentStream?.agentDisplayName ?? event.message.agentName ?? "Subagent",
-              content: event.message.content || existingSubagentStream?.content || "",
-              reasoning: event.message.reasoning || existingSubagentStream?.reasoning || undefined,
-              contentInTranscript: true,
-            },
-          },
+          subagentStreaming:
+            matchingSubagent && matchingSubagent.status !== "running"
+              ? removeSubagentStreamingEntry(updatedSubagentStreaming, subagentToolCallId)
+              : updatedSubagentStreaming,
         };
       }
       return {
@@ -227,14 +233,33 @@ export function processEvent(
       };
 
     case "run.finished": {
-      let newTranscript = state.transcript;
+      let newTranscript = [...state.transcript];
       if (state.streamingContent) {
         const finalMessage: ChatMessage = {
           ...createAssistantMessage(state.streamingContent),
           reasoning: state.streamingReasoning || undefined,
         };
-        newTranscript = [...newTranscript, finalMessage];
+        newTranscript.push(finalMessage);
       }
+
+      for (const [toolCallId, stream] of Object.entries(state.subagentStreaming)) {
+        if (stream.contentInTranscript) continue;
+        if (!stream.content && !stream.reasoning) continue;
+        const subagent = state.subagents.find((agent) => agent.toolCallId === toolCallId);
+        const finalSubagentMessage: ChatMessage = {
+          ...createAssistantMessage(stream.content || ""),
+          parentToolCallId: toolCallId,
+          agentName: subagent?.agentName,
+          agentDisplayName:
+            stream.agentDisplayName
+            || subagent?.agentDisplayName
+            || subagent?.agentName
+            || "Subagent",
+          reasoning: stream.reasoning || undefined,
+        };
+        newTranscript.push(finalSubagentMessage);
+      }
+      trimTranscript(newTranscript, ctx);
 
       return {
         ...state,
@@ -498,10 +523,14 @@ export function processEvent(
         }
         return agent;
       });
+      const existingStream = state.subagentStreaming[event.toolCallId];
       return {
         ...state,
         subagents: updatedSubagents,
-        subagentStreaming: removeSubagentStreamingEntry(state.subagentStreaming, event.toolCallId),
+        subagentStreaming:
+          existingStream && !existingStream.contentInTranscript
+            ? state.subagentStreaming
+            : removeSubagentStreamingEntry(state.subagentStreaming, event.toolCallId),
       };
     }
 
@@ -512,10 +541,14 @@ export function processEvent(
         }
         return agent;
       });
+      const existingStream = state.subagentStreaming[event.toolCallId];
       return {
         ...state,
         subagents: updatedSubagents,
-        subagentStreaming: removeSubagentStreamingEntry(state.subagentStreaming, event.toolCallId),
+        subagentStreaming:
+          existingStream && !existingStream.contentInTranscript
+            ? state.subagentStreaming
+            : removeSubagentStreamingEntry(state.subagentStreaming, event.toolCallId),
       };
     }
 

@@ -94,22 +94,42 @@ export class CopilotSessionAdapter {
   private _pendingRenewalAfterInit = false;
   /** Map of tool call IDs to subagent information (insertion-order = start order) */
   private activeSubagents = new Map<string, { agentName: string; agentDisplayName: string; model?: string }>();
+  /** Subagents whose last streamed message is complete but completion event has not arrived yet. */
+  private closedSubagentStreams = new Set<string>();
 
   /**
    * When the SDK omits parentToolCallId on a delta but subagents are running,
-   * infer the most-recently-started subagent as the source.
+   * infer the most-recently-started subagent that still has an active stream buffer.
    * Returns [resolvedToolCallId, subagentInfo] or [undefined, undefined].
    */
   private inferActiveSubagent(): [string | undefined, { agentName: string; agentDisplayName: string; model?: string } | undefined] {
     if (this.activeSubagents.size === 0) return [undefined, undefined];
-    // Map iterates in insertion order; last entry = most recently started
-    let lastKey: string | undefined;
-    let lastVal: { agentName: string; agentDisplayName: string; model?: string } | undefined;
+
+    // Map iterates in insertion order; prefer most recently started with an active tool buffer.
+    let lastBufferedKey: string | undefined;
+    let lastBufferedVal: { agentName: string; agentDisplayName: string; model?: string } | undefined;
     for (const [k, v] of this.activeSubagents) {
-      lastKey = k;
-      lastVal = v;
+      if (this.closedSubagentStreams.has(k)) continue;
+      if (this.streamingBuffers.has(this.getStreamingBufferKey(undefined, k))) {
+        lastBufferedKey = k;
+        lastBufferedVal = v;
+      }
     }
-    return [lastKey, lastVal];
+    return [lastBufferedKey, lastBufferedVal];
+  }
+
+  private ensureSubagentStreamingBuffer(
+    toolCallId: string,
+    subagent: { agentName: string; agentDisplayName: string; model?: string },
+  ): void {
+    const key = this.getStreamingBufferKey(undefined, toolCallId);
+    const existing = this.streamingBuffers.get(key);
+    this.streamingBuffers.set(key, {
+      text: existing?.text ?? "",
+      parentToolCallId: toolCallId,
+      agentName: existing?.agentName ?? subagent.agentName,
+      agentDisplayName: existing?.agentDisplayName ?? subagent.agentDisplayName,
+    });
   }
   /** Map of tool call IDs to specialist metadata extracted from task tool prompts.
    *  Populated in tool.execution_start, consumed in subagent.started to override
@@ -353,6 +373,7 @@ export class CopilotSessionAdapter {
   private resetRunTrackingState(): void {
     this.resetTurnStreamingBuffers();
     this.activeSubagents.clear();
+    this.closedSubagentStreams.clear();
     this.pendingAgentRoles.clear();
     this.checklistItems = [];
     this.sqlQueriesByToolCallId.clear();
@@ -363,6 +384,53 @@ export class CopilotSessionAdapter {
     if (messageId) return messageId;
     if (parentToolCallId) return `tool:${parentToolCallId}`;
     return "__default__";
+  }
+
+  private findBufferedMessage(
+    messageId: string | undefined | null,
+    parentToolCallId: string | undefined | null,
+    inferredToolCallId?: string,
+  ): [string, { text: string; parentToolCallId?: string; agentName?: string; agentDisplayName?: string }] | undefined {
+    const candidateKeys = [
+      this.getStreamingBufferKey(messageId, parentToolCallId),
+      parentToolCallId ? this.getStreamingBufferKey(undefined, parentToolCallId) : undefined,
+      inferredToolCallId ? this.getStreamingBufferKey(undefined, inferredToolCallId) : undefined,
+      this.getStreamingBufferKey(messageId, undefined),
+      this.getStreamingBufferKey(undefined, undefined),
+    ].filter((key): key is string => Boolean(key));
+
+    for (const key of candidateKeys) {
+      const buffered = this.streamingBuffers.get(key);
+      if (!buffered) continue;
+      const explicitMatch =
+        (Boolean(parentToolCallId) && (key === this.getStreamingBufferKey(undefined, parentToolCallId)))
+        || (Boolean(messageId) && key === this.getStreamingBufferKey(messageId, parentToolCallId));
+      if (explicitMatch || buffered.text) return [key, buffered];
+    }
+
+    if (parentToolCallId) {
+      for (const [key, buffered] of this.streamingBuffers) {
+        if (buffered.parentToolCallId === parentToolCallId && buffered.text) {
+          return [key, buffered];
+        }
+      }
+    }
+
+    let latestToolBuffer:
+      | [string, { text: string; parentToolCallId?: string; agentName?: string; agentDisplayName?: string }]
+      | undefined;
+    let latestAnyBuffer:
+      | [string, { text: string; parentToolCallId?: string; agentName?: string; agentDisplayName?: string }]
+      | undefined;
+
+    for (const entry of this.streamingBuffers) {
+      const [key, buffered] = entry;
+      if (!buffered.text) continue;
+      latestAnyBuffer = entry;
+      if (key.startsWith("tool:")) latestToolBuffer = entry;
+    }
+
+    return latestToolBuffer ?? latestAnyBuffer;
   }
 
   /** Flush all pending streaming message buffers into transcript messages. */
@@ -1100,8 +1168,7 @@ ${agentEntries}
       switch (event.type) {
         case "assistant.turn_start": {
           if (this.isEventStale(gen)) return;
-
-          this.resetTurnStreamingBuffers();
+          this.reasoningBuffer = "";
 
           if (this.currentRunId) {
             this.emit({
@@ -1118,10 +1185,18 @@ ${agentEntries}
 
           const deltaContent = event.data?.deltaContent ?? "";
           if (!deltaContent) return;
-          let parentToolCallId: string | undefined = event.data?.parentToolCallId;
+
+          const messageId = event.data?.messageId;
+          const explicitParentToolCallId = event.data?.parentToolCallId;
+          let bufferKey = this.getStreamingBufferKey(messageId, explicitParentToolCallId);
+          let existingBuffer = this.streamingBuffers.get(bufferKey);
+
+          // Prefer explicit attribution from the SDK, but fall back to any existing attribution
+          // already established for this messageId.
+          let parentToolCallId: string | undefined = explicitParentToolCallId ?? existingBuffer?.parentToolCallId;
           let subagent = parentToolCallId ? this.activeSubagents.get(parentToolCallId) : undefined;
 
-          // SDK sometimes omits parentToolCallId for subagent deltas — infer from active subagents
+          // SDK sometimes omits parentToolCallId for subagent deltas — infer from active subagents.
           if (!parentToolCallId && !subagent) {
             const [inferredId, inferredAgent] = this.inferActiveSubagent();
             if (inferredId && inferredAgent) {
@@ -1130,13 +1205,24 @@ ${agentEntries}
             }
           }
 
-          const bufferKey = this.getStreamingBufferKey(event.data?.messageId, parentToolCallId);
+          const resolvedBufferKey = this.getStreamingBufferKey(messageId, parentToolCallId);
+          if (resolvedBufferKey !== bufferKey) {
+            bufferKey = resolvedBufferKey;
+            existingBuffer = this.streamingBuffers.get(bufferKey) ?? existingBuffer;
+          }
+          if (parentToolCallId) this.closedSubagentStreams.delete(parentToolCallId);
 
-          const existingBuffer = this.streamingBuffers.get(bufferKey);
-          const agentInfo = subagent || (this._activeAgent ? {
-            agentName: this._activeAgent.name,
-            agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
-          } : undefined);
+          const bufferedAgentInfo = existingBuffer?.agentName || existingBuffer?.agentDisplayName
+            ? { agentName: existingBuffer?.agentName, agentDisplayName: existingBuffer?.agentDisplayName }
+            : undefined;
+
+          const agentInfo = subagent
+            || bufferedAgentInfo
+            || (this._activeAgent ? {
+              agentName: this._activeAgent.name,
+              agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
+            } : undefined);
+
           this.streamingBuffers.set(bufferKey, {
             text: (existingBuffer?.text ?? "") + deltaContent,
             parentToolCallId: parentToolCallId ?? existingBuffer?.parentToolCallId,
@@ -1167,22 +1253,20 @@ ${agentEntries}
 
           const content = event.data?.content ?? "";
           const parentToolCallIdFromEvent = event.data?.parentToolCallId;
-
-          let bufferKey = this.getStreamingBufferKey(event.data?.messageId, parentToolCallIdFromEvent);
-          let bufferedMessage = this.streamingBuffers.get(bufferKey);
-
-          // Defensive fallback: if messageId exists but buffering fell back to parentToolCallId.
-          if (!bufferedMessage && event.data?.messageId && parentToolCallIdFromEvent) {
-            const fallbackKey = this.getStreamingBufferKey(undefined, parentToolCallIdFromEvent);
-            bufferedMessage = this.streamingBuffers.get(fallbackKey);
-            if (bufferedMessage) bufferKey = fallbackKey;
-          }
-
+          const [inferredToolCallId] = this.inferActiveSubagent();
+          const bufferedMatch = this.findBufferedMessage(
+            event.data?.messageId,
+            parentToolCallIdFromEvent,
+            inferredToolCallId,
+          );
+          const bufferKey = bufferedMatch?.[0];
+          const bufferedMessage = bufferedMatch?.[1];
           const resolvedContent = content || bufferedMessage?.text || "";
           const parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId;
           const isSubagentMessage = Boolean(parentToolCallId);
           const hadBufferedDelta = Boolean(bufferedMessage?.text);
-          this.streamingBuffers.delete(bufferKey);
+          if (bufferKey) this.streamingBuffers.delete(bufferKey);
+          if (parentToolCallId) this.closedSubagentStreams.add(parentToolCallId);
 
           this.emit(createLogEvent("debug", `${nf.pencil} Assistant message: parentToolCallId=${parentToolCallId}, content length=${resolvedContent.length}`));
 
@@ -1344,11 +1428,21 @@ ${agentEntries}
             if (toolCallId) {
               const prompt = (args as any).prompt;
               const roleMatch = typeof prompt === "string" ? prompt.match(/^## Role:\s*(.+)/m) : null;
-              this.pendingAgentRoles.set(toolCallId, {
-                role: roleMatch?.[1]?.trim(),
-                model: (args as any).model,
-                taskTitle: (args as any).description,
-              });
+              const role = roleMatch?.[1]?.trim();
+              const model = typeof (args as any).model === "string" ? (args as any).model : undefined;
+              const taskTitle = typeof (args as any).description === "string" ? (args as any).description : undefined;
+
+              this.pendingAgentRoles.set(toolCallId, { role, model, taskTitle });
+
+              // Pre-register the subagent so early deltas can be attributed even if the SDK
+              // emits assistant.message_delta before subagent.started.
+              if (!this.activeSubagents.has(toolCallId)) {
+                const agentDisplayName = role ?? "Subagent";
+                const agentName = role ? role.toLowerCase().replace(/\s+/g, "-") : "subagent";
+                this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
+                this.closedSubagentStreams.delete(toolCallId);
+                this.ensureSubagentStreamingBuffer(toolCallId, { agentName, agentDisplayName, model });
+              }
             }
           }
 
@@ -1418,6 +1512,7 @@ ${agentEntries}
             if (pendingSubagent) {
               this.emit(createLogEvent("debug", `Subagent ${pendingSubagent.agentDisplayName} still tracked at tool completion — emitting synthetic completed (tool success=${toolSuccess})`));
               this.activeSubagents.delete(completeToolCallId);
+              this.closedSubagentStreams.delete(completeToolCallId);
 
               this.emit({
                 type: "subagent.completed",
@@ -1613,6 +1708,8 @@ ${agentEntries}
 
             // Track this subagent so we can attribute its messages
             this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
+            this.closedSubagentStreams.delete(toolCallId);
+            this.ensureSubagentStreamingBuffer(toolCallId, { agentName, agentDisplayName, model });
 
             this.emit({
               type: "subagent.started",
@@ -1635,6 +1732,7 @@ ${agentEntries}
 
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
+            this.closedSubagentStreams.delete(toolCallId);
 
             this.emit({
               type: "subagent.completed",
@@ -1655,6 +1753,7 @@ ${agentEntries}
 
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
+            this.closedSubagentStreams.delete(toolCallId);
 
             this.emit(createLogEvent("info", `Subagent ${failedAgentName} reported as "failed" by SDK (${failError}) — converting to completed for UI`));
 
