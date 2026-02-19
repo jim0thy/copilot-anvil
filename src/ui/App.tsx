@@ -340,6 +340,8 @@ export function App({ harness, renderer }: AppProps) {
               currentPlan={state.currentPlan}
               subagents={state.subagents}
               skills={state.skills}
+              agentName={agentDisplay}
+              modelName={modelDisplay}
               height={contentHeight}
               width={sidebarWidth - 2}
               theme={theme}

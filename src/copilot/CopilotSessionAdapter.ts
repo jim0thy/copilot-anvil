@@ -54,6 +54,26 @@ function extractToolOutput(result: unknown): string | undefined {
   return undefined;
 }
 
+function deriveFallbackSessionTitle(prompt: string, maxLen = 50): string {
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrompt) return "New session";
+
+  const lines = prompt
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const candidateLine = lines.find((line) => !/^#{1,6}\s*role\s*:/i.test(line) && !/^role\s*:/i.test(line));
+  if (!candidateLine) return "New session";
+  const cleanedLine = candidateLine.replace(/^#{1,6}\s*/, "");
+  const sentenceEnd = cleanedLine.search(/[.!?](\s|$)/);
+  const candidateTitle = sentenceEnd >= 0 ? cleanedLine.slice(0, sentenceEnd + 1) : cleanedLine;
+  const trimmedTitle = candidateTitle.trim();
+  if (!trimmedTitle) return "New session";
+  return truncateAtWordBoundary(trimmedTitle, maxLen);
+}
+
 export interface CustomAgentDef {
   name: string;
   displayName?: string;
@@ -1541,12 +1561,16 @@ ${agentEntries}
           }
 
           if (this.currentRunId) {
+            const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
+            const sdkParentToolCallId =
+              typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
             this.emit({
               type: "tool.started",
               runId: this.currentRunId,
               toolCallId: event.data?.toolCallId ?? "",
               toolName: event.data?.toolName ?? "unknown",
               arguments: typeof args === "object" && args !== null ? args as Record<string, unknown> : undefined,
+              parentToolCallId: sdkParentToolCallId,
             });
           }
           break;
@@ -1567,11 +1591,15 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
 
           if (this.currentRunId) {
+            const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
+            const sdkParentToolCallId =
+              typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
             this.emit({
               type: "tool.progress",
               runId: this.currentRunId,
               toolCallId: event.data?.toolCallId ?? "",
               message: event.data?.progressMessage ?? "",
+              parentToolCallId: sdkParentToolCallId,
             });
           }
           break;
@@ -1582,6 +1610,9 @@ ${agentEntries}
 
           if (this.currentRunId) {
             const completeToolCallId = event.data?.toolCallId ?? "";
+            const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
+            const sdkParentToolCallId =
+              typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
             if (!this.activeSubagents.has(completeToolCallId)) {
               this.executingSubagentToolCalls.delete(completeToolCallId);
             }
@@ -1596,6 +1627,7 @@ ${agentEntries}
               success: toolSuccess,
               output: extractToolOutput(event.data?.result),
               error: event.data?.error?.message,
+              parentToolCallId: sdkParentToolCallId,
             });
 
             if (sqlQuery) {
@@ -1915,7 +1947,7 @@ ${agentEntries}
     // shows something meaningful immediately. Do NOT add to _sessionHasTitle so
     // the SDK's session.title_changed event can overwrite this with the real title.
     if (this._currentSessionId && !this._sessionHasTitle.has(this._currentSessionId)) {
-      const fallbackTitle = truncateAtWordBoundary(prompt, 50);
+      const fallbackTitle = deriveFallbackSessionTitle(prompt, 50);
       setSessionTitle(this._currentSessionId, fallbackTitle);
       // Refresh session list so UI picks up the temporary title
       this.listSessions().then((sessions) => {
@@ -2061,8 +2093,12 @@ ${agentEntries}
     this.emit({
       type: "session.created",
       sessionId,
-      sessionName: sessionId.slice(this._projectPrefix.length),
+      sessionName: getSessionTitle(sessionId) ?? "New session",
     });
+
+    this.listSessions().then((sessions) => {
+      this.emit({ type: "session.list.updated", sessions });
+    }).catch(() => {});
 
     return sessionId;
   }
@@ -2087,13 +2123,16 @@ ${agentEntries}
     this._currentSessionId = sessionId;
     this.activateSession(session);
 
-    const isCurrentProject = sessionId.startsWith(this._projectPrefix);
     this.emit({
       type: "session.switched",
       sessionId,
-      sessionName: isCurrentProject ? sessionId.slice(this._projectPrefix.length) : sessionId,
+      sessionName: getSessionTitle(sessionId) ?? "",
       transcript: await this.getSessionHistory(),
     });
+
+    this.listSessions().then((sessions) => {
+      this.emit({ type: "session.list.updated", sessions });
+    }).catch(() => {});
   }
 
   // ── Plan watcher ─────────────────────────────────────────────
@@ -2289,18 +2328,25 @@ ${agentEntries}
           case "tool.execution_start": {
             if (onEvent) {
               const args = parseToolArgs(event.data?.arguments);
+              const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
+              const sdkParentToolCallId =
+                typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
               onEvent({
                 type: "tool.started",
                 runId,
                 toolCallId: event.data?.toolCallId ?? "",
                 toolName: event.data?.toolName ?? "unknown",
                 arguments: typeof args === "object" && args !== null ? args as Record<string, unknown> : undefined,
+                parentToolCallId: sdkParentToolCallId,
               });
             }
             break;
           }
 
           case "tool.execution_complete": {
+            const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
+            const sdkParentToolCallId =
+              typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;
             onEvent?.({
               type: "tool.completed",
               runId,
@@ -2308,6 +2354,7 @@ ${agentEntries}
               success: event.data?.success ?? false,
               output: extractToolOutput(event.data?.result),
               error: event.data?.error?.message,
+              parentToolCallId: sdkParentToolCallId,
             });
             break;
           }

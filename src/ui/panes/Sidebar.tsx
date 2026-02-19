@@ -18,6 +18,8 @@ interface SidebarProps {
   currentPlan: string | null;
   subagents: Subagent[];
   skills: Skill[];
+  agentName?: string;
+  modelName?: string;
   height: number;
   width: number;
   theme: Theme;
@@ -246,11 +248,15 @@ function SubagentsSection({
   subagents,
   orchestrationMode,
   currentIntent,
+  agentName,
+  modelName,
   theme
 }: {
   subagents: Subagent[];
   orchestrationMode: OrchestrationMode;
   currentIntent: string | null;
+  agentName?: string;
+  modelName?: string;
   theme: Theme;
 }) {
   const c = theme.colors;
@@ -278,14 +284,25 @@ function SubagentsSection({
         <b>Dev Team</b>
       </text>
 
-      {currentIntent && currentIntent.trim().length > 0 && (
-        <box marginTop={1} marginBottom={1}>
-          <text>
-            <span fg={c.subtext0}>Doing: </span>
-            <span fg={c.accent}>{nf.arrowRight} {currentIntent}</span>
+      {/* Main Agent Entry */}
+      <box marginTop={1} flexDirection="column">
+        <box flexDirection="row">
+          <text fg={c.success}>
+            {spinner}{" "}
           </text>
+          <text fg={c.text}><b>{agentName || "Engineering Manager"}</b></text>
+          {modelName && (
+            <text fg={c.subtle}> {" "}({modelName})</text>
+          )}
         </box>
-      )}
+        {currentIntent && currentIntent.trim().length > 0 && (
+          <box marginLeft={2}>
+            <text>
+              <span fg={c.accent}>{nf.arrowRight} {currentIntent}</span>
+            </text>
+          </box>
+        )}
+      </box>
 
       {!hasAnySubagents && orchestrationMode === "orchestrated" && (
         <box marginTop={1}>
@@ -314,7 +331,6 @@ function SubagentsSection({
               {agent.currentIntent && (
                 <box marginLeft={2}>
                   <text>
-                    <span fg={c.subtext0}>Doing: </span>
                     <span fg={c.accent}>{nf.arrowRight} {agent.currentIntent}</span>
                   </text>
                 </box>
@@ -401,6 +417,8 @@ export const Sidebar = memo(function Sidebar({
   currentPlan,
   subagents,
   skills,
+  agentName,
+  modelName,
   height,
   width,
   theme,
@@ -437,13 +455,16 @@ export const Sidebar = memo(function Sidebar({
       {/* Context Section - Always visible */}
       <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
 
-      {/* Subagents Section - Show when in orchestration mode OR when there are subagents OR when there's a currentIntent */}
-      {(orchestrationMode === "orchestrated" || hasSubagents || (currentIntent && currentIntent.trim().length > 0)) && (
-        <>
-          <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} currentIntent={currentIntent} theme={theme} />
-        </>
-      )}
+      {/* Subagents Section - Always show main agent, subagents if any */}
+      <SectionDivider theme={theme} innerWidth={innerWidth} />
+      <SubagentsSection 
+        subagents={subagents} 
+        orchestrationMode={orchestrationMode} 
+        currentIntent={currentIntent} 
+        agentName={agentName}
+        modelName={modelName}
+        theme={theme} 
+      />
 
       {/* Files Modified Section - Only when files exist */}
       {hasFiles && (

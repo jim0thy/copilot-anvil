@@ -323,6 +323,31 @@ export function processEvent(
       const newTranscript = [...state.transcript, toolItem];
       ctx.toolCallTranscriptIndex.set(event.toolCallId, newTranscript.length - 1);
       trimTranscript(newTranscript, ctx);
+      const subagentToolCallId = event.parentToolCallId
+        ?? (state.subagentStreaming[event.toolCallId] ? event.toolCallId : undefined);
+      const existingStream = subagentToolCallId ? state.subagentStreaming[subagentToolCallId] : undefined;
+      const existingSubagent = subagentToolCallId
+        ? state.subagents.find((agent) => agent.toolCallId === subagentToolCallId)
+        : undefined;
+      const updatedSubagentStreaming = subagentToolCallId
+        ? {
+            ...state.subagentStreaming,
+            [subagentToolCallId]: {
+              ...existingStream,
+              agentDisplayName:
+                existingStream?.agentDisplayName
+                ?? existingSubagent?.agentDisplayName
+                ?? existingSubagent?.agentName
+                ?? "Subagent",
+              content: existingStream?.content ?? "",
+              reasoning: existingStream?.reasoning,
+              contentInTranscript: existingStream?.contentInTranscript ?? false,
+              taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,
+              currentIntent: existingStream?.currentIntent ?? existingSubagent?.currentIntent,
+              lastProgress: `Using ${event.toolName}...`,
+            },
+          }
+        : state.subagentStreaming;
       return {
         ...state,
         transcript: newTranscript,
@@ -338,6 +363,7 @@ export function processEvent(
           },
         ],
         tasks: [...state.tasks.slice(-MAX_TASKS + 1), newTask],
+        subagentStreaming: updatedSubagentStreaming,
       };
     }
 
@@ -349,23 +375,27 @@ export function processEvent(
         return tool;
       });
 
-      const existingStream = state.subagentStreaming[event.toolCallId];
-      const existingSubagent = state.subagents.find((agent) => agent.toolCallId === event.toolCallId);
-      const updatedSubagentStreaming = existingStream
+      const subagentToolCallId = event.parentToolCallId
+        ?? (state.subagentStreaming[event.toolCallId] ? event.toolCallId : undefined);
+      const existingStream = subagentToolCallId ? state.subagentStreaming[subagentToolCallId] : undefined;
+      const existingSubagent = subagentToolCallId
+        ? state.subagents.find((agent) => agent.toolCallId === subagentToolCallId)
+        : undefined;
+      const updatedSubagentStreaming = subagentToolCallId
         ? {
             ...state.subagentStreaming,
-            [event.toolCallId]: {
+            [subagentToolCallId]: {
               ...existingStream,
               agentDisplayName:
-                existingStream.agentDisplayName
+                existingStream?.agentDisplayName
                 ?? existingSubagent?.agentDisplayName
                 ?? existingSubagent?.agentName
                 ?? "Subagent",
-              content: existingStream.content ?? "",
-              reasoning: existingStream.reasoning,
-              contentInTranscript: existingStream.contentInTranscript ?? false,
-              taskTitle: existingStream.taskTitle ?? existingSubagent?.taskTitle,
-              currentIntent: existingStream.currentIntent ?? existingSubagent?.currentIntent,
+              content: existingStream?.content ?? "",
+              reasoning: existingStream?.reasoning,
+              contentInTranscript: existingStream?.contentInTranscript ?? false,
+              taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,
+              currentIntent: existingStream?.currentIntent ?? existingSubagent?.currentIntent,
               lastProgress: event.message,
             },
           }
@@ -390,6 +420,8 @@ export function processEvent(
     }
 
     case "tool.completed": {
+      const completedTool = state.activeTools.find((tool) => tool.toolCallId === event.toolCallId);
+      const completedToolName = completedTool?.toolName ?? "tool";
       const updatedTools = state.activeTools.map((tool) => {
         if (tool.toolCallId === event.toolCallId) {
           return {
@@ -431,11 +463,38 @@ export function processEvent(
         }
       }
 
+      const subagentToolCallId = event.parentToolCallId
+        ?? (state.subagentStreaming[event.toolCallId] ? event.toolCallId : undefined);
+      const existingStream = subagentToolCallId ? state.subagentStreaming[subagentToolCallId] : undefined;
+      const existingSubagent = subagentToolCallId
+        ? state.subagents.find((agent) => agent.toolCallId === subagentToolCallId)
+        : undefined;
+      const updatedSubagentStreaming = subagentToolCallId
+        ? {
+            ...state.subagentStreaming,
+            [subagentToolCallId]: {
+              ...existingStream,
+              agentDisplayName:
+                existingStream?.agentDisplayName
+                ?? existingSubagent?.agentDisplayName
+                ?? existingSubagent?.agentName
+                ?? "Subagent",
+              content: existingStream?.content ?? "",
+              reasoning: existingStream?.reasoning,
+              contentInTranscript: existingStream?.contentInTranscript ?? false,
+              taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,
+              currentIntent: existingStream?.currentIntent ?? existingSubagent?.currentIntent,
+              lastProgress: `${event.success ? "Completed" : "Failed"} ${completedToolName}`,
+            },
+          }
+        : state.subagentStreaming;
+
       return {
         ...state,
         activeTools: updatedTools,
         tasks: updatedTasks,
         transcript: updatedTranscript,
+        subagentStreaming: updatedSubagentStreaming,
       };
     }
 

@@ -177,6 +177,7 @@ export interface ToolStartedEvent {
   toolCallId: string;
   toolName: string;
   arguments?: Record<string, unknown>;
+  parentToolCallId?: string;
 }
 
 export interface ToolProgressEvent {
@@ -184,6 +185,7 @@ export interface ToolProgressEvent {
   runId: string;
   toolCallId: string;
   message: string;
+  parentToolCallId?: string;
 }
 
 export interface ToolCompletedEvent {
@@ -193,6 +195,7 @@ export interface ToolCompletedEvent {
   success: boolean;
   output?: string;
   error?: string;
+  parentToolCallId?: string;
 }
 
 export interface SubagentStartedEvent {
