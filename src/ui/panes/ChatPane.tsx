@@ -27,7 +27,15 @@ interface ChatPaneProps {
   streamingContent: string;
   streamingReasoning: string;
   streamingAgentName: string | null;
-  subagentStreaming?: Record<string, { agentDisplayName: string; content: string; reasoning?: string; contentInTranscript?: boolean }>;
+  subagentStreaming?: Record<string, {
+    agentDisplayName: string;
+    content: string;
+    reasoning?: string;
+    contentInTranscript?: boolean;
+    taskTitle?: string;
+    currentIntent?: string;
+    lastProgress?: string;
+  }>;
   isStreaming: boolean;
   height: number;
   theme: Theme;
@@ -257,7 +265,6 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
   const c = theme.colors;
   const subagentStreamingEntries = Object.entries(subagentStreamingProp);
   const hasSubagentStreaming = subagentStreamingEntries.length > 0;
-  // Auto-scroll whenever streaming is happening (including waiting subagents)
   const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning) || hasSubagentStreaming;
   return (
     <scrollbox
@@ -300,7 +307,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
       {streamingReasoning && (
         <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
           <text fg={c.accent}>
-            <b>Thinking</b> <span fg={c.warning}>▮</span>
+            <b>{streamingAgentName ? `${streamingAgentName} is thinking` : "Thinking"}</b> <span fg={c.warning}>▮</span>
           </text>
           <text fg={c.subtle}>
             {streamingReasoning}
@@ -308,28 +315,46 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
         </box>
       )}
 
-      {subagentStreamingEntries.map(([toolCallId, stream]) => (
+      {subagentStreamingEntries.map(([toolCallId, stream]) => {
+          if (stream.contentInTranscript && !stream.currentIntent && !stream.lastProgress) {
+            return null;
+          }
+          return (
           <box key={toolCallId} flexDirection="column" marginBottom={1}>
             <text fg={c.secondary}>
               <b>{stream.agentDisplayName || "Subagent"}</b> <span fg={c.success}>▮</span>
             </text>
+            {(() => {
+              const statusParts = [stream.taskTitle, stream.currentIntent, stream.lastProgress].filter(
+                (part): part is string => Boolean(part),
+              );
+              if (statusParts.length === 0) return null;
+              return (
+                <box paddingLeft={1}>
+                  <text fg={c.subtle}><i>{statusParts.join(" • ")}</i></text>
+                </box>
+              );
+            })()}
             {!stream.contentInTranscript && (
               <>
                 {stream.reasoning && (
                   <box flexDirection="column" paddingLeft={1} marginBottom={1}>
-                    <text fg={c.accent}>Thinking...</text>
+                    <text fg={c.accent}>{stream.agentDisplayName ? `${stream.agentDisplayName} is thinking` : "Thinking"}</text>
                     <text fg={c.subtle}>{stream.reasoning}</text>
                   </box>
                 )}
                 <box paddingLeft={1}>
-                  {stream.content
-                    ? <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={stream.content} streaming />
-                    : <text fg={c.subtle}><i>...</i></text>}
+                  {stream.content ? (
+                    <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={stream.content} streaming />
+                  ) : (
+                    <text fg={c.subtle}><i>...</i></text>
+                  )}
                 </box>
               </>
             )}
           </box>
-        ))}
+          );
+        })}
 
       {streamingContent && (() => {
         const lastItem = transcript.length > 0 ? transcript[transcript.length - 1] : null;

@@ -40,7 +40,6 @@ function resetRunFields(): Partial<HarnessState> {
     streamingAgentName: null,
     subagentStreaming: {},
     currentIntent: null,
-    // Keep currentTodo/currentPlan until a new message is sent
   };
 }
 
@@ -59,7 +58,6 @@ function trimTranscript(transcript: TranscriptItem[], ctx: ReducerContext): void
   if (transcript.length <= MAX_TRANSCRIPT) return;
   const excess = transcript.length - MAX_TRANSCRIPT;
   transcript.splice(0, excess);
-  // Rebuild the index map after trimming since indices shifted
   ctx.toolCallTranscriptIndex.clear();
   for (let i = 0; i < transcript.length; i++) {
     const item = transcript[i];
@@ -87,8 +85,6 @@ export function processEvent(
 ): HarnessState {
   switch (event.type) {
     case "run.started": {
-      // Determine the agent name for streaming display
-      // If there's an active agent selected, use its display name
       let agentName: string | null = null;
       if (state.currentAgentId) {
         const agent = state.availableAgents.find(a => a.id === state.currentAgentId);
@@ -100,7 +96,7 @@ export function processEvent(
         status: "running",
         currentRunId: event.runId,
         ...resetRunFields(),
-        streamingAgentName: agentName, // Set initial agent name for this run
+        streamingAgentName: agentName,
       };
     }
 
@@ -113,6 +109,7 @@ export function processEvent(
           subagentStreaming: {
             ...state.subagentStreaming,
             [event.parentToolCallId]: {
+              ...existing,
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
               content: resetFromTranscript ? event.text : (existing?.content ?? "") + event.text,
               reasoning: resetFromTranscript ? undefined : existing?.reasoning,
@@ -124,7 +121,6 @@ export function processEvent(
       return {
         ...state,
         streamingContent: state.streamingContent + event.text,
-        // Update streaming agent name for top-level assistant streaming
         streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
@@ -137,6 +133,7 @@ export function processEvent(
           subagentStreaming: {
             ...state.subagentStreaming,
             [event.parentToolCallId]: {
+              ...existing,
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
               content: resetFromTranscript ? "" : (existing?.content ?? ""),
               reasoning: resetFromTranscript ? event.text : (existing?.reasoning ?? "") + event.text,
@@ -159,6 +156,7 @@ export function processEvent(
           subagentStreaming: {
             ...state.subagentStreaming,
             [event.parentToolCallId]: {
+              ...existing,
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
               content: resetFromTranscript ? "" : (existing?.content ?? ""),
               reasoning: event.content,
@@ -167,9 +165,6 @@ export function processEvent(
           },
         };
       }
-      // Top-level reasoning message (no subagent): store it in streamingReasoning
-      // so that the subsequent assistant.message event can attach it, and so the
-      // "Thinking" block is visible while the full reasoning is available.
       return {
         ...state,
         streamingReasoning: event.content,
@@ -200,6 +195,7 @@ export function processEvent(
           subagentStreaming: {
             ...state.subagentStreaming,
             [parentToolCallId!]: {
+              ...existingSubagentStream,
               agentDisplayName: event.message.agentDisplayName ?? existingSubagentStream?.agentDisplayName ?? event.message.agentName ?? "Subagent",
               content: event.message.content || existingSubagentStream?.content || "",
               reasoning: event.message.reasoning || existingSubagentStream?.reasoning || undefined,
@@ -232,7 +228,6 @@ export function processEvent(
       };
 
     case "run.finished": {
-      // Flush any remaining streaming content to transcript as a safety measure
       let newTranscript = state.transcript;
       if (state.streamingContent) {
         const finalMessage: ChatMessage = {
@@ -301,6 +296,28 @@ export function processEvent(
         return tool;
       });
 
+      const existingStream = state.subagentStreaming[event.toolCallId];
+      const existingSubagent = state.subagents.find((agent) => agent.toolCallId === event.toolCallId);
+      const updatedSubagentStreaming = existingStream
+        ? {
+            ...state.subagentStreaming,
+            [event.toolCallId]: {
+              ...existingStream,
+              agentDisplayName:
+                existingStream.agentDisplayName
+                ?? existingSubagent?.agentDisplayName
+                ?? existingSubagent?.agentName
+                ?? "Subagent",
+              content: existingStream.content ?? "",
+              reasoning: existingStream.reasoning,
+              contentInTranscript: existingStream.contentInTranscript ?? false,
+              taskTitle: existingStream.taskTitle ?? existingSubagent?.taskTitle,
+              currentIntent: existingStream.currentIntent ?? existingSubagent?.currentIntent,
+              lastProgress: event.message,
+            },
+          }
+        : state.subagentStreaming;
+
       const idx = ctx.toolCallTranscriptIndex.get(event.toolCallId);
       let updatedTranscript = state.transcript;
       if (idx !== undefined && idx < updatedTranscript.length) {
@@ -315,6 +332,7 @@ export function processEvent(
         ...state,
         activeTools: updatedTools,
         transcript: updatedTranscript,
+        subagentStreaming: updatedSubagentStreaming,
       };
     }
 
@@ -369,8 +387,10 @@ export function processEvent(
     }
 
     case "turn.started":
+      return { ...state, streamingReasoning: "" };
+
     case "turn.ended":
-      return state;
+      return { ...state, streamingReasoning: "" };
 
     case "model.changed":
       return { ...state, currentModel: event.model };
@@ -410,23 +430,23 @@ export function processEvent(
         startedAt: new Date(),
       };
 
-      // Check if there's already a running subagent with the same agentDisplayName
       const runningWithSameName = state.subagents.some(
         (s) => s.status === "running" && s.agentDisplayName === event.agentDisplayName
       );
 
-      // Create an initial streaming entry so the agent is visible immediately
+      const existingStream = state.subagentStreaming[event.toolCallId];
       const newSubagentStreaming = {
         ...state.subagentStreaming,
         [event.toolCallId]: {
+          ...existingStream,
           agentDisplayName: event.agentDisplayName || event.agentName || "Subagent",
-          content: "",
-          reasoning: undefined,
-          contentInTranscript: false,
+          taskTitle: event.taskTitle ?? existingStream?.taskTitle,
+          content: existingStream?.content ?? "",
+          reasoning: existingStream?.reasoning,
+          contentInTranscript: existingStream?.contentInTranscript ?? false,
         },
       };
 
-      // If a running one exists, just append (allow parallel instances)
       if (runningWithSameName) {
         return {
           ...state,
@@ -435,13 +455,11 @@ export function processEvent(
         };
       }
 
-      // Find completed/failed entries with matching agentDisplayName
       const completedOrFailed = state.subagents.filter(
         (s) => (s.status === "completed" || s.status === "failed") && s.agentDisplayName === event.agentDisplayName
       );
 
       if (completedOrFailed.length === 0) {
-        // No matching completed/failed entry exists, just append
         return {
           ...state,
           subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
@@ -449,7 +467,6 @@ export function processEvent(
         };
       }
 
-      // Find the most recent completed/failed entry (highest completedAt)
       const mostRecent = completedOrFailed.reduce((latest, current) => {
         if (!latest.completedAt) return current;
         if (!current.completedAt) return latest;
@@ -458,7 +475,6 @@ export function processEvent(
       const mostRecentIndex = state.subagents.indexOf(mostRecent);
 
       if (mostRecentIndex === -1) {
-        // Fallback: just append if we couldn't find the most recent (shouldn't happen)
         return {
           ...state,
           subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
@@ -466,7 +482,6 @@ export function processEvent(
         };
       }
 
-      // Replace the most recent completed/failed entry with the new running one
       const updatedSubagents = [...state.subagents];
       updatedSubagents[mostRecentIndex] = newSubagent;
 
@@ -533,7 +548,28 @@ export function processEvent(
           }
           return agent;
         });
-        return { ...state, subagents: updatedSubagents };
+
+        const existingStream = state.subagentStreaming[event.toolCallId];
+        const existingSubagent = updatedSubagents.find((agent) => agent.toolCallId === event.toolCallId);
+        const updatedSubagentStreaming = {
+          ...state.subagentStreaming,
+          [event.toolCallId]: {
+            ...existingStream,
+            agentDisplayName:
+              existingStream?.agentDisplayName
+              ?? existingSubagent?.agentDisplayName
+              ?? existingSubagent?.agentName
+              ?? "Subagent",
+            content: existingStream?.content ?? "",
+            reasoning: existingStream?.reasoning,
+            contentInTranscript: existingStream?.contentInTranscript ?? false,
+            taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,
+            currentIntent: event.intent,
+            lastProgress: existingStream?.lastProgress,
+          },
+        };
+
+        return { ...state, subagents: updatedSubagents, subagentStreaming: updatedSubagentStreaming };
       }
       return { ...state, currentIntent: event.intent };
     }
@@ -556,7 +592,6 @@ export function processEvent(
       };
 
     case "question.answered": {
-      // Show the user's answer in the transcript so the conversation flow is visible
       const answerMessage = createUserMessage(event.answer);
       const updatedTranscript = [...state.transcript, answerMessage];
       trimTranscript(updatedTranscript, ctx);
@@ -674,7 +709,6 @@ export function processEphemeralEvent(
         },
       };
 
-    // Handle tool calls in ephemeral runs
     case "tool.started": {
       const toolItem: ToolCallItem = {
         id: generateId(),
@@ -748,7 +782,6 @@ export function processEphemeralEvent(
       };
     }
 
-    // Ignore reasoning events for ephemeral runs
     case "reasoning.delta":
     case "reasoning.message":
       return state;

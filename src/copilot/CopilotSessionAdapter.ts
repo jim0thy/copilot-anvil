@@ -1414,20 +1414,6 @@ ${agentEntries}
               }
             }
 
-            // Safety net: if a task tool completes but its subagent wasn't
-            // explicitly completed/failed by the SDK, emit a synthetic completion.
-            //
-            // The SDK only emits subagent.completed via session boundary events,
-            // but for "general-purpose" agents these boundaries may never fire.
-            // Without this, the subagent pane gets stuck on "running" or shows
-            // incorrect status.
-            //
-            // IMPORTANT: We always emit subagent.completed here, NOT subagent.failed.
-            // A subagent that was started and ran to completion is "completed" from
-            // the UI's perspective — even if the task tool reports resultType "failure"
-            // (which sets success=false). The tool-level success/failure is about the
-            // tool's return semantics, not whether the agent actually did its work.
-            // Showing "failed" causes the parent LLM to retry needlessly.
             const pendingSubagent = this.activeSubagents.get(completeToolCallId);
             if (pendingSubagent) {
               this.emit(createLogEvent("debug", `Subagent ${pendingSubagent.agentDisplayName} still tracked at tool completion — emitting synthetic completed (tool success=${toolSuccess})`));
@@ -1670,20 +1656,6 @@ ${agentEntries}
             // Remove from active tracking
             this.activeSubagents.delete(toolCallId);
 
-            // IMPORTANT: We intentionally convert subagent.failed → subagent.completed.
-            //
-            // The SDK emits subagent.failed when the task tool returns resultType
-            // "failure", but this is a tool-level semantic — it does NOT mean the
-            // agent crashed or didn't run. Common "failure" causes:
-            //   - The general-purpose agent returned an error-like object
-            //   - Model negotiation issues (still produced output)
-            //   - The agent's response was wrapped with resultType "failure"
-            //
-            // Emitting subagent.failed causes the parent LLM to see the red ✕
-            // and retry needlessly, wasting premium requests. Instead, we always
-            // mark the subagent as "completed" in the UI. The parent LLM still
-            // sees the actual tool result text and can decide for itself whether
-            // to retry based on the content, not the status icon.
             this.emit(createLogEvent("info", `Subagent ${failedAgentName} reported as "failed" by SDK (${failError}) — converting to completed for UI`));
 
             this.emit({
