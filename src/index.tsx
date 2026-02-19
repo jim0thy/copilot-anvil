@@ -26,13 +26,8 @@ async function main() {
   // Register the orchestration plugin for multi-agent support
   harness.use(createOrchestrationPlugin());
 
-  try {
-    await harness.initialize();
-  } catch (error) {
-    console.error("Failed to initialize:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-
+  // Mount the UI BEFORE initialization so the React subscriber is
+  // registered (via useEffect) before any initialization events fire.
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
     useAlternateScreen: true,
@@ -40,6 +35,18 @@ async function main() {
 
   const root = createRoot(renderer);
   root.render(<App harness={harness} renderer={renderer} />);
+
+  // Wait until React's useEffect has registered its event subscriber,
+  // ensuring no initialization events are missed.
+  await harness.waitForSubscriber();
+
+  try {
+    await harness.initialize();
+  } catch (error) {
+    renderer.destroy();
+    console.error("Failed to initialize:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
 
   const handleExit = async () => {
     await harness.shutdown();

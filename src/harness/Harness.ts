@@ -39,6 +39,7 @@ export class Harness {
   private state: HarnessState = { ...INITIAL_STATE };
 
   private eventHandlers: Set<HarnessEventHandler> = new Set();
+  private _onSubscribe?: () => void;
   private pluginManager: PluginManager;
   private adapter: CopilotSessionAdapter | null = null;
   private questionResolvers: Map<string, (answer: { answer: string; wasFreeform: boolean }) => void> = new Map();
@@ -83,9 +84,17 @@ export class Harness {
 
   subscribe(handler: HarnessEventHandler): () => void {
     this.eventHandlers.add(handler);
+    this._onSubscribe?.();
+    this._onSubscribe = undefined;
     return () => {
       this.eventHandlers.delete(handler);
     };
+  }
+
+  /** Resolves when at least one subscriber is registered. */
+  waitForSubscriber(): Promise<void> {
+    if (this.eventHandlers.size > 0) return Promise.resolve();
+    return new Promise(resolve => { this._onSubscribe = resolve; });
   }
 
   emit(event: HarnessEvent): void {
