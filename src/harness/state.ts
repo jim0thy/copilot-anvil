@@ -6,7 +6,7 @@
  * against the harness state shape.
  */
 
-import type { LogEvent, SessionInfo, TranscriptItem } from "./events.js";
+import type { LogEvent, SessionInfo, SubagentStreamEntry, TranscriptItem } from "./events.js";
 import type { ModelDescription } from "../copilot/CopilotSessionAdapter.js";
 import type { OrchestrationMode } from "../agents/types.js";
 
@@ -86,15 +86,7 @@ export interface HarnessState {
   streamingReasoning: string;
   /** Agent display name for the currently streaming content */
   streamingAgentName: string | null;
-  subagentStreaming: Record<string, {
-    agentDisplayName: string;
-    content: string;
-    reasoning?: string;
-    contentInTranscript?: boolean;
-    taskTitle?: string;
-    currentIntent?: string;
-    lastProgress?: string;
-  }>;
+  subagentStreaming: Record<string, SubagentStreamEntry>;
   activeTools: ActiveTool[];
   tasks: Task[];
   subagents: Subagent[];

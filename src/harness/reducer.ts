@@ -7,6 +7,7 @@
 
 import type { ChatMessage, HarnessEvent, TranscriptItem, ToolCallItem } from "./events.js";
 import { createAssistantMessage, createUserMessage, generateId } from "./events.js";
+import { debugLog } from "../utils/debugLog.js";
 import type {
   HarnessState,
   Task,
@@ -76,6 +77,18 @@ function removeSubagentStreamingEntry(
   return rest;
 }
 
+function getParentToolCallId(event: HarnessEvent): string | undefined {
+  if ("parentToolCallId" in event && typeof event.parentToolCallId === "string" && event.parentToolCallId) {
+    return event.parentToolCallId;
+  }
+  if (event.type === "assistant.message") return event.message.parentToolCallId;
+  return undefined;
+}
+
+function getPreviewText(text: string): string {
+  return text.slice(0, 30).replace(/\n/g, "\\n");
+}
+
 // ── Main reducer ────────────────────────────────────────────────
 
 export function processEvent(
@@ -83,6 +96,7 @@ export function processEvent(
   event: HarnessEvent,
   ctx: ReducerContext,
 ): HarnessState {
+  debugLog(`[REDUCER] type=${event.type} ptcId=${getParentToolCallId(event) ?? "none"}`);
   switch (event.type) {
     case "run.started": {
       let agentName: string | null = null;
@@ -111,6 +125,7 @@ export function processEvent(
 
     case "assistant.delta":
       if (event.parentToolCallId) {
+        debugLog(`[REDUCER] delta routed to: subagentStreaming[${event.parentToolCallId}] text="${getPreviewText(event.text)}"`);
         const existing = state.subagentStreaming[event.parentToolCallId];
         const resetFromTranscript = Boolean(existing?.contentInTranscript);
         return {
@@ -127,6 +142,7 @@ export function processEvent(
           },
         };
       }
+      debugLog(`[REDUCER] delta routed to: streamingContent text="${getPreviewText(event.text)}"`);
       return {
         ...state,
         streamingContent: state.streamingContent + event.text,
@@ -135,6 +151,7 @@ export function processEvent(
 
     case "reasoning.delta":
       if (event.parentToolCallId) {
+        debugLog(`[REDUCER] reasoning routed to: subagentStreaming[${event.parentToolCallId}] text="${getPreviewText(event.text)}"`);
         const existing = state.subagentStreaming[event.parentToolCallId];
         const resetFromTranscript = Boolean(existing?.contentInTranscript);
         return {
@@ -151,9 +168,11 @@ export function processEvent(
           },
         };
       }
+      debugLog(`[REDUCER] reasoning routed to: streamingReasoning text="${getPreviewText(event.text)}"`);
       return {
         ...state,
         streamingReasoning: state.streamingReasoning + event.text,
+        streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
     case "reasoning.message":
@@ -468,61 +487,60 @@ export function processEvent(
         (s) => s.status === "running" && s.agentDisplayName === event.agentDisplayName
       );
 
+      // When a subagent starts, rescue any orphaned top-level streaming deltas/reasoning.
+      // These can arrive before the SDK emits tool.execution_start/subagent.started.
+      const rescuedContent = state.streamingContent;
+      const rescuedReasoning = state.streamingReasoning;
       const existingStream = state.subagentStreaming[event.toolCallId];
+      const mergedReasoning = `${existingStream?.reasoning ?? ""}${rescuedReasoning}`;
       const newSubagentStreaming = {
         ...state.subagentStreaming,
         [event.toolCallId]: {
           ...existingStream,
           agentDisplayName: event.agentDisplayName || event.agentName || "Subagent",
           taskTitle: event.taskTitle ?? existingStream?.taskTitle,
-          content: existingStream?.content ?? "",
-          reasoning: existingStream?.reasoning,
-          contentInTranscript: existingStream?.contentInTranscript ?? false,
+          content: `${existingStream?.content ?? ""}${rescuedContent}`,
+          reasoning: mergedReasoning || undefined,
+          contentInTranscript:
+            (rescuedContent || rescuedReasoning)
+              ? false // NEVER preserve true when rescuing new content
+              : (existingStream?.contentInTranscript ?? false),
         },
       };
 
+      let updatedSubagents: Subagent[];
       if (runningWithSameName) {
-        return {
-          ...state,
-          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
-          subagentStreaming: newSubagentStreaming,
-        };
+        updatedSubagents = [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent];
+      } else {
+        const completedOrFailed = state.subagents.filter(
+          (s) => (s.status === "completed" || s.status === "failed") && s.agentDisplayName === event.agentDisplayName
+        );
+
+        if (completedOrFailed.length === 0) {
+          updatedSubagents = [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent];
+        } else {
+          const mostRecent = completedOrFailed.reduce((latest, current) => {
+            if (!latest.completedAt) return current;
+            if (!current.completedAt) return latest;
+            return current.completedAt > latest.completedAt ? current : latest;
+          });
+          const mostRecentIndex = state.subagents.indexOf(mostRecent);
+
+          if (mostRecentIndex === -1) {
+            updatedSubagents = [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent];
+          } else {
+            updatedSubagents = [...state.subagents];
+            updatedSubagents[mostRecentIndex] = newSubagent;
+          }
+        }
       }
-
-      const completedOrFailed = state.subagents.filter(
-        (s) => (s.status === "completed" || s.status === "failed") && s.agentDisplayName === event.agentDisplayName
-      );
-
-      if (completedOrFailed.length === 0) {
-        return {
-          ...state,
-          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
-          subagentStreaming: newSubagentStreaming,
-        };
-      }
-
-      const mostRecent = completedOrFailed.reduce((latest, current) => {
-        if (!latest.completedAt) return current;
-        if (!current.completedAt) return latest;
-        return current.completedAt > latest.completedAt ? current : latest;
-      });
-      const mostRecentIndex = state.subagents.indexOf(mostRecent);
-
-      if (mostRecentIndex === -1) {
-        return {
-          ...state,
-          subagents: [...state.subagents.slice(-MAX_SUBAGENTS + 1), newSubagent],
-          subagentStreaming: newSubagentStreaming,
-        };
-      }
-
-      const updatedSubagents = [...state.subagents];
-      updatedSubagents[mostRecentIndex] = newSubagent;
 
       return {
         ...state,
         subagents: updatedSubagents,
         subagentStreaming: newSubagentStreaming,
+        streamingContent: "",
+        streamingReasoning: "",
       };
     }
 

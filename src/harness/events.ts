@@ -37,6 +37,16 @@ export interface ToolCallItem {
   error?: string;
 }
 
+export interface SubagentStreamEntry {
+  agentDisplayName: string;
+  content: string;
+  reasoning?: string;
+  contentInTranscript?: boolean;
+  taskTitle?: string;
+  currentIntent?: string;
+  lastProgress?: string;
+}
+
 /** A single item in the chat transcript — either a text message or an inline tool call. */
 export type TranscriptItem = ChatMessage | ToolCallItem;
 

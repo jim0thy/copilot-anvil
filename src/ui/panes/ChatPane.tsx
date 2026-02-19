@@ -1,7 +1,7 @@
 import { createPatch } from "diff";
 import { getTreeSitterClient, extToFiletype } from "@opentui/core";
 import { memo } from "react";
-import type { ChatMessage, ToolCallItem, TranscriptItem } from "../../harness/events.js";
+import type { ChatMessage, SubagentStreamEntry, ToolCallItem, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
 import { getSyntaxStyle } from "../syntaxTheme.js";
 import { formatRole, getRoleColor, formatDuration } from "../formatters.js";
@@ -27,15 +27,7 @@ interface ChatPaneProps {
   streamingContent: string;
   streamingReasoning: string;
   streamingAgentName: string | null;
-  subagentStreaming?: Record<string, {
-    agentDisplayName: string;
-    content: string;
-    reasoning?: string;
-    contentInTranscript?: boolean;
-    taskTitle?: string;
-    currentIntent?: string;
-    lastProgress?: string;
-  }>;
+  subagentStreaming?: Record<string, SubagentStreamEntry>;
   hasStarted?: boolean;
   isStreaming: boolean;
   height: number;
@@ -63,7 +55,7 @@ const MessageItem = memo(function MessageItem({ msg, showLabel, theme }: { msg: 
       {msg.role === "assistant" && msg.reasoning && (
         <box flexDirection="column" marginBottom={1} paddingLeft={1} paddingRight={1}>
           <text fg={c.accent}>
-            <b>Thinking...</b>
+            <b>{msg.agentDisplayName ? `${msg.agentDisplayName} is thinking` : "Thinking..."}</b>
           </text>
           <text fg={c.subtle}>
             {msg.reasoning}
@@ -305,7 +297,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
       })}
 
       {subagentStreamingEntries.map(([toolCallId, stream]) => {
-          if (stream.contentInTranscript && !stream.currentIntent && !stream.lastProgress) {
+          if (stream.contentInTranscript && !stream.currentIntent && !stream.lastProgress && !stream.reasoning) {
             return null;
           }
           return (
@@ -350,7 +342,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
           <text fg={c.secondary}>
             <b>{streamingAgentName || "Assistant"}</b> <span fg={c.success}>▮</span>
           </text>
-          {streamingReasoning && !streamingContent && (
+          {streamingReasoning && (
             <box flexDirection="column" paddingLeft={1}>
               <text fg={c.accent}>
                 <b>{streamingAgentName ? `${streamingAgentName} is thinking` : "Thinking"}</b>

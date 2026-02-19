@@ -245,10 +245,12 @@ function PlanSection({
 function SubagentsSection({
   subagents,
   orchestrationMode,
+  currentIntent,
   theme
 }: {
   subagents: Subagent[];
   orchestrationMode: OrchestrationMode;
+  currentIntent: string | null;
   theme: Theme;
 }) {
   const c = theme.colors;
@@ -273,8 +275,17 @@ function SubagentsSection({
   return (
     <box flexDirection="column">
       <text fg={c.primary}>
-        <b>Specialists</b>
+        <b>Dev Team</b>
       </text>
+
+      {currentIntent && currentIntent.trim().length > 0 && (
+        <box marginTop={1} marginBottom={1}>
+          <text>
+            <span fg={c.subtext0}>Doing: </span>
+            <span fg={c.accent}>{nf.arrowRight} {currentIntent}</span>
+          </text>
+        </box>
+      )}
 
       {!hasAnySubagents && orchestrationMode === "orchestrated" && (
         <box marginTop={1}>
@@ -423,24 +434,14 @@ export const Sidebar = memo(function Sidebar({
         </box>
       )}
 
-      {/* Current Intent (what the agent is doing right now) */}
-      {hasSessionName && currentIntent && currentIntent.trim().length > 0 && (
-        <box marginBottom={1}>
-          <text>
-            <span fg={c.subtext0}>Doing: </span>
-            <span fg={c.accent}>{nf.arrowRight} {currentIntent}</span>
-          </text>
-        </box>
-      )}
-
       {/* Context Section - Always visible */}
       <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
 
-      {/* Subagents Section - Show when in orchestration mode OR when there are subagents */}
-      {(orchestrationMode === "orchestrated" || hasSubagents) && (
+      {/* Subagents Section - Show when in orchestration mode OR when there are subagents OR when there's a currentIntent */}
+      {(orchestrationMode === "orchestrated" || hasSubagents || (currentIntent && currentIntent.trim().length > 0)) && (
         <>
           <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} theme={theme} />
+          <SubagentsSection subagents={subagents} orchestrationMode={orchestrationMode} currentIntent={currentIntent} theme={theme} />
         </>
       )}
 

@@ -375,6 +375,13 @@ export class CopilotSessionAdapter {
   // ── Internal helpers ─────────────────────────────────────────
 
   private emit(event: HarnessEvent): void {
+    const parentToolCallId =
+      ("parentToolCallId" in event ? event.parentToolCallId : undefined)
+      ?? (event.type === "assistant.message" ? event.message.parentToolCallId : undefined);
+    const agentName =
+      ("agentName" in event ? event.agentName : undefined)
+      ?? (event.type === "assistant.message" ? event.message.agentName : undefined);
+    debugLog(`[EMIT] type=${event.type} ptcId=${parentToolCallId ?? "none"} agentName=${agentName ?? "none"}`);
     this.eventHandler?.(event);
   }
 
@@ -1182,9 +1189,23 @@ ${agentEntries}
   // ── Session event translation ────────────────────────────────
 
   private setupSessionEventHandlers(): void {
+    debugLog(`[SESSION] === NEW SESSION HANDLERS === ${new Date().toISOString()}`);
     if (!this.session) return;
 
     this.session.on((event) => {
+      const rawData = (() => {
+        try {
+          return JSON.stringify(event.data) ?? "undefined";
+        } catch {
+          return "\"[unserializable]\"";
+        }
+      })();
+      const rawDataTruncated = rawData.length > 200 ? `${rawData.slice(0, 200)}...` : rawData;
+      const executingSubagentIds = Array.from(this.executingSubagentToolCalls);
+      const activeSubagentIds = Array.from(this.activeSubagents.keys());
+      debugLog(
+        `[SDK-RAW] type=${event.type} execSubs=[${executingSubagentIds.join(",")}] activeSubs=[${activeSubagentIds.join(",")}] data=${rawDataTruncated}`,
+      );
       const gen = this.currentRunGeneration;
 
       switch (event.type) {
@@ -1294,7 +1315,7 @@ ${agentEntries}
           const bufferKey = bufferedMatch?.[0];
           const bufferedMessage = bufferedMatch?.[1];
           const resolvedContent = content || bufferedMessage?.text || "";
-          let parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId;
+          let parentToolCallId = parentToolCallIdFromEvent ?? bufferedMessage?.parentToolCallId ?? inferredToolCallId;
 
           // CRITICAL FALLBACK: if parentToolCallId is still unresolved and no buffer matched,
           // use recently completed subagent tracking once active execution has ended.
@@ -1306,7 +1327,6 @@ ${agentEntries}
             }
           }
 
-          const isSubagentMessage = Boolean(parentToolCallId);
           const hadBufferedDelta = Boolean(bufferedMessage?.text);
           if (bufferKey) this.streamingBuffers.delete(bufferKey);
           if (parentToolCallId) this.closedSubagentStreams.add(parentToolCallId);
@@ -1330,10 +1350,8 @@ ${agentEntries}
               ?? (event.data as any)?.reasoningText;
             if (typeof directReasoning === "string" && directReasoning.trim()) {
               (message as any).reasoning = directReasoning;
-              if (!isSubagentMessage) {
-                this.reasoningBuffer = "";
-              }
-            } else if (!isSubagentMessage && this.reasoningBuffer.trim()) {
+              this.reasoningBuffer = "";
+            } else if (this.reasoningBuffer.trim()) {
               // Fall back to the buffer accumulated from assistant.reasoning_delta events.
               // This handles the case where reasoning_delta events fired but the message
               // didn't carry reasoning inline.
@@ -1469,10 +1487,25 @@ ${agentEntries}
             }
           }
 
-          // Capture role and model from task tool invocations for display in the UI.
-          // The role marker "## Role: [Name]" embedded in the task prompt is how we
-          // identify which specialist is being invoked (since we use general-purpose).
-          if (toolName === "task") {
+          // Capture role/model metadata for subagent-style tool invocations.
+          // Detect by task tool name or role marker in arguments.
+          const serializedArgs = (() => {
+            if (typeof args === "string") return args;
+            if (args && typeof args === "object") {
+              try {
+                return JSON.stringify(args);
+              } catch {
+                return "";
+              }
+            }
+            return "";
+          })();
+          const isSubagentToolCall =
+            toolName === "task"
+            || (typeof args === "string" && args.includes("## Role:"))
+            || (typeof args === "object" && args !== null && serializedArgs.includes("## Role:"));
+
+          if (isSubagentToolCall) {
             const toolCallId = event.data?.toolCallId;
             if (toolCallId) {
               let role: string | undefined;
@@ -1484,8 +1517,11 @@ ${agentEntries}
                 role = roleMatch?.[1]?.trim();
                 model = typeof (args as any).model === "string" ? (args as any).model : undefined;
                 taskTitle = typeof (args as any).description === "string" ? (args as any).description : undefined;
-                this.pendingAgentRoles.set(toolCallId, { role, model, taskTitle });
+              } else if (typeof args === "string") {
+                const roleMatch = args.match(/^## Role:\s*(.+)/m);
+                role = roleMatch?.[1]?.trim();
               }
+              this.pendingAgentRoles.set(toolCallId, { role, model, taskTitle });
 
               // Keep a strict execution window for subagent attribution.
               this.executingSubagentToolCalls.add(toolCallId);
@@ -1499,7 +1535,7 @@ ${agentEntries}
                 this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
                 this.closedSubagentStreams.delete(toolCallId);
                 this.ensureSubagentStreamingBuffer(toolCallId, { agentName, agentDisplayName, model });
-                this.emit(createLogEvent("debug", `Pre-registered subagent from task tool: ${agentDisplayName} (toolCallId=${toolCallId}), buffer seeded`));
+                this.emit(createLogEvent("debug", `Pre-registered subagent from ${toolName ?? "unknown"} tool: ${agentDisplayName} (toolCallId=${toolCallId}), buffer seeded`));
               }
             }
           }
@@ -1546,7 +1582,9 @@ ${agentEntries}
 
           if (this.currentRunId) {
             const completeToolCallId = event.data?.toolCallId ?? "";
-            this.executingSubagentToolCalls.delete(completeToolCallId);
+            if (!this.activeSubagents.has(completeToolCallId)) {
+              this.executingSubagentToolCalls.delete(completeToolCallId);
+            }
             const toolSuccess = event.data?.success ?? false;
             const sqlQuery = this.sqlQueriesByToolCallId.get(completeToolCallId);
             if (sqlQuery) this.sqlQueriesByToolCallId.delete(completeToolCallId);
@@ -1597,6 +1635,11 @@ ${agentEntries}
             this.reasoningBuffer += reasoningDelta;
           }
 
+          const agentInfo = subagent || (this._activeAgent ? {
+            agentName: this._activeAgent.name,
+            agentDisplayName: this._activeAgent.displayName || this._activeAgent.name,
+          } : undefined);
+
           if (this.currentRunId) {
             this.emit({
               type: "reasoning.delta",
@@ -1604,8 +1647,8 @@ ${agentEntries}
               reasoningId: event.data?.reasoningId ?? "",
               text: reasoningDelta,
               parentToolCallId,
-              agentName: subagent?.agentName,
-              agentDisplayName: subagent?.agentDisplayName,
+              agentName: agentInfo?.agentName,
+              agentDisplayName: agentInfo?.agentDisplayName,
             });
           }
           break;
@@ -1734,14 +1777,15 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
           if (this.currentRunId) {
             const toolCallId = event.data?.toolCallId ?? "";
-            let agentName = event.data?.agentName ?? "";
-            let agentDisplayName = event.data?.agentDisplayName ?? "";
+            const existingSubagent = this.activeSubagents.get(toolCallId);
+            let agentName = event.data?.agentName ?? existingSubagent?.agentName ?? "";
+            let agentDisplayName = event.data?.agentDisplayName ?? existingSubagent?.agentDisplayName ?? "";
 
             // Extract agent name/display name from the "## Role:" marker in the task prompt
             // (since we use general-purpose, the SDK's agentName will be "general-purpose").
             // Fall back to whatever the SDK provides if no role marker was found.
             const pendingData = this.pendingAgentRoles.get(toolCallId);
-            let model: string | undefined;
+            let model: string | undefined = existingSubagent?.model;
             let taskTitle: string | undefined;
             if (pendingData) {
               // Always use the role marker to override the generic "General Purpose Agent"
@@ -1754,10 +1798,16 @@ ${agentEntries}
               taskTitle = pendingData.taskTitle;
               this.pendingAgentRoles.delete(toolCallId);
             }
+            if (!agentDisplayName) agentDisplayName = agentName || "Subagent";
+            if (!agentName) {
+              const normalized = agentDisplayName.toLowerCase().trim().replace(/\s+/g, "-");
+              agentName = normalized || "subagent";
+            }
 
             this.emit(createLogEvent("info", `${nf.rocket} Subagent STARTED: ${agentDisplayName} (${agentName}) - toolCallId: ${toolCallId}`));
 
-            // Track this subagent so we can attribute its messages
+            // Track this subagent so we can attribute its messages.
+            // subagent.started is authoritative, so always (re)register it here.
             this.activeSubagents.set(toolCallId, { agentName, agentDisplayName, model });
             if (!this.executingSubagentToolCalls.has(toolCallId)) {
               this.executingSubagentToolCalls.add(toolCallId);
