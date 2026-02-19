@@ -2,6 +2,7 @@ import { useKeyboard, useTerminalDimensions, flushSync } from '@opentui/react'
 import type { CliRenderer } from '@opentui/core'
 import { useCallback, useEffect, useState } from 'react'
 import type { Harness, HarnessState } from '../harness/Harness.js'
+import { debugLog } from '../utils/debugLog.js'
 import { ChatPane } from './panes/ChatPane.js'
 import { InputBar } from './panes/InputBar.js'
 import { StartScreen } from './panes/StartScreen.js'
@@ -28,6 +29,7 @@ interface AppProps {
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const STATUS_BAR_HEIGHT = 2;
 const MIN_INPUT_BAR_HEIGHT = 3;
+const flush = flushSync || ((fn: () => void) => fn());
 
 function useSpinner(active: boolean): string {
   const [frame, setFrame] = useState(0);
@@ -57,14 +59,16 @@ export function App({ harness, renderer }: AppProps) {
 
   useEffect(() => {
     return harness.subscribe((event) => {
+      const s = harness.getState();
+      debugLog(`[APP] subscriber: type=${event.type} transcript=${s.transcript.length} streaming="${s.streamingContent.substring(0,30)}" subagentKeys=${Object.keys(s.subagentStreaming).length} status=${s.status}`);
       // Use flushSync to force an immediate synchronous re-render for each
       // harness event. React 18 Concurrent Mode automatically batches setState
       // calls that occur within the same microtask/task — without flushSync,
       // all streaming delta events (assistant.delta, reasoning.delta, etc.)
       // would be coalesced into a single render after the run finishes, making
       // streaming content invisible to the user during a run.
-      flushSync(() => {
-        setState(harness.getState());
+      flush(() => {
+        setState(s);
 
         // Handle show agents modal event
         if (event.type === "show.agents.modal") {
@@ -295,6 +299,7 @@ export function App({ harness, renderer }: AppProps) {
               streamingReasoning={state.streamingReasoning}
               streamingAgentName={state.streamingAgentName}
               subagentStreaming={state.subagentStreaming}
+              hasStarted={hasStarted}
               isStreaming={state.status === "running"}
               height={contentHeight - inputBarHeight}
               theme={theme}

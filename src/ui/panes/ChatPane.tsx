@@ -6,6 +6,7 @@ import type { Theme } from "../theme.js";
 import { getSyntaxStyle } from "../syntaxTheme.js";
 import { formatRole, getRoleColor, formatDuration } from "../formatters.js";
 import { nf } from "../icons.js";
+import { debugLog } from "../../utils/debugLog.js";
 
 // Singleton tree-sitter client for syntax highlighting
 const treeSitterClient = getTreeSitterClient();
@@ -36,6 +37,7 @@ interface ChatPaneProps {
     currentIntent?: string;
     lastProgress?: string;
   }>;
+  hasStarted?: boolean;
   isStreaming: boolean;
   height: number;
   theme: Theme;
@@ -261,7 +263,8 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   );
 });
 
-export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, isStreaming, height, theme }: ChatPaneProps) {
+export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, hasStarted = false, isStreaming, height, theme }: ChatPaneProps) {
+  debugLog(`[CHATPANE] render: transcript=${transcript.length} streaming="${(streamingContent || '').substring(0,20)}" subagentEntries=${Object.entries(subagentStreamingProp).length} hasStarted=${hasStarted}`);
   const c = theme.colors;
   const subagentStreamingEntries = Object.entries(subagentStreamingProp);
   const hasSubagentStreaming = subagentStreamingEntries.length > 0;
@@ -271,7 +274,6 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
       height={height}
       stickyScroll={shouldStickyScroll}
       stickyStart="bottom"
-      viewportCulling
       contentOptions={{
         flexDirection: "column",
         paddingLeft: 2,
