@@ -1,6 +1,5 @@
 import type { HarnessEvent, UIAction } from "./events.js";
 import { createLogEvent, createUserMessage, generateId } from "./events.js";
-import { debugLog } from "../utils/debugLog.js";
 import type {
   HarnessState,
   ActiveTool,
@@ -98,7 +97,6 @@ export class Harness {
   }
 
   emit(event: HarnessEvent): void {
-    debugLog(`[HARNESS] emit: ${event.type}${event.type === 'assistant.delta' ? ` text=${(event as any).text?.substring(0,30)}` : ''}${event.type === 'assistant.message' ? ` content=${(event as any).message?.content?.substring(0,30)}` : ''}`);
     // Check if this event is for an ephemeral run
     const isEphemeralEvent =
       this.state.ephemeralRun &&
@@ -111,7 +109,6 @@ export class Harness {
       const prevRunId = this.state.currentRunId;
       const newState = processEvent(this.state, event, this.reducerCtx);
       this.state = newState;
-      debugLog(`[HARNESS] state: transcript=${newState.transcript.length} streaming="${newState.streamingContent.substring(0,30)}" subagentKeys=${Object.keys(newState.subagentStreaming).length}`);
 
       // Side effect: schedule queue processing after a run finishes
       if (event.type === "run.finished" && prevRunId) {
@@ -201,7 +198,11 @@ export class Harness {
     }
 
     for (const handler of this.eventHandlers) {
-      handler(event);
+      try {
+        handler(event);
+      } catch (err) {
+        // Log subscriber errors but don't crash the event bus
+      }
     }
 
     this.pluginManager.notifyEvent(event);
