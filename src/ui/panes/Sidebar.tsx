@@ -395,7 +395,7 @@ function SkillsSection({
               <text fg={c.text}>{skill.name}</text>
               {skill.invokeCount > 1 && (
                 <text fg={c.subtext0}>
-                  {" "}(\u00D7{skill.invokeCount})
+                  {" "}(×{skill.invokeCount})
                 </text>
               )}
             </box>
