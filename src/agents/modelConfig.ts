@@ -42,7 +42,7 @@ export interface AgentModelConfig {
 const CONFIG_DIR = join(homedir(), ".config", "anvil");
 const CONFIG_FILE = join(CONFIG_DIR, "agents.json");
 
-// ── Built-in defaults (matches oh-my-opencode config) ────────────
+// ── Built-in defaults ────────────────────────────────────────────
 //
 // Copilot variant mapping:  max → xhigh, high → high, medium → medium
 //
@@ -111,7 +111,7 @@ export function loadModelConfig(): AgentModelConfig {
       if (typeof o.reasoningEffort === "string" && validEfforts.includes(o.reasoningEffort as ReasoningEffort)) {
         entry.reasoningEffort = o.reasoningEffort as ReasoningEffort;
       }
-      // Also support "variant" as an alias (oh-my-opencode format)
+      // Also support "variant" as an alias for reasoningEffort
       if (typeof o.variant === "string" && !entry.reasoningEffort) {
         const variantMap: Record<string, ReasoningEffort> = {
           max: "xhigh",
