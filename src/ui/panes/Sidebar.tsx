@@ -431,7 +431,7 @@ export const Sidebar = memo(function Sidebar({
   const hasFiles = files.length > 0;
   const hasSubagents = subagents.length > 0;
   const hasSkills = skills.length > 0;
-  const hasSessionName = !!(currentSessionName && currentSessionName.trim().length > 0);
+  const hasSessionName = !!(currentSessionName && currentSessionName.trim().length > 0 && currentSessionName.trim() !== "New session");
   const headerTitle = hasSessionName ? currentSessionName : null;
 
   return (

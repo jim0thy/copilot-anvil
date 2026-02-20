@@ -75,6 +75,61 @@ function deriveFallbackSessionTitle(prompt: string, maxLen = 50): string {
   return truncateAtWordBoundary(trimmedTitle, maxLen);
 }
 
+function deriveAssistantSessionTitle(prompt: string, assistantResponse: string, maxLen = 50): string {
+  const cleanLine = (line: string): string =>
+    line
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+[.)]\s+/, "")
+      .replace(/^\*\*(.+)\*\*$/, "$1")
+      .replace(/^`(.+)`$/, "$1")
+      .trim();
+
+  const isGenericOpener = (line: string): boolean => {
+    const normalized = line
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/[.!?]+$/, "")
+      .trim();
+    return (
+      /^i(?:'|’)d be happy to help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
+      /^i can help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
+      /^sure,? i can help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
+      /^let me help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
+      /^here(?:'|’)s how(?: i can help)?$/.test(normalized)
+    );
+  };
+
+  let inCodeFence = false;
+  let candidateLine: string | null = null;
+  for (const rawLine of assistantResponse.replace(/\r/g, "").split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (/^```/.test(trimmed)) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (inCodeFence) continue;
+
+    const cleaned = cleanLine(trimmed);
+    if (!cleaned) continue;
+    if (/^(>|-{3,}|={3,})/.test(cleaned)) continue;
+    if (isGenericOpener(cleaned)) continue;
+    candidateLine = cleaned;
+    break;
+  }
+
+  if (!candidateLine) return deriveFallbackSessionTitle(prompt, maxLen);
+
+  const cleaned = candidateLine
+    .replace(/^(?:sure|certainly|absolutely|okay|ok)[,!:.\s-]*/i, "")
+    .replace(/^(?:i(?:'| a)?m|i(?:'|’)ll|i can|let(?:'|’)s|here(?:'|’)s)\s+/i, "")
+    .trim();
+
+  if (!cleaned) return deriveFallbackSessionTitle(prompt, maxLen);
+  return truncateAtWordBoundary(cleaned, maxLen);
+}
+
 export interface CustomAgentDef {
   name: string;
   displayName?: string;
@@ -184,6 +239,8 @@ export class CopilotSessionAdapter {
   private todoUpdatedToolCallIds = new Set<string>();
   /** Session IDs that already have a title in the store (avoids overwriting SDK titles with fallback) */
   private _sessionHasTitle = new Set<string>();
+  /** Title-generation context for the first untitled run of a session. */
+  private pendingInitialSessionTitle: { sessionId: string; userPrompt: string; assistantResponse: string } | null = null;
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -510,6 +567,7 @@ export class CopilotSessionAdapter {
         runId,
         message,
       });
+      this.captureInitialSessionTitleFromAssistant(bufferedMessage.parentToolCallId, bufferedMessage.text);
     }
     this.streamingBuffers.clear();
   }
@@ -520,6 +578,57 @@ export class CopilotSessionAdapter {
       return parentToolCallId;
     }
     return undefined;
+  }
+
+  /**
+   * Persist a better session title when we have a task summary (intent/todo),
+   * so we don't keep showing truncated first prompts in the session list.
+   */
+  private maybeUpdateCurrentSessionTitle(title: string): void {
+    const sessionId = this._currentSessionId;
+    const trimmed = title.trim();
+    if (!sessionId || !trimmed) return;
+    if (this._sessionHasTitle.has(sessionId)) return;
+
+    const normalized = truncateAtWordBoundary(trimmed, 50);
+    if (getSessionTitle(sessionId) === normalized) return;
+
+    setSessionTitle(sessionId, normalized);
+    this._sessionHasTitle.add(sessionId);
+
+    this.listSessions()
+      .then((sessions) => {
+        this.emit({ type: "session.list.updated", sessions });
+      })
+      .catch(() => {});
+  }
+
+  private captureInitialSessionTitleFromAssistant(parentToolCallId: string | undefined, assistantText: string): void {
+    const pending = this.pendingInitialSessionTitle;
+    if (!pending || parentToolCallId) return;
+    if (!assistantText.trim()) return;
+    if (pending.sessionId !== this._currentSessionId) return;
+    if (pending.assistantResponse.trim()) return;
+    pending.assistantResponse = assistantText.trim();
+  }
+
+  private maybeFinalizeInitialSessionTitle(): void {
+    const pending = this.pendingInitialSessionTitle;
+    if (!pending) return;
+    if (pending.sessionId !== this._currentSessionId) {
+      this.pendingInitialSessionTitle = null;
+      return;
+    }
+    if (this._sessionHasTitle.has(pending.sessionId)) {
+      this.pendingInitialSessionTitle = null;
+      return;
+    }
+
+    if (!pending.assistantResponse.trim()) return;
+
+    const generatedTitle = deriveAssistantSessionTitle(pending.userPrompt, pending.assistantResponse, 50);
+    this.maybeUpdateCurrentSessionTitle(generatedTitle);
+    this.pendingInitialSessionTitle = null;
   }
 
   /** Render checklist state as markdown for todo.updated events. */
@@ -1419,6 +1528,8 @@ ${agentEntries}
               runId: effectiveRunId,
               message,
             });
+
+            this.captureInitialSessionTitleFromAssistant(parentToolCallId, resolvedContent);
           }
           break;
         }
@@ -1438,6 +1549,7 @@ ${agentEntries}
             });
           }
 
+          this.maybeFinalizeInitialSessionTitle();
           this.resetTurnStreamingBuffers();
           break;
         }
@@ -1456,9 +1568,12 @@ ${agentEntries}
                 : typeof args === "string"
                 ? args
                 : undefined;
-            if (intentArg && this.currentRunId) {
-              const subagentToolCallId = this.resolveIntentToolCallId(event.data?.parentToolCallId);
-              this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg, toolCallId: subagentToolCallId });
+            if (intentArg) {
+              if (this.currentRunId) {
+                const subagentToolCallId = this.resolveIntentToolCallId(event.data?.parentToolCallId);
+                this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg, toolCallId: subagentToolCallId });
+              }
+              this.maybeUpdateCurrentSessionTitle(intentArg);
             }
           } else if (toolName === "update_todo") {
             const toolCallId = event.data?.toolCallId;
@@ -1583,9 +1698,12 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
 
           const intent = event.data?.intent;
-          if (intent && this.currentRunId) {
-            const subagentToolCallId = this.resolveIntentToolCallId();
-            this.emit({ type: "intent.updated", runId: this.currentRunId, intent, toolCallId: subagentToolCallId });
+          if (intent) {
+            if (this.currentRunId) {
+              const subagentToolCallId = this.resolveIntentToolCallId();
+              this.emit({ type: "intent.updated", runId: this.currentRunId, intent, toolCallId: subagentToolCallId });
+            }
+            this.maybeUpdateCurrentSessionTitle(intent);
           }
           break;
         }
@@ -1735,6 +1853,7 @@ ${agentEntries}
             const runId = this.currentRunId;
 
             this.flushStreamingBuffers(runId);
+            this.maybeFinalizeInitialSessionTitle();
 
             this.emit({ type: "run.finished", runId, createdAt: new Date() });
             this.emit(createLogEvent("info", "Response complete", runId));
@@ -1946,16 +2065,12 @@ ${agentEntries}
     this.isProcessing = true;
     this.resetRunTrackingState();
 
-    // Set a temporary fallback title from the first prompt so the session list
-    // shows something meaningful immediately. Do NOT add to _sessionHasTitle so
-    // the SDK's session.title_changed event can overwrite this with the real title.
     if (this._currentSessionId && !this._sessionHasTitle.has(this._currentSessionId)) {
-      const fallbackTitle = deriveFallbackSessionTitle(prompt, 50);
-      setSessionTitle(this._currentSessionId, fallbackTitle);
-      // Refresh session list so UI picks up the temporary title
-      this.listSessions().then((sessions) => {
-        this.emit({ type: "session.list.updated", sessions });
-      }).catch(() => {});
+      this.pendingInitialSessionTitle = {
+        sessionId: this._currentSessionId,
+        userPrompt: prompt,
+        assistantResponse: "",
+      };
     }
 
     const attachments = images?.map((imagePath) => ({
