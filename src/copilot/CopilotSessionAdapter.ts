@@ -1,5 +1,5 @@
-import { CopilotClient, CopilotSession } from "@github/copilot-sdk";
-import type { ModelInfo, SessionEvent, SystemMessageConfig, Tool } from "@github/copilot-sdk";
+import { CopilotClient, CopilotSession, approveAll } from "@github/copilot-sdk";
+import type { ModelInfo, SessionEvent, SessionMetadata, SystemMessageConfig, Tool } from "@github/copilot-sdk";
 import type { HarnessEvent, SessionInfo, TranscriptItem, ToolCallItem } from "../harness/events.js";
 import { createAssistantMessage, createLogEvent } from "../harness/events.js";
 import * as path from "path";
@@ -15,7 +15,8 @@ import { debugLog } from "../utils/debugLog.js";
 export type AdapterEventHandler = (event: HarnessEvent) => void;
 
 export type UserInputHandler = (
-  request: { question: string; choices?: string[]; allowFreeform?: boolean }
+  request: { question: string; choices?: string[]; allowFreeform?: boolean },
+  invocation?: { sessionId: string }
 ) => Promise<{ answer: string; wasFreeform: boolean }>;
 
 export interface ModelDescription {
@@ -356,6 +357,7 @@ export class CopilotSessionAdapter {
     const opts = {
       streaming: true as const,
       model: this._currentModel ?? undefined,
+      onPermissionRequest: approveAll,
       onUserInputRequest: this.getUserInputCallback(),
       tools: this._anvilTools,
       hooks: this._sessionHooks,
@@ -876,13 +878,13 @@ export class CopilotSessionAdapter {
 
   /** Build the `onUserInputRequest` callback suitable for SDK session options.
    *  Tracks pending state so `session.idle` doesn't prematurely end the run. */
-  private getUserInputCallback(): ((request: any) => Promise<{ answer: string; wasFreeform: boolean }>) | undefined {
+  private getUserInputCallback(): ((request: any, invocation: { sessionId: string }) => Promise<{ answer: string; wasFreeform: boolean }>) | undefined {
     return this.userInputHandler
-      ? async (request: any) => {
+      ? async (request: any, invocation: { sessionId: string }) => {
           this.hasPendingUserInput = true;
           this.emit(createLogEvent("debug", "User input requested — pausing idle handling"));
           try {
-            return await this.userInputHandler!(request);
+            return await this.userInputHandler!(request, invocation);
           } finally {
             this.hasPendingUserInput = false;
             this.emit(createLogEvent("debug", "User input received — resuming idle handling"));
@@ -1154,6 +1156,7 @@ ${agentEntries}
         sessionId,
         streaming: true,
         model: selectedModel,
+        onPermissionRequest: approveAll,
         onUserInputRequest: this.getUserInputCallback(),
         // NOTE: customAgents intentionally omitted. The CLI's setAuthInfo flow
         // calls updateOptions({authInfo}) without customAgents, which triggers
@@ -2021,6 +2024,7 @@ ${agentEntries}
     const session = await this.client.createSession({
       streaming: true,
       model: this._currentModel ?? undefined,
+      onPermissionRequest: approveAll,
       onUserInputRequest: this.getUserInputCallback(),
       tools: this._anvilTools,
       hooks: this._sessionHooks,
@@ -2044,6 +2048,7 @@ ${agentEntries}
     const opts = {
       streaming: true as const,
       model: modelId,
+      onPermissionRequest: approveAll,
       onUserInputRequest: this.getUserInputCallback(),
       tools: this._anvilTools,
       hooks: this._sessionHooks,
@@ -2079,6 +2084,7 @@ ${agentEntries}
       sessionId,
       streaming: true,
       model: this._currentModel ?? undefined,
+      onPermissionRequest: approveAll,
       onUserInputRequest: this.getUserInputCallback(),
       tools: this._anvilTools,
       hooks: this._sessionHooks,
@@ -2112,6 +2118,7 @@ ${agentEntries}
     const session = await this.client.resumeSession(sessionId, {
       streaming: true,
       model: this._currentModel ?? undefined,
+      onPermissionRequest: approveAll,
       onUserInputRequest: this.getUserInputCallback(),
       tools: this._anvilTools,
       hooks: this._sessionHooks,
@@ -2171,9 +2178,9 @@ ${agentEntries}
     try {
       const sessions = await this.client.listSessions();
 
-      return sessions
-        .filter((s: any) => s.sessionId.startsWith(this._projectPrefix))
-        .map((s: any) => {
+      return (sessions as SessionMetadata[])
+        .filter((s) => s.sessionId.startsWith(this._projectPrefix))
+        .map((s) => {
           // Priority: sessionStore title > SDK summary > "New session"
           const storeTitle = getSessionTitle(s.sessionId);
           const name = storeTitle || s.summary || "New session";
@@ -2181,8 +2188,8 @@ ${agentEntries}
           return {
             id: s.sessionId,
             name,
-            createdAt: s.startTime ? new Date(s.startTime) : undefined,
-            lastUsedAt: s.modifiedTime ? new Date(s.modifiedTime) : undefined,
+            createdAt: s.startTime ?? undefined,
+            lastUsedAt: s.modifiedTime ?? undefined,
             isCurrentProject: true,
           };
         });
@@ -2294,6 +2301,7 @@ ${agentEntries}
         streaming: true,
         model,
         infiniteSessions: { enabled: false },
+        onPermissionRequest: approveAll,
         onUserInputRequest: this.getUserInputCallback(),
         reasoningEffort: this.getEffectiveReasoningEffort(model),
       });

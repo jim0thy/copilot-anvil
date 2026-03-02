@@ -16,20 +16,21 @@ import type { ToolResultObject } from "@github/copilot-sdk";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 
-// ── Hook types (not exported from SDK's public API) ─────────────
-// We define them inline to avoid depending on internal module paths.
+// ── Hook types (mirrors SDK's internal SessionHooks shape) ───────
+// These are not exported from @github/copilot-sdk's public API,
+// so we define the equivalent shapes locally.
 
 interface BaseHookInput {
   timestamp: number;
   cwd: string;
 }
 
-interface PreToolUseInput extends BaseHookInput {
+interface PreToolUseHookInput extends BaseHookInput {
   toolName: string;
   toolArgs: unknown;
 }
 
-interface PreToolUseOutput {
+interface PreToolUseHookOutput {
   permissionDecision?: "allow" | "deny" | "ask";
   permissionDecisionReason?: string;
   modifiedArgs?: unknown;
@@ -37,58 +38,36 @@ interface PreToolUseOutput {
   suppressOutput?: boolean;
 }
 
-interface PostToolUseInput extends BaseHookInput {
+interface PostToolUseHookInput extends BaseHookInput {
   toolName: string;
   toolArgs: unknown;
   toolResult: ToolResultObject;
 }
 
-interface PostToolUseOutput {
+interface PostToolUseHookOutput {
   modifiedResult?: ToolResultObject;
   additionalContext?: string;
   suppressOutput?: boolean;
 }
 
-interface UserPromptInput extends BaseHookInput {
+interface UserPromptSubmittedHookInput extends BaseHookInput {
   prompt: string;
 }
 
-interface UserPromptOutput {
+interface UserPromptSubmittedHookOutput {
   modifiedPrompt?: string;
   additionalContext?: string;
   suppressOutput?: boolean;
 }
 
-interface SessionStartInput extends BaseHookInput {
+interface SessionStartHookInput extends BaseHookInput {
   source: "startup" | "resume" | "new";
   initialPrompt?: string;
 }
 
-interface SessionStartOutput {
+interface SessionStartHookOutput {
   additionalContext?: string;
   modifiedConfig?: Record<string, unknown>;
-}
-
-/**
- * Hook configuration object matching the SDK's SessionHooks shape.
- */
-export interface AnvilSessionHooks {
-  onPreToolUse?: (
-    input: PreToolUseInput,
-    invocation: { sessionId: string }
-  ) => Promise<PreToolUseOutput | void> | PreToolUseOutput | void;
-  onPostToolUse?: (
-    input: PostToolUseInput,
-    invocation: { sessionId: string }
-  ) => Promise<PostToolUseOutput | void> | PostToolUseOutput | void;
-  onUserPromptSubmitted?: (
-    input: UserPromptInput,
-    invocation: { sessionId: string }
-  ) => Promise<UserPromptOutput | void> | UserPromptOutput | void;
-  onSessionStart?: (
-    input: SessionStartInput,
-    invocation: { sessionId: string }
-  ) => Promise<SessionStartOutput | void> | SessionStartOutput | void;
 }
 
 /**
@@ -96,7 +75,7 @@ export interface AnvilSessionHooks {
  *
  * @param projectDir - The project root directory (defaults to cwd)
  */
-export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
+export function createSessionHooks(projectDir?: string) {
   const cwd = projectDir || process.cwd();
 
   return {
@@ -106,7 +85,7 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
      * - Warns about destructive git commands (force push, reset --hard)
      * - Adds convention context when editing files
      */
-    onPreToolUse: async (input: PreToolUseInput) => {
+    onPreToolUse: async (input: PreToolUseHookInput) => {
       const { toolName, toolArgs } = input;
 
       // Guard against destructive git operations
@@ -161,7 +140,7 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
      *   doesn't retry subagents that actually completed their work.
      * - Flags if a file write left TODO/FIXME markers
      */
-    onPostToolUse: async (input: PostToolUseInput) => {
+    onPostToolUse: async (input: PostToolUseHookInput) => {
       const { toolName, toolResult } = input;
 
       // ── Task tool false-failure interception ─────────────────────
@@ -244,7 +223,7 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
      * - Appends git branch info
      * - Appends brief project stack detection
      */
-    onUserPromptSubmitted: async (_input: UserPromptInput) => {
+    onUserPromptSubmitted: async (_input: UserPromptSubmittedHookInput) => {
       const contextParts: string[] = [];
 
       // Add git branch context
@@ -304,7 +283,7 @@ export function createSessionHooks(projectDir?: string): AnvilSessionHooks {
      *
      * - Loads AGENTS.md if present
      */
-    onSessionStart: async (_input: SessionStartInput) => {
+    onSessionStart: async (_input: SessionStartHookInput) => {
       const contextFiles = ["AGENTS.md"];
       const contextParts: string[] = [];
 

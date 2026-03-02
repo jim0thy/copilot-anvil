@@ -14,7 +14,7 @@
  */
 
 import type { CopilotSession, CustomAgentConfig, SessionConfig, Tool, } from '@github/copilot-sdk'
-import { CopilotClient } from '@github/copilot-sdk'
+import { CopilotClient, approveAll } from '@github/copilot-sdk'
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import * as path from 'node:path'
@@ -150,6 +150,7 @@ export async function createAnvilSession(
       mode: "append",
       content: buildSystemPromptAppendix(agents),
     },
+    onPermissionRequest: approveAll,
     onUserInputRequest: options.onUserInputRequest,
   };
 

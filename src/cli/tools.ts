@@ -14,7 +14,13 @@
  */
 
 import { defineTool } from "@github/copilot-sdk";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 
 /**
@@ -373,8 +379,328 @@ export const projectOverview = defineTool("project_overview", {
 });
 
 /**
+ * Tool: grep_search
+ *
+ * Search file contents using ripgrep. Returns matching lines with
+ * file paths and line numbers. Used by agents for codebase exploration.
+ */
+export const grepSearch = defineTool("grep_search", {
+  description:
+    "Search file contents using ripgrep. Returns matching lines with file paths and line numbers. " +
+    "Use for finding functions, patterns, keywords, or any text in the codebase.",
+  parameters: {
+    type: "object",
+    properties: {
+      pattern: {
+        type: "string",
+        description: "Regex or literal string to search for",
+      },
+      path: {
+        type: "string",
+        description:
+          "Directory or file to search in (default: current working directory)",
+      },
+      glob: {
+        type: "string",
+        description: 'File glob filter, e.g. "*.ts", "*.{ts,tsx}"',
+      },
+      context_lines: {
+        type: "number",
+        description: "Lines of context before/after each match (default: 2)",
+      },
+      case_sensitive: {
+        type: "boolean",
+        description: "Case-sensitive search (default: false)",
+      },
+    },
+    required: ["pattern"],
+  },
+  handler: (args: {
+    pattern: string;
+    path?: string;
+    glob?: string;
+    context_lines?: number;
+    case_sensitive?: boolean;
+  }) => {
+    const searchPath = args.path || process.cwd();
+    const contextLines = args.context_lines ?? 2;
+    const caseSensitive = args.case_sensitive ?? false;
+
+    const rgArgs = ["--json", `--context=${contextLines}`];
+    if (!caseSensitive) rgArgs.push("--ignore-case");
+    if (args.glob) rgArgs.push("--glob", args.glob);
+    rgArgs.push(args.pattern, searchPath);
+
+    const result = spawnSync("rg", rgArgs, {
+      encoding: "utf-8",
+      maxBuffer: 5 * 1024 * 1024,
+    });
+
+    if (result.error) {
+      return {
+        textResultForLlm: `Error running ripgrep: ${result.error.message}. Is 'rg' installed?`,
+        resultType: "failure" as const,
+      };
+    }
+
+    if (!result.stdout || result.stdout.trim() === "") {
+      return {
+        textResultForLlm: `No matches found for pattern: ${args.pattern}`,
+        resultType: "success" as const,
+      };
+    }
+
+    interface RgMatch {
+      file: string;
+      line: number;
+      content: string;
+      type: "match" | "context";
+    }
+
+    const matches: RgMatch[] = [];
+    for (const line of result.stdout.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line) as {
+          type: string;
+          data: {
+            path?: { text: string };
+            line_number?: number;
+            lines?: { text: string };
+          };
+        };
+        if (entry.type === "match" && entry.data.path && entry.data.line_number) {
+          matches.push({
+            type: "match",
+            file: entry.data.path.text,
+            line: entry.data.line_number,
+            content: (entry.data.lines?.text || "").trimEnd(),
+          });
+        }
+      } catch {
+        // skip malformed JSON lines
+      }
+    }
+
+    if (matches.length === 0) {
+      return {
+        textResultForLlm: `No matches found for pattern: ${args.pattern}`,
+        resultType: "success" as const,
+      };
+    }
+
+    const formatted = matches
+      .map((m) => `${m.file}:${m.line}: ${m.content}`)
+      .join("\n");
+
+    return {
+      textResultForLlm: `Found ${matches.length} match(es) for "${args.pattern}":\n\n${formatted}`,
+      resultType: "success" as const,
+    };
+  },
+});
+
+/**
+ * Tool: glob_find
+ *
+ * Find files matching a glob pattern. Returns absolute paths sorted
+ * by modification time. Used by agents to discover files by name pattern.
+ */
+export const globFind = defineTool("glob_find", {
+  description:
+    "Find files matching a glob pattern. Returns absolute paths sorted by modification time. " +
+    'Use for discovering files by name pattern, e.g. "src/**/*.ts", "**/*.test.ts".',
+  parameters: {
+    type: "object",
+    properties: {
+      pattern: {
+        type: "string",
+        description: 'Glob pattern, e.g. "src/**/*.ts", "**/*.test.ts"',
+      },
+      path: {
+        type: "string",
+        description: "Base directory to search from (default: cwd)",
+      },
+      exclude: {
+        type: "array",
+        items: { type: "string" },
+        description: "Glob patterns to exclude from results",
+      },
+    },
+    required: ["pattern"],
+  },
+  handler: (args: { pattern: string; path?: string; exclude?: string[] }) => {
+    const basePath = args.path || process.cwd();
+
+    const rgArgs = ["--files", "--glob", args.pattern];
+    if (args.exclude) {
+      for (const ex of args.exclude) {
+        rgArgs.push("--glob", `!${ex}`);
+      }
+    }
+    rgArgs.push(basePath);
+
+    const result = spawnSync("rg", rgArgs, {
+      encoding: "utf-8",
+      maxBuffer: 5 * 1024 * 1024,
+    });
+
+    if (result.error) {
+      return {
+        textResultForLlm: `Error running ripgrep: ${result.error.message}. Is 'rg' installed?`,
+        resultType: "failure" as const,
+      };
+    }
+
+    const files = (result.stdout || "")
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
+
+    if (files.length === 0) {
+      return {
+        textResultForLlm: `No files found matching pattern: ${args.pattern}`,
+        resultType: "success" as const,
+      };
+    }
+
+    // Sort by modification time (most recent first)
+    const withMtime = files
+      .map((f) => {
+        try {
+          return { file: f, mtime: statSync(f).mtimeMs };
+        } catch {
+          return { file: f, mtime: 0 };
+        }
+      })
+      .sort((a, b) => b.mtime - a.mtime);
+
+    const fileList = withMtime.map((e) => e.file).join("\n");
+
+    return {
+      textResultForLlm: `Found ${files.length} file(s) matching "${args.pattern}":\n\n${fileList}`,
+      resultType: "success" as const,
+    };
+  },
+});
+
+/**
+ * Tool: look_at
+ *
+ * Read a file with optional line range, or list a directory with stat info.
+ * Better than raw read for large files — supports slicing by line range.
+ */
+export const lookAt = defineTool("look_at", {
+  description:
+    "Read a file with optional line range and line numbers, or list a directory with file metadata. " +
+    "Better than reading an entire large file when you only need a section.",
+  parameters: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "Absolute or relative path to file or directory",
+      },
+      start_line: {
+        type: "number",
+        description: "First line to read, 1-indexed (optional, defaults to 1)",
+      },
+      end_line: {
+        type: "number",
+        description: "Last line to read (optional, defaults to end of file)",
+      },
+      show_line_numbers: {
+        type: "boolean",
+        description: "Prefix each line with its line number (default: true)",
+      },
+    },
+    required: ["path"],
+  },
+  handler: (args: {
+    path: string;
+    start_line?: number;
+    end_line?: number;
+    show_line_numbers?: boolean;
+  }) => {
+    const targetPath = path.resolve(args.path);
+    const showLineNumbers = args.show_line_numbers ?? true;
+
+    if (!existsSync(targetPath)) {
+      return {
+        textResultForLlm: `Path does not exist: ${targetPath}`,
+        resultType: "failure" as const,
+      };
+    }
+
+    const stat = statSync(targetPath);
+
+    if (stat.isDirectory()) {
+      const entries = readdirSync(targetPath, { withFileTypes: true });
+      const lines = entries
+        .map((e) => {
+          try {
+            const entryPath = path.join(targetPath, e.name);
+            const s = statSync(entryPath);
+            const type = e.isDirectory() ? "dir " : "file";
+            const size = e.isDirectory() ? "     -" : String(s.size).padStart(6);
+            const mtime = new Date(s.mtimeMs).toISOString().slice(0, 10);
+            return `${type}  ${size}  ${mtime}  ${e.name}${e.isDirectory() ? "/" : ""}`;
+          } catch {
+            return `????  ------  ----------  ${e.name}`;
+          }
+        })
+        .sort();
+
+      return {
+        textResultForLlm: `Directory: ${targetPath}\n\ntype    size    modified    name\n${"─".repeat(50)}\n${lines.join("\n")}`,
+        resultType: "success" as const,
+      };
+    }
+
+    // File
+    const content = readFileSync(targetPath, "utf-8");
+    const allLines = content.split("\n");
+    const totalLines = allLines.length;
+
+    const startLine = Math.max(1, args.start_line ?? 1);
+    const endLine = Math.min(totalLines, args.end_line ?? totalLines);
+
+    if (startLine > totalLines) {
+      return {
+        textResultForLlm: `File has ${totalLines} lines but start_line=${startLine} is out of range.`,
+        resultType: "failure" as const,
+      };
+    }
+
+    const sliced = allLines.slice(startLine - 1, endLine);
+    const formatted = showLineNumbers
+      ? sliced.map((line, i) => `${String(startLine + i).padStart(6)}  ${line}`).join("\n")
+      : sliced.join("\n");
+
+    const rangeNote =
+      startLine === 1 && endLine === totalLines
+        ? `(${totalLines} lines total)`
+        : `(lines ${startLine}-${endLine} of ${totalLines})`;
+
+    return {
+      textResultForLlm: `File: ${targetPath} ${rangeNote}\n\n${formatted}`,
+      resultType: "success" as const,
+    };
+  },
+});
+
+/**
  * Returns all custom tools for the CLI integration.
  */
 export function getAnvilTools() {
-  return [enforceChecklist, updateTodo, summarizeContext, checkConventions, projectOverview];
+  return [
+    enforceChecklist,
+    updateTodo,
+    summarizeContext,
+    checkConventions,
+    projectOverview,
+    grepSearch,
+    globFind,
+    lookAt,
+  ];
 }
