@@ -2,10 +2,18 @@
   "name": "copilot-anvil",
   "version": "1.0.0",
   "main": "index.js",
+  "bin": {
+    "anvil": "bin/anvil",
+    "anvil-cli": "bin/anvil-cli"
+  },
   "scripts": {
     "dev": "bun src/index.tsx",
     "start": "bun src/index.tsx",
-    "cli": "bun src/cli/index.ts"
+    "cli": "bun src/cli/index.ts",
+    "build": "bun build --compile src/index.tsx --outfile dist/anvil && bun build --compile src/cli/index.ts --outfile dist/anvil-cli",
+    "build:install": "bun run build && mkdir -p ~/.local/bin && cp dist/anvil ~/.local/bin/anvil && cp dist/anvil-cli ~/.local/bin/anvil-cli && chmod +x ~/.local/bin/anvil ~/.local/bin/anvil-cli",
+    "link": "bun link",
+    "unlink": "bun unlink"
   },
   "keywords": [],
   "author": "",

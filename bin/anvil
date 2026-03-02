@@ -1,0 +1,13 @@
+#!/usr/bin/env bun
+import { dirname, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+
+const scriptPath = realpathSync(import.meta.path);
+const repoRoot = resolve(dirname(scriptPath), "..");
+const entry = resolve(repoRoot, "src/index.tsx");
+const child = Bun.spawn(["bun", entry, ...Bun.argv.slice(2)], {
+  stdin: "inherit",
+  stdout: "inherit",
+  stderr: "inherit",
+});
+process.exit(await child.exited);
