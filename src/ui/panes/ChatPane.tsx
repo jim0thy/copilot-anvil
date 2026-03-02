@@ -318,7 +318,7 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
       )}
 
       {subagentStreamingEntries.map(([toolCallId, stream]) => {
-          if (stream.contentInTranscript && !stream.content && !stream.currentIntent && !stream.lastProgress && !stream.reasoning) {
+          if (stream.contentInTranscript && !stream.content && !stream.currentIntent && !stream.lastProgress) {
             return null;
           }
           return (

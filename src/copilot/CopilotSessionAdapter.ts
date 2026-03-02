@@ -560,6 +560,10 @@ export class CopilotSessionAdapter {
       } else {
         message.agentName = bufferedMessage.agentName;
         message.agentDisplayName = bufferedMessage.agentDisplayName;
+        if (this.reasoningBuffer.trim()) {
+          message.reasoning = this.reasoningBuffer;
+          this.reasoningBuffer = "";
+        }
       }
 
       this.emit({
@@ -1770,7 +1774,7 @@ ${agentEntries}
         case "assistant.reasoning_delta": {
           if (this.isEventStale(gen)) return;
 
-          const reasoningDelta = event.data?.deltaContent ?? "";
+          const reasoningDelta = event.data?.deltaContent ?? (event.data as any)?.delta ?? "";
           if (!reasoningDelta) return;
           const parentToolCallIdRaw = (event.data as any)?.parentToolCallId;
           let parentToolCallId = typeof parentToolCallIdRaw === "string" && parentToolCallIdRaw ? parentToolCallIdRaw : undefined;

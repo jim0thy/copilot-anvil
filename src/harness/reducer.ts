@@ -77,6 +77,24 @@ function removeSubagentStreamingEntry(
   return rest;
 }
 
+/** Find the index of the last assistant message for a given parent or the main agent. */
+function findLastAssistantMessageIndex(
+  transcript: TranscriptItem[],
+  parentToolCallId?: string,
+): number {
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const item = transcript[i];
+    if (item.kind === "message" && item.role === "assistant") {
+      if (parentToolCallId) {
+        if (item.parentToolCallId === parentToolCallId) return i;
+      } else {
+        if (!item.parentToolCallId) return i;
+      }
+    }
+  }
+  return -1;
+}
+
 function getParentToolCallId(event: HarnessEvent): string | undefined {
   if ("parentToolCallId" in event && typeof event.parentToolCallId === "string" && event.parentToolCallId) {
     return event.parentToolCallId;
@@ -179,6 +197,17 @@ export function processEvent(
       if (event.parentToolCallId) {
         const existing = state.subagentStreaming[event.parentToolCallId];
         if (existing?.contentInTranscript) {
+          // Content already committed — retroactively attach reasoning to the
+          // most recent transcript message from this subagent.
+          const idx = findLastAssistantMessageIndex(state.transcript, event.parentToolCallId);
+          if (idx >= 0) {
+            const msg = state.transcript[idx] as ChatMessage;
+            if (!msg.reasoning) {
+              const updated = [...state.transcript];
+              updated[idx] = { ...msg, reasoning: event.content };
+              return { ...state, transcript: updated };
+            }
+          }
           return state;
         }
         return {
@@ -194,6 +223,19 @@ export function processEvent(
             },
           },
         };
+      }
+      // Main agent: if no content is actively streaming, the assistant.message
+      // was likely already committed. Retroactively attach reasoning.
+      if (!state.streamingContent) {
+        const idx = findLastAssistantMessageIndex(state.transcript);
+        if (idx >= 0) {
+          const msg = state.transcript[idx] as ChatMessage;
+          if (!msg.reasoning) {
+            const updated = [...state.transcript];
+            updated[idx] = { ...msg, reasoning: event.content };
+            return { ...state, transcript: updated };
+          }
+        }
       }
       return { ...state, streamingReasoning: event.content };
 
@@ -513,10 +555,10 @@ export function processEvent(
     }
 
     case "turn.started":
-      return { ...state, streamingReasoning: "" };
+      return state;
 
     case "turn.ended":
-      return { ...state, streamingReasoning: "" };
+      return state;
 
     case "model.changed":
       return { ...state, currentModel: event.model };
