@@ -11,6 +11,7 @@ import { useSpinner } from "../hooks.js";
 interface SidebarProps {
   contextInfo: ContextInfo;
   orchestrationMode: OrchestrationMode;
+  isRunning: boolean;
   files: FileChange[];
   currentSessionName?: string | null;
   currentIntent: string | null;
@@ -247,6 +248,7 @@ function PlanSection({
 function SubagentsSection({
   subagents,
   orchestrationMode,
+  isRunning,
   currentIntent,
   agentName,
   modelName,
@@ -254,14 +256,13 @@ function SubagentsSection({
 }: {
   subagents: Subagent[];
   orchestrationMode: OrchestrationMode;
+  isRunning: boolean;
   currentIntent: string | null;
   agentName?: string;
   modelName?: string;
   theme: Theme;
 }) {
   const c = theme.colors;
-  const spinner = useSpinner();
-
   const { activeSubagents, completedSubagents } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents
@@ -276,6 +277,8 @@ function SubagentsSection({
     return { activeSubagents: active, completedSubagents: completed };
   }, [subagents]);
 
+  const spinner = useSpinner();
+
   const hasAnySubagents = activeSubagents.length > 0 || completedSubagents.length > 0;
 
   return (
@@ -287,8 +290,8 @@ function SubagentsSection({
       {/* Main Agent Entry */}
       <box marginTop={1} flexDirection="column">
         <box flexDirection="row">
-          <text fg={c.success}>
-            {spinner}{" "}
+          <text fg={isRunning ? c.success : c.subtle}>
+            {isRunning ? spinner : "●"}{" "}
           </text>
           <text fg={c.text}><b>{agentName || "Engineering Manager"}</b></text>
           {modelName && (
@@ -410,6 +413,7 @@ function SkillsSection({
 export const Sidebar = memo(function Sidebar({
   contextInfo,
   orchestrationMode,
+  isRunning,
   files,
   currentSessionName,
   currentIntent,
@@ -460,6 +464,7 @@ export const Sidebar = memo(function Sidebar({
       <SubagentsSection 
         subagents={subagents} 
         orchestrationMode={orchestrationMode} 
+        isRunning={isRunning}
         currentIntent={currentIntent} 
         agentName={agentName}
         modelName={modelName}

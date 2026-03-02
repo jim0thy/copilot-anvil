@@ -1,6 +1,6 @@
 /**
  * Persistent session metadata store.
- * Stores friendly titles for sessions alongside ~/.config/copilot-tui/config.json.
+ * Stores friendly titles for sessions alongside ~/.config/anvil/config.json.
  */
 
 import { homedir } from "node:os";
@@ -18,7 +18,7 @@ interface SessionStoreData {
   sessions: SessionMetadata[];
 }
 
-const CONFIG_DIR = join(homedir(), ".config", "copilot-tui");
+const CONFIG_DIR = join(homedir(), ".config", "anvil");
 const STORE_FILE = join(CONFIG_DIR, "sessions.json");
 
 let cache: SessionStoreData | null = null;

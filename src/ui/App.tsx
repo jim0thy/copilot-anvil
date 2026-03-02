@@ -49,6 +49,7 @@ export function App({ harness, renderer }: AppProps) {
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showSessionHistory, setShowSessionHistory] = useState(true);
+  const [sessionFocused, setSessionFocused] = useState(false);
   const [showSkillsPane, setShowSkillsPane] = useState(false);
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
   const [showAgentsModal, setShowAgentsModal] = useState(false);
@@ -176,6 +177,10 @@ export function App({ harness, renderer }: AppProps) {
     harness.dispatch({ type: "session.new" });
   }, [harness]);
 
+  const handleSessionClose = useCallback(() => {
+    setSessionFocused(false);
+  }, []);
+
   const handleInputHeightChange = useCallback((height: number) => {
     setInputBarHeight(height);
   }, []);
@@ -214,7 +219,25 @@ export function App({ harness, renderer }: AppProps) {
     harness.dispatch({ type: "ephemeral.close" });
   }, [harness]);
 
+  const effectiveSessionFocused = sessionFocused && showSessionHistory &&
+    !state.pendingQuestion && !showModelSelector && !showSkillsPane &&
+    !showCommitConfirm && !showAgentsModal && !state.ephemeralRun;
+
   useKeyboard((key) => {
+    if (key.ctrl && key.name === "s") {
+      if (!showSessionHistory) {
+        setShowSessionHistory(true);
+        setSessionFocused(true);
+      } else if (!sessionFocused) {
+        setSessionFocused(true);
+      } else {
+        setSessionFocused(false);
+        setShowSessionHistory(false);
+      }
+      return;
+    }
+
+    if (effectiveSessionFocused && !(key.ctrl && key.name === "c")) return;
     if (state.pendingQuestion || showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || state.ephemeralRun) return;
 
     if (key.name === "escape") {
@@ -235,9 +258,6 @@ export function App({ harness, renderer }: AppProps) {
       if (state.status !== "running" && state.availableModels.length > 0) {
         setShowModelSelector(true);
       }
-    }
-    if (key.ctrl && key.name === "s") {
-      setShowSessionHistory((prev) => !prev);
     }
     if (key.ctrl && key.name === "n") {
       if (state.status !== "running") {
@@ -298,6 +318,8 @@ export function App({ harness, renderer }: AppProps) {
                 currentSessionId={state.currentSessionId || null}
                 onSelect={handleSelectSession}
                 onNewSession={handleNewSession}
+                onClose={handleSessionClose}
+                focused={effectiveSessionFocused}
                 height={contentHeight}
                 width={sessionHistoryWidth}
                 theme={theme}
@@ -319,7 +341,7 @@ export function App({ harness, renderer }: AppProps) {
             <InputBar
               onSubmit={handleSubmit}
               disabled={state.status === "running" || !!state.pendingQuestion}
-              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || !!state.pendingQuestion}
+              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || !!state.pendingQuestion || effectiveSessionFocused}
               queuedCount={state.messageQueue.length}
               theme={theme}
               onHeightChange={handleInputHeightChange}
@@ -333,6 +355,7 @@ export function App({ harness, renderer }: AppProps) {
             <Sidebar
               contextInfo={state.contextInfo}
               orchestrationMode={state.orchestrationMode}
+              isRunning={state.status === "running"}
               files={modifiedFiles}
               currentSessionName={state.currentSessionName}
               currentIntent={state.currentIntent}
@@ -357,6 +380,8 @@ export function App({ harness, renderer }: AppProps) {
                 currentSessionId={state.currentSessionId || null}
                 onSelect={handleSelectSession}
                 onNewSession={handleNewSession}
+                onClose={handleSessionClose}
+                focused={effectiveSessionFocused}
                 height={contentHeight}
                 width={sessionHistoryWidth}
                 theme={theme}
@@ -367,7 +392,7 @@ export function App({ harness, renderer }: AppProps) {
             <StartScreen
               onSubmit={handleSubmit}
               disabled={state.status === "running"}
-              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun}
+              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || effectiveSessionFocused}
               theme={theme}
               width={width - (showSessionHistory ? sessionHistoryWidth : 0)}
               height={contentHeight}

@@ -252,13 +252,21 @@ export function processEvent(
         logs: [...state.logs.slice(-MAX_LOGS + 1), event],
       };
 
-    case "run.cancelled":
+    case "run.cancelled": {
+      const cleanedSubagents = state.subagents.some((s) => s.status === "running")
+        ? state.subagents.map((s) =>
+            s.status === "running" ? { ...s, status: "completed" as const, completedAt: new Date() } : s
+          )
+        : state.subagents;
+
       return {
         ...state,
         status: "idle",
         currentRunId: null,
+        subagents: cleanedSubagents,
         ...resetRunFields(),
       };
+    }
 
     case "run.finished": {
       let newTranscript = [...state.transcript];
@@ -289,12 +297,18 @@ export function processEvent(
         newTranscript.push(finalSubagentMessage);
       }
       trimTranscript(newTranscript, ctx);
+      const cleanedSubagents = state.subagents.some((s) => s.status === "running")
+        ? state.subagents.map((s) =>
+            s.status === "running" ? { ...s, status: "completed" as const, completedAt: new Date() } : s
+          )
+        : state.subagents;
 
       return {
         ...state,
         status: "idle",
         currentRunId: null,
         transcript: newTranscript,
+        subagents: cleanedSubagents,
         ...resetRunFields(),
         contextInfo: {
           ...state.contextInfo,

@@ -17,7 +17,7 @@ const DEFAULT_CONFIG: TuiConfig = {
   reasoningEffort: "medium",
 };
 
-const CONFIG_DIR = join(homedir(), ".config", "copilot-tui");
+const CONFIG_DIR = join(homedir(), ".config", "anvil");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 /**
