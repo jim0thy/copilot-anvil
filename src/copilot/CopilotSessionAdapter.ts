@@ -9,7 +9,6 @@ import { getAnvilTools } from "../cli/tools.js";
 import { createSessionHooks } from "../cli/hooks.js";
 import { loadModelConfig, resolveAgentModel} from "../agents/modelConfig.js";
 import { nf } from "../ui/icons.js";
-import { getAllSessions, getSessionTitle, setSessionTitle, truncateAtWordBoundary } from "../utils/sessionStore.js";
 import { debugLog } from "../utils/debugLog.js";
 
 export type AdapterEventHandler = (event: HarnessEvent) => void;
@@ -55,81 +54,6 @@ function extractToolOutput(result: unknown): string | undefined {
   return undefined;
 }
 
-function deriveFallbackSessionTitle(prompt: string, maxLen = 50): string {
-  const trimmedPrompt = prompt.trim();
-  if (!trimmedPrompt) return "New session";
-
-  const lines = prompt
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const candidateLine = lines.find((line) => !/^#{1,6}\s*role\s*:/i.test(line) && !/^role\s*:/i.test(line));
-  if (!candidateLine) return "New session";
-  const cleanedLine = candidateLine.replace(/^#{1,6}\s*/, "");
-  const sentenceEnd = cleanedLine.search(/[.!?](\s|$)/);
-  const candidateTitle = sentenceEnd >= 0 ? cleanedLine.slice(0, sentenceEnd + 1) : cleanedLine;
-  const trimmedTitle = candidateTitle.trim();
-  if (!trimmedTitle) return "New session";
-  return truncateAtWordBoundary(trimmedTitle, maxLen);
-}
-
-function deriveAssistantSessionTitle(prompt: string, assistantResponse: string, maxLen = 50): string {
-  const cleanLine = (line: string): string =>
-    line
-      .replace(/^#{1,6}\s+/, "")
-      .replace(/^[-*+]\s+/, "")
-      .replace(/^\d+[.)]\s+/, "")
-      .replace(/^\*\*(.+)\*\*$/, "$1")
-      .replace(/^`(.+)`$/, "$1")
-      .trim();
-
-  const isGenericOpener = (line: string): boolean => {
-    const normalized = line
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .replace(/[.!?]+$/, "")
-      .trim();
-    return (
-      /^i(?:'|’)d be happy to help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
-      /^i can help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
-      /^sure,? i can help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
-      /^let me help(?: you)?(?: with (?:that|this))?$/.test(normalized) ||
-      /^here(?:'|’)s how(?: i can help)?$/.test(normalized)
-    );
-  };
-
-  let inCodeFence = false;
-  let candidateLine: string | null = null;
-  for (const rawLine of assistantResponse.replace(/\r/g, "").split("\n")) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
-    if (/^```/.test(trimmed)) {
-      inCodeFence = !inCodeFence;
-      continue;
-    }
-    if (inCodeFence) continue;
-
-    const cleaned = cleanLine(trimmed);
-    if (!cleaned) continue;
-    if (/^(>|-{3,}|={3,})/.test(cleaned)) continue;
-    if (isGenericOpener(cleaned)) continue;
-    candidateLine = cleaned;
-    break;
-  }
-
-  if (!candidateLine) return deriveFallbackSessionTitle(prompt, maxLen);
-
-  const cleaned = candidateLine
-    .replace(/^(?:sure|certainly|absolutely|okay|ok)[,!:.\s-]*/i, "")
-    .replace(/^(?:i(?:'| a)?m|i(?:'|’)ll|i can|let(?:'|’)s|here(?:'|’)s)\s+/i, "")
-    .trim();
-
-  if (!cleaned) return deriveFallbackSessionTitle(prompt, maxLen);
-  return truncateAtWordBoundary(cleaned, maxLen);
-}
-
 export interface CustomAgentDef {
   name: string;
   displayName?: string;
@@ -159,7 +83,6 @@ export class CopilotSessionAdapter {
   private workspacePath: string | null = null;
   private userInputHandler: UserInputHandler | null = null;
   private _currentSessionId: string | null = null;
-  private _projectPrefix: string;
   private _customAgents: CustomAgentDef[] = [];
   private _activeAgent: CustomAgentDef | null = null;
   private _reasoningEffort: "low" | "medium" | "high" | "xhigh" = "medium";
@@ -237,10 +160,6 @@ export class CopilotSessionAdapter {
   private sqlQueriesByToolCallId = new Map<string, string>();
   /** Tool call IDs that have already emitted todo.updated (deduplication) */
   private todoUpdatedToolCallIds = new Set<string>();
-  /** Session IDs that already have a title in the store (avoids overwriting SDK titles with fallback) */
-  private _sessionHasTitle = new Set<string>();
-  /** Title-generation context for the first untitled run of a session. */
-  private pendingInitialSessionTitle: { sessionId: string; userPrompt: string; assistantResponse: string } | null = null;
 
   /** Pre-built Anvil tools for the SDK integration */
   private _anvilTools: Tool<any>[] = getAnvilTools();
@@ -250,14 +169,6 @@ export class CopilotSessionAdapter {
   private _skillDirectories: string[] = [];
 
   constructor() {
-    this._projectPrefix = path.basename(process.cwd()) + "-";
-
-    // Pre-populate _sessionHasTitle from persisted store so we don't
-    // overwrite existing titles with the first-prompt fallback after a restart.
-    for (const s of getAllSessions()) {
-      this._sessionHasTitle.add(s.sessionId);
-    }
-
     // Auto-discover skill directories
     const cwd = process.cwd();
     const projectSkillDir = path.join(cwd, ".agents", "skills");
@@ -447,10 +358,6 @@ export class CopilotSessionAdapter {
     return this._currentSessionId;
   }
 
-  get projectPrefix(): string {
-    return this._projectPrefix;
-  }
-
   // ── Internal helpers ─────────────────────────────────────────
 
   private emit(event: HarnessEvent): void {
@@ -571,7 +478,6 @@ export class CopilotSessionAdapter {
         runId,
         message,
       });
-      this.captureInitialSessionTitleFromAssistant(bufferedMessage.parentToolCallId, bufferedMessage.text);
     }
     this.streamingBuffers.clear();
   }
@@ -582,57 +488,6 @@ export class CopilotSessionAdapter {
       return parentToolCallId;
     }
     return undefined;
-  }
-
-  /**
-   * Persist a better session title when we have a task summary (intent/todo),
-   * so we don't keep showing truncated first prompts in the session list.
-   */
-  private maybeUpdateCurrentSessionTitle(title: string): void {
-    const sessionId = this._currentSessionId;
-    const trimmed = title.trim();
-    if (!sessionId || !trimmed) return;
-    if (this._sessionHasTitle.has(sessionId)) return;
-
-    const normalized = truncateAtWordBoundary(trimmed, 50);
-    if (getSessionTitle(sessionId) === normalized) return;
-
-    setSessionTitle(sessionId, normalized);
-    this._sessionHasTitle.add(sessionId);
-
-    this.listSessions()
-      .then((sessions) => {
-        this.emit({ type: "session.list.updated", sessions });
-      })
-      .catch(() => {});
-  }
-
-  private captureInitialSessionTitleFromAssistant(parentToolCallId: string | undefined, assistantText: string): void {
-    const pending = this.pendingInitialSessionTitle;
-    if (!pending || parentToolCallId) return;
-    if (!assistantText.trim()) return;
-    if (pending.sessionId !== this._currentSessionId) return;
-    if (pending.assistantResponse.trim()) return;
-    pending.assistantResponse = assistantText.trim();
-  }
-
-  private maybeFinalizeInitialSessionTitle(): void {
-    const pending = this.pendingInitialSessionTitle;
-    if (!pending) return;
-    if (pending.sessionId !== this._currentSessionId) {
-      this.pendingInitialSessionTitle = null;
-      return;
-    }
-    if (this._sessionHasTitle.has(pending.sessionId)) {
-      this.pendingInitialSessionTitle = null;
-      return;
-    }
-
-    if (!pending.assistantResponse.trim()) return;
-
-    const generatedTitle = deriveAssistantSessionTitle(pending.userPrompt, pending.assistantResponse, 50);
-    this.maybeUpdateCurrentSessionTitle(generatedTitle);
-    this.pendingInitialSessionTitle = null;
   }
 
   /** Render checklist state as markdown for todo.updated events. */
@@ -1006,11 +861,6 @@ export class CopilotSessionAdapter {
       : undefined;
   }
 
-  /** Generate a new project-scoped session ID. */
-  private generateSessionId(): string {
-    return this._projectPrefix + Date.now().toString(36);
-  }
-
   /**
    * Build system message config for the session.
    *
@@ -1252,8 +1102,6 @@ ${agentEntries}
         };
       });
 
-      const sessionId = this.generateSessionId();
-
       // Pre-load orchestration agents as defaults ONLY if the plugin hasn't already
       // set agents (loader.load() may have completed before this point)
       if (this._customAgents.length === 0) {
@@ -1266,7 +1114,6 @@ ${agentEntries}
       this.emit(createLogEvent("info", `[initialize] createSession: activeAgent=${this._activeAgent?.name ?? 'NONE'} customAgents=${this._customAgents.length}`));
 
       const session = await this.client.createSession({
-        sessionId,
         streaming: true,
         model: selectedModel,
         onPermissionRequest: approveAll,
@@ -1284,7 +1131,7 @@ ${agentEntries}
         reasoningEffort: this.getEffectiveReasoningEffort(selectedModel),
       });
 
-      this._currentSessionId = sessionId;
+      this._currentSessionId = session.sessionId;
       this._currentModel = selectedModel ?? null;
       this.activateSession(session);
 
@@ -1533,7 +1380,6 @@ ${agentEntries}
               message,
             });
 
-            this.captureInitialSessionTitleFromAssistant(parentToolCallId, resolvedContent);
           }
           break;
         }
@@ -1553,7 +1399,6 @@ ${agentEntries}
             });
           }
 
-          this.maybeFinalizeInitialSessionTitle();
           this.resetTurnStreamingBuffers();
           break;
         }
@@ -1577,7 +1422,6 @@ ${agentEntries}
                 const subagentToolCallId = this.resolveIntentToolCallId(event.data?.parentToolCallId);
                 this.emit({ type: "intent.updated", runId: this.currentRunId, intent: intentArg, toolCallId: subagentToolCallId });
               }
-              this.maybeUpdateCurrentSessionTitle(intentArg);
             }
           } else if (toolName === "update_todo") {
             const toolCallId = event.data?.toolCallId;
@@ -1707,7 +1551,6 @@ ${agentEntries}
               const subagentToolCallId = this.resolveIntentToolCallId();
               this.emit({ type: "intent.updated", runId: this.currentRunId, intent, toolCallId: subagentToolCallId });
             }
-            this.maybeUpdateCurrentSessionTitle(intent);
           }
           break;
         }
@@ -1857,7 +1700,6 @@ ${agentEntries}
             const runId = this.currentRunId;
 
             this.flushStreamingBuffers(runId);
-            this.maybeFinalizeInitialSessionTitle();
 
             this.emit({ type: "run.finished", runId, createdAt: new Date() });
             this.emit(createLogEvent("info", "Response complete", runId));
@@ -1893,12 +1735,7 @@ ${agentEntries}
         }
 
         case "session.title_changed": {
-          const title = (event.data as any)?.title;
-          if (title && this._currentSessionId) {
-            // Always use SDK-generated title, overwriting any raw-prompt fallback
-            setSessionTitle(this._currentSessionId, title);
-            this._sessionHasTitle.add(this._currentSessionId);
-            // Refresh session list so UI picks up the new title
+          if ((event.data as any)?.title) {
             this.listSessions().then((sessions) => {
               this.emit({ type: "session.list.updated", sessions });
             }).catch(() => {});
@@ -2069,14 +1906,6 @@ ${agentEntries}
     this.isProcessing = true;
     this.resetRunTrackingState();
 
-    if (this._currentSessionId && !this._sessionHasTitle.has(this._currentSessionId)) {
-      this.pendingInitialSessionTitle = {
-        sessionId: this._currentSessionId,
-        userPrompt: prompt,
-        assistantResponse: "",
-      };
-    }
-
     const attachments = images?.map((imagePath) => ({
       type: "file" as const,
       path: imagePath,
@@ -2197,10 +2026,7 @@ ${agentEntries}
 
     await this.teardownSession();
 
-    const sessionId = this.generateSessionId();
-
     const session = await this.client.createSession({
-      sessionId,
       streaming: true,
       model: this._currentModel ?? undefined,
       onPermissionRequest: approveAll,
@@ -2212,13 +2038,14 @@ ${agentEntries}
       reasoningEffort: this.getEffectiveReasoningEffort(),
     });
 
+    const sessionId = session.sessionId;
     this._currentSessionId = sessionId;
     this.activateSession(session);
 
     this.emit({
       type: "session.created",
       sessionId,
-      sessionName: getSessionTitle(sessionId) ?? "New session",
+      sessionName: "New session",
     });
 
     this.listSessions().then((sessions) => {
@@ -2248,11 +2075,12 @@ ${agentEntries}
 
     this._currentSessionId = sessionId;
     this.activateSession(session);
+    const switchedSessionName = (await this.listSessions()).find((s) => s.id === sessionId)?.name ?? "";
 
     this.emit({
       type: "session.switched",
       sessionId,
-      sessionName: getSessionTitle(sessionId) ?? "",
+      sessionName: switchedSessionName,
       transcript: await this.getSessionHistory(),
     });
 
@@ -2295,23 +2123,15 @@ ${agentEntries}
     if (!this.client) return [];
 
     try {
-      const sessions = await this.client.listSessions();
-
-      return (sessions as SessionMetadata[])
-        .filter((s) => s.sessionId.startsWith(this._projectPrefix))
-        .map((s) => {
-          // Priority: sessionStore title > SDK summary > "New session"
-          const storeTitle = getSessionTitle(s.sessionId);
-          const name = storeTitle || s.summary || "New session";
-
-          return {
-            id: s.sessionId,
-            name,
-            createdAt: s.startTime ?? undefined,
-            lastUsedAt: s.modifiedTime ?? undefined,
-            isCurrentProject: true,
-          };
-        });
+      const sessions = (await this.client.listSessions()) as SessionMetadata[];
+      const cwd = path.resolve(process.cwd());
+      return sessions.map((s) => ({
+        id: s.sessionId,
+        name: s.summary || "New session",
+        createdAt: s.startTime ?? undefined,
+        lastUsedAt: s.modifiedTime ?? undefined,
+        isCurrentProject: s.context?.cwd ? path.resolve(s.context.cwd) === cwd : true,
+      }));
     } catch (error) {
       this.emit(createLogEvent("error", `Failed to list sessions: ${error}`));
       return [];
