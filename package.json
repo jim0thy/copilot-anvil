@@ -22,7 +22,7 @@
   "type": "module",
   "dependencies": {
     "@github/copilot-sdk": "0.1.30",
-    "@opentui/core": "0.1.79",
+    "@opentui/core": "0.1.86",
     "@opentui/react": "0.1.79",
     "diff": "^8.0.3",
     "react": "^19.2.4"
