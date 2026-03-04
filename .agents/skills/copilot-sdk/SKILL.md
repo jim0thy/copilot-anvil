@@ -275,6 +275,23 @@ await client.stop();
 process.exit(0);
 ```
 
+### Overriding Built-in Tools
+
+If your custom tool has the same name as a Copilot built-in tool (e.g., `grep`, `glob`, `edit_file`), you must set `overridesBuiltInTool: true`. Without it, the SDK returns an error on name collision.
+
+```typescript
+const customGrep = defineTool("grep", {
+    description: "Custom grep with project-specific filtering",
+    overridesBuiltInTool: true,
+    parameters: z.object({
+        pattern: z.string().describe("Search pattern"),
+    }),
+    handler: async ({ pattern }) => {
+        return { matches: [`Found: ${pattern}`] };
+    },
+});
+```
+
 ### Python (Pydantic)
 ```python
 import asyncio
@@ -747,6 +764,16 @@ await session.send({ prompt: "What did we discuss earlier?" });
 const sessions = await client.listSessions();
 await client.deleteSession("old-session-id");
 ```
+
+### Change Model Mid-Session
+
+Switch the model for an existing session without destroying it. Conversation history is preserved.
+
+```typescript
+await session.setModel("claude-sonnet-4.6");
+```
+
+The SDK emits a `session.model_change` event when the model changes.
 
 ## Error Handling
 
