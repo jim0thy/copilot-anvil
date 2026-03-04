@@ -69,9 +69,19 @@ export function StartScreen({ onSubmit, disabled = false, suppressKeys = false, 
         {/* Agent info */}
         <box flexDirection="column" marginBottom={2}>
           <text>
-            <span fg={c.accent}>{nf.circle} </span>
-            <span fg={c.accent}><b>Engineering Manager</b></span>
+            <span fg={c.palette.mauve}>{nf.circle} </span>
+            <span fg={c.palette.mauve}><b>Engineering Manager</b></span>
             <span fg={c.subtext0}> coordinates and delegates work to specialist agents</span>
+          </text>
+          <text>
+            <span fg={c.palette.sapphire}>{nf.circle} </span>
+            <span fg={c.palette.sapphire}><b>Strategist</b></span>
+            <span fg={c.subtext0}> implementation planner — creates decision-complete plans grounded in codebase reality</span>
+          </text>
+          <text>
+            <span fg={c.palette.green}>{nf.circle} </span>
+            <span fg={c.palette.green}><b>Reviewer</b></span>
+            <span fg={c.subtext0}> code review, bug detection, and security checks</span>
           </text>
         </box>
 

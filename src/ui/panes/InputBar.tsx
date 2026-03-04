@@ -46,6 +46,18 @@ interface InputBarProps {
 // Custom keyboard-driven input (OpenTUI's <input> doesn't work in child components)
 export const InputBar = memo(function InputBar({ onSubmit, disabled = false, suppressKeys = false, queuedCount = 0, theme, onHeightChange, agentName, modelName, reasoningEffort, containerWidth: propContainerWidth }: InputBarProps) {
   const c = theme.colors;
+  const agentColor = (() => {
+    switch (agentName) {
+      case "Engineering Manager":
+        return c.palette.mauve;
+      case "Strategist":
+        return c.palette.sapphire;
+      case "Reviewer":
+        return c.palette.green;
+      default:
+        return c.accent;
+    }
+  })();
   const [value, setValue] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   // Key changes when input is cleared to force height recalculation
@@ -374,7 +386,7 @@ export const InputBar = memo(function InputBar({ onSubmit, disabled = false, sup
         {(agentName || modelName) && <box height={1} />}
         {(agentName || modelName) && (
           <text paddingBottom={0.5}>
-            {agentName && <span fg={c.accent}><b>{agentName}</b></span>}
+            {agentName && <span fg={agentColor}><b>{agentName}</b></span>}
             {agentName && modelName && <span fg={c.subtle}> · </span>}
             {modelName && <span fg={c.link}><b>{modelName}</b></span>}
             {modelName && reasoningEffort && (
