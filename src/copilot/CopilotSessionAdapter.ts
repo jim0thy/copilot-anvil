@@ -1987,36 +1987,13 @@ ${agentEntries}
   async switchModel(modelId: string): Promise<void> {
     if (!this.client) throw new Error("Client not initialized");
     if (this.isProcessing) throw new Error("Cannot switch model while processing");
+    if (!this.session) throw new Error("No active session to switch model");
 
-    const sessionId = this._currentSessionId;
-    if (!sessionId) throw new Error("No active session to switch model");
+    await this.session.setModel(modelId);
 
-    await this.teardownSession();
-
-    const opts = {
-      streaming: true as const,
-      model: modelId,
-      onPermissionRequest: approveAll,
-      onUserInputRequest: this.getUserInputCallback(),
-      tools: this._anvilTools,
-      hooks: this._sessionHooks,
-      skillDirectories: this._skillDirectories.length > 0 ? this._skillDirectories : undefined,
-      systemMessage: this.buildSystemMessage(),
-      reasoningEffort: this.getEffectiveReasoningEffort(modelId),
-    };
-
-    try {
-      this.session = await this.client.resumeSession(sessionId, opts);
-    } catch {
-      this.session = await this.client.createSession({ sessionId, ...opts });
-    }
-
+    // Update local tracking. The SDK also fires a `session.model_change` event
+    // which our handler processes, but we update here too for immediate consistency.
     this._currentModel = modelId;
-    // activateSession would overwrite this.session, so just do the post-setup directly
-    this.workspacePath = this.session.workspacePath ?? null;
-    this.setupSessionEventHandlers();
-    if (this.workspacePath) this.setupPlanWatcher();
-
     this.emit({ type: "model.changed", model: modelId });
   }
 
