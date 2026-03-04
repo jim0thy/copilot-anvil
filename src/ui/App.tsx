@@ -1,6 +1,7 @@
 import { useKeyboard, useTerminalDimensions } from '@opentui/react'
 import type { CliRenderer } from '@opentui/core'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { basename } from 'node:path'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
 import { InputBar } from './panes/InputBar.js'
@@ -48,7 +49,7 @@ export function App({ harness, renderer }: AppProps) {
   const [gitInfo, setGitInfo] = useState<GitInfo>(getGitInfo());
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
   const [showModelSelector, setShowModelSelector] = useState(false);
-  const [showSessionHistory, setShowSessionHistory] = useState(true);
+  const [showSessionHistory, setShowSessionHistory] = useState(false);
   const [sessionFocused, setSessionFocused] = useState(false);
   const [showSkillsPane, setShowSkillsPane] = useState(false);
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
@@ -290,6 +291,7 @@ export function App({ harness, renderer }: AppProps) {
 
   const statusColor = state.status === "running" ? c.warning : c.success;
   const statusText = state.status === "running" ? "Processing" : "Ready";
+  const projectName = basename(process.cwd());
 
   const modelDisplay = state.currentModel
     ? state.currentModel.split("/").pop() || state.currentModel
@@ -303,7 +305,7 @@ export function App({ harness, renderer }: AppProps) {
   const effectiveReasoningEffort = currentAgent?.reasoningEffort ?? state.reasoningEffort;
 
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
-  const sessionHistoryWidth = Math.floor(width * 0.175);
+  const sessionHistoryWidth = Math.floor(width * 0.25);
   const sidebarWidth = Math.floor(width * 0.20125);
   const mainWidth = width - (showSessionHistory ? sessionHistoryWidth : 0) - sidebarWidth;
 
@@ -312,7 +314,7 @@ export function App({ harness, renderer }: AppProps) {
       {hasStarted ? (
         <box height={contentHeight} flexDirection="row">
           {showSessionHistory && (
-            <box width="17.5%">
+            <box width="25%">
               <SessionHistoryPane
                 sessions={state.availableSessions || []}
                 currentSessionId={state.currentSessionId || null}
@@ -374,7 +376,7 @@ export function App({ harness, renderer }: AppProps) {
       ) : (
         <box height={contentHeight} flexDirection="row">
           {showSessionHistory && (
-            <box width="17.5%">
+            <box width="25%">
               <SessionHistoryPane
                 sessions={state.availableSessions || []}
                 currentSessionId={state.currentSessionId || null}
@@ -418,6 +420,8 @@ export function App({ harness, renderer }: AppProps) {
             <span>{spinner}  </span>
           )}
           <span fg={statusColor}>{statusText}</span>
+          <span>  </span>
+          <span fg={c.info}>{"\uF07B"} {projectName}</span>
           {/* Git status with Nerd Font icons: \uE0A0=, \uF111=, \uF44D=, \uF059=, \uF062=, \uF063=, \uF00C= */}
           {gitInfo.branch && (
             <>
