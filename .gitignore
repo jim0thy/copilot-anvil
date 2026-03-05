@@ -1,6 +1,9 @@
 ### Example user template template
 ### Example user template
 
+# macOS Finder metadata
+.DS_Store
+
 # IntelliJ project files
 .idea
 *.iml
