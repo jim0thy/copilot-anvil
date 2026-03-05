@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import type { Theme } from "../theme.js";
 import type { ContextInfo } from "./ContextPane.js";
 import type { FileChange } from "../../utils/gitDiff.js";
@@ -56,10 +56,7 @@ function ContextSection({
 
   return (
     <box flexDirection="column">
-      <box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <text fg={c.primary}>
-          <b>Context</b>
-        </text>
+      <box flexDirection="row" justifyContent="flex-end" alignItems="center">
         <box flexDirection="row" gap={2}>
           <text>
             <span fg={c.subtext0}>Req: </span>
@@ -105,6 +102,50 @@ function SectionDivider({ theme, innerWidth }: { theme: Theme; innerWidth: numbe
   );
 }
 
+function CollapsibleSection({
+  title,
+  isCollapsed,
+  onToggle,
+  maxHeight,
+  width,
+  children,
+  theme,
+}: {
+  title: string;
+  isCollapsed: boolean;
+  onToggle: () => void;
+  maxHeight: number;
+  width: number;
+  children: ReactNode;
+  theme: Theme;
+}) {
+  const c = theme.colors;
+  void onToggle;
+
+  return (
+    <box flexDirection="column" width={width}>
+      <box flexDirection="row" justifyContent="space-between" width="100%">
+        <text fg={c.primary}>
+          <b>{title}</b>
+        </text>
+        <text fg={c.subtle}>{isCollapsed ? "▸" : "▾"}</text>
+      </box>
+      {!isCollapsed && (
+        <box marginTop={1} height={maxHeight} overflow="hidden">
+          <scrollbox
+            height={maxHeight}
+            contentOptions={{
+              flexDirection: "column",
+            }}
+          >
+            {children}
+          </scrollbox>
+        </box>
+      )}
+    </box>
+  );
+}
+
 // --- File status helpers (file-specific icons, distinct from task/subagent status) ---
 function getFileStatusIcon(status: FileChange["status"]): string {
   switch (status) {
@@ -146,13 +187,6 @@ function FilesSection({ files, theme }: { files: FileChange[]; theme: Theme }) {
 
   return (
     <box flexDirection="column" gap={0}>
-      <box height={1}>
-        <text fg={c.primary}>
-          <b>Files Modified</b>
-          <span fg={c.subtext0}> ({files.length})</span>
-        </text>
-      </box>
-
       {files.map((file, idx) => (
         <box key={idx} flexDirection="row" justifyContent="space-between" height={1}>
           <box flexDirection="row" flexShrink={1} overflow="hidden" height={1}>
@@ -208,16 +242,12 @@ function PlanSection({
 
   return (
     <box flexDirection="column">
-      <text fg={c.primary}>
-        <b>Plan & Progress</b>
-      </text>
-
       {todoItems.length === 0 ? (
-        <box marginTop={1}>
+        <box>
           <text fg={c.subtle}>No active tasks</text>
         </box>
       ) : (
-        <box marginTop={1} flexDirection="column">
+        <box flexDirection="column">
           {todoItems.map((item, idx) => {
             const isCurrent = idx === currentTaskIndex && !item.checked;
             return (
@@ -283,12 +313,8 @@ function SubagentsSection({
 
   return (
     <box flexDirection="column">
-      <text fg={c.primary}>
-        <b>Dev Team</b>
-      </text>
-
       {/* Main Agent Entry */}
-      <box marginTop={1} flexDirection="column">
+      <box flexDirection="column">
         <box flexDirection="row">
           <text fg={isRunning ? c.success : c.subtle}>
             {isRunning ? spinner : "●"}{" "}
@@ -386,12 +412,8 @@ function SkillsSection({
 
   return (
     <box flexDirection="column">
-      <text fg={c.secondary}>
-        <b>Skills</b>
-      </text>
-
       {recentSkills.length > 0 && (
-        <box marginTop={1} flexDirection="column">
+        <box flexDirection="column">
           {recentSkills.map((skill) => (
             <box key={skill.name} flexDirection="row">
               <text fg={c.accent}>{nf.diamond} </text>
@@ -428,6 +450,11 @@ export const Sidebar = memo(function Sidebar({
   theme,
 }: SidebarProps) {
   const c = theme.colors;
+  const [contextCollapsed, setContextCollapsed] = useState(false);
+  const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
+  const [filesCollapsed, setFilesCollapsed] = useState(false);
+  const [planCollapsed, setPlanCollapsed] = useState(false);
+  const [skillsCollapsed, setSkillsCollapsed] = useState(false);
   // Calculate inner width: total width minus paddingLeft (1) and paddingRight (1)
   const innerWidth = Math.max(1, width - 2);
 
@@ -457,40 +484,85 @@ export const Sidebar = memo(function Sidebar({
       )}
 
       {/* Context Section - Always visible */}
-      <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
+      <CollapsibleSection
+        title="Context"
+        isCollapsed={contextCollapsed}
+        onToggle={() => setContextCollapsed(!contextCollapsed)}
+        maxHeight={6}
+        width={innerWidth}
+        theme={theme}
+      >
+        <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
+      </CollapsibleSection>
 
       {/* Subagents Section - Always show main agent, subagents if any */}
       <SectionDivider theme={theme} innerWidth={innerWidth} />
-      <SubagentsSection 
-        subagents={subagents} 
-        orchestrationMode={orchestrationMode} 
-        isRunning={isRunning}
-        currentIntent={currentIntent} 
-        agentName={agentName}
-        modelName={modelName}
-        theme={theme} 
-      />
+      <CollapsibleSection
+        title="Dev Team / Subagents"
+        isCollapsed={subagentsCollapsed}
+        onToggle={() => setSubagentsCollapsed(!subagentsCollapsed)}
+        maxHeight={12}
+        width={innerWidth}
+        theme={theme}
+      >
+        <SubagentsSection
+          subagents={subagents}
+          orchestrationMode={orchestrationMode}
+          isRunning={isRunning}
+          currentIntent={currentIntent}
+          agentName={agentName}
+          modelName={modelName}
+          theme={theme}
+        />
+      </CollapsibleSection>
 
       {/* Files Modified Section - Only when files exist */}
       {hasFiles && (
         <>
           <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <FilesSection files={files} theme={theme} />
+          <CollapsibleSection
+            title={`Files Modified (${files.length})`}
+            isCollapsed={filesCollapsed}
+            onToggle={() => setFilesCollapsed(!filesCollapsed)}
+            maxHeight={10}
+            width={innerWidth}
+            theme={theme}
+          >
+            <FilesSection files={files} theme={theme} />
+          </CollapsibleSection>
         </>
       )}
 
       {/* Plan & Progress Section - Always visible */}
       <SectionDivider theme={theme} innerWidth={innerWidth} />
-      <PlanSection
-        currentTodo={currentTodo}
+      <CollapsibleSection
+        title="Plan & Progress"
+        isCollapsed={planCollapsed}
+        onToggle={() => setPlanCollapsed(!planCollapsed)}
+        maxHeight={10}
+        width={innerWidth}
         theme={theme}
-      />
+      >
+        <PlanSection
+          currentTodo={currentTodo}
+          theme={theme}
+        />
+      </CollapsibleSection>
 
       {/* Skills Section - Only when there are skills */}
       {hasSkills && (
         <>
           <SectionDivider theme={theme} innerWidth={innerWidth} />
-          <SkillsSection skills={skills} theme={theme} />
+          <CollapsibleSection
+            title="Skills"
+            isCollapsed={skillsCollapsed}
+            onToggle={() => setSkillsCollapsed(!skillsCollapsed)}
+            maxHeight={6}
+            width={innerWidth}
+            theme={theme}
+          >
+            <SkillsSection skills={skills} theme={theme} />
+          </CollapsibleSection>
         </>
       )}
     </box>
