@@ -55,6 +55,7 @@ export function App({ harness, renderer }: AppProps) {
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
   const [showAgentsModal, setShowAgentsModal] = useState(false);
   const [inputBarHeight, setInputBarHeight] = useState(MIN_INPUT_BAR_HEIGHT);
+  const streamingUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const spinner = useSpinner(state.status === "running");
 
   // Subscribe to harness events.
@@ -63,8 +64,21 @@ export function App({ harness, renderer }: AppProps) {
   // Fallback: useEffect subscription as backup in case useRef doesn't work.
   const unsubRef = useRef<(() => void) | null>(null);
   const subscriberFn = useCallback((event: import('../harness/events.js').HarnessEvent) => {
-    const s = harness.getState();
-    setState(s);
+    const isStreamingEvent = event.type === "assistant.delta" || event.type === "reasoning.delta";
+    if (isStreamingEvent) {
+      if (streamingUpdateTimerRef.current === null) {
+        streamingUpdateTimerRef.current = setTimeout(() => {
+          streamingUpdateTimerRef.current = null;
+          setState(harness.getState());
+        }, 32);
+      }
+    } else {
+      if (streamingUpdateTimerRef.current !== null) {
+        clearTimeout(streamingUpdateTimerRef.current);
+        streamingUpdateTimerRef.current = null;
+      }
+      setState(harness.getState());
+    }
 
     if (event.type === "show.agents.modal") {
       setShowAgentsModal(true);
@@ -86,7 +100,13 @@ export function App({ harness, renderer }: AppProps) {
     // If ref-based subscription already worked, this is a no-op backup.
     // If it didn't work (ref was null somehow), this ensures we subscribe.
     const unsub = harness.subscribe(subscriberFn);
-    return () => unsub();
+    return () => {
+      unsub();
+      if (streamingUpdateTimerRef.current !== null) {
+        clearTimeout(streamingUpdateTimerRef.current);
+        streamingUpdateTimerRef.current = null;
+      }
+    };
   }, [harness, subscriberFn]);
 
   // Session refresh on mount

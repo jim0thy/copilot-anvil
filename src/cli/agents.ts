@@ -15,6 +15,19 @@
  */
 
 import type { CustomAgentConfig } from "@github/copilot-sdk";
+import { getBuiltinAgents } from "../agents/builtin.js";
+
+const builtinPrompts = new Map(
+  getBuiltinAgents().map((agent) => [agent.id, agent.systemPrompt]),
+);
+
+function getBuiltinPrompt(id: string): string {
+  const prompt = builtinPrompts.get(id);
+  if (!prompt) {
+    throw new Error(`Missing builtin systemPrompt for ${id}`);
+  }
+  return prompt;
+}
 
 // ── Engineering Manager (orchestrates the team) ─────────────────
 // Basis: Sisyphus / Atlas
@@ -80,6 +93,18 @@ When exploring, fire Scout and Navigator simultaneously in background. Decompose
 | Navigator | Codebase exploration, documentation lookup |
 | Scout | Quick read-only searches (file patterns, keyword grep) |
 | Analyst | Images, PDFs, diagrams, screenshots |
+| Junior Developer | Quick fixes, simple tasks, straightforward implementations |
+| Frontend Developer | UI components, client-side logic, styling |
+| Backend Developer | APIs, databases, server-side logic |
+| Fullstack Developer | End-to-end features spanning frontend and backend |
+| Senior Frontend Developer | Complex UI architecture, performance, state management |
+| Senior Backend Developer | Complex backend architecture, distributed systems |
+| Senior Fullstack Developer | Complex end-to-end architecture and integrations |
+| Data Engineer | SQL, data parsing, ETL pipelines, analytics |
+| Designer | UI/UX design, styling, visual design |
+| Prompt Writer | LLM prompt optimization and engineering |
+| DevOps | Git operations, dependencies, deployment |
+| Reviewer | Code review, bug detection, security checks |
 
 ## Delegation Guide
 
@@ -604,7 +629,127 @@ Start immediately. No acknowledgment text. No "I'll now..." preamble. First acti
 
 ## Scope
 
-You handle tasks under 5 files or well-scoped implementation tasks delegated by the Engineering Manager or Staff Engineer. You are the "get it done" executor for focused work.`,
+  You handle tasks under 5 files or well-scoped implementation tasks delegated by the Engineering Manager or Staff Engineer. You are the "get it done" executor for focused work.`,
+};
+
+// ── Junior Developer (quick fixes) ───────────────────────────────
+
+export const juniorDeveloper: CustomAgentConfig = {
+  name: "junior-developer",
+  displayName: "Junior Developer",
+  description: "Quick fixes, simple tasks, and straightforward implementations",
+  infer: true,
+  prompt: getBuiltinPrompt("junior-developer"),
+};
+
+// ── Frontend Developer (UI implementation) ───────────────────────
+
+export const frontendDeveloper: CustomAgentConfig = {
+  name: "frontend-developer",
+  displayName: "Frontend Developer",
+  description: "UI components, client-side logic, and styling",
+  infer: true,
+  prompt: getBuiltinPrompt("frontend-developer"),
+};
+
+// ── Backend Developer (server-side implementation) ───────────────
+
+export const backendDeveloper: CustomAgentConfig = {
+  name: "backend-developer",
+  displayName: "Backend Developer",
+  description: "APIs, databases, and server-side logic",
+  infer: true,
+  prompt: getBuiltinPrompt("backend-developer"),
+};
+
+// ── Fullstack Developer (end-to-end implementation) ──────────────
+
+export const fullstackDeveloper: CustomAgentConfig = {
+  name: "fullstack-developer",
+  displayName: "Fullstack Developer",
+  description: "End-to-end features spanning frontend and backend",
+  infer: true,
+  prompt: getBuiltinPrompt("fullstack-developer"),
+};
+
+// ── Senior Frontend Developer (complex UI architecture) ──────────
+
+export const seniorFrontendDeveloper: CustomAgentConfig = {
+  name: "senior-frontend-developer",
+  displayName: "Senior Frontend Developer",
+  description: "Complex UI architecture, performance, and state management",
+  infer: true,
+  prompt: getBuiltinPrompt("senior-frontend-developer"),
+};
+
+// ── Senior Backend Developer (complex backend architecture) ──────
+
+export const seniorBackendDeveloper: CustomAgentConfig = {
+  name: "senior-backend-developer",
+  displayName: "Senior Backend Developer",
+  description: "Complex backend architecture and distributed systems",
+  infer: true,
+  prompt: getBuiltinPrompt("senior-backend-developer"),
+};
+
+// ── Senior Fullstack Developer (complex system integrations) ─────
+
+export const seniorFullstackDeveloper: CustomAgentConfig = {
+  name: "senior-fullstack-developer",
+  displayName: "Senior Fullstack Developer",
+  description: "Complex end-to-end architecture and integrations",
+  infer: true,
+  prompt: getBuiltinPrompt("senior-fullstack-developer"),
+};
+
+// ── Data Engineer (data pipelines and SQL) ───────────────────────
+
+export const dataEngineer: CustomAgentConfig = {
+  name: "data-engineer",
+  displayName: "Data Engineer",
+  description: "SQL, data parsing, ETL pipelines, and analytics",
+  infer: true,
+  prompt: getBuiltinPrompt("data-engineer"),
+};
+
+// ── Designer (UI/UX and visual design) ───────────────────────────
+
+export const designer: CustomAgentConfig = {
+  name: "designer",
+  displayName: "Designer",
+  description: "UI/UX design, styling, and visual design",
+  infer: true,
+  prompt: getBuiltinPrompt("designer"),
+};
+
+// ── Prompt Writer (LLM prompt engineering) ───────────────────────
+
+export const promptWriter: CustomAgentConfig = {
+  name: "prompt-writer",
+  displayName: "Prompt Writer",
+  description: "LLM prompt optimization and engineering",
+  infer: true,
+  prompt: getBuiltinPrompt("prompt-writer"),
+};
+
+// ── DevOps (operations and deployment) ───────────────────────────
+
+export const devops: CustomAgentConfig = {
+  name: "devops",
+  displayName: "DevOps",
+  description: "Git operations, dependencies, and deployment",
+  infer: true,
+  prompt: getBuiltinPrompt("devops"),
+};
+
+// ── Reviewer (quality and security gate) ─────────────────────────
+
+export const reviewer: CustomAgentConfig = {
+  name: "reviewer",
+  displayName: "Reviewer",
+  description: "Code review, bug detection, and security checks",
+  infer: true,
+  prompt: getBuiltinPrompt("reviewer"),
 };
 
 // ── Analyst (media and visual analysis) ─────────────────────────
@@ -675,6 +820,7 @@ export const analyst: CustomAgentConfig = {
  * - associate: focused single-task execution, no delegation
  * - architect: investigation and architecture analysis
  * - navigator + scout: code discovery and research
+ * - junior/mid/senior developers + specialists: execution by domain
  * - analyst: media file interpretation
  */
 export function getOrchestrationAgents(): CustomAgentConfig[] {
@@ -688,6 +834,18 @@ export function getOrchestrationAgents(): CustomAgentConfig[] {
     advisor,
     intake,
     associate,
+    juniorDeveloper,
+    frontendDeveloper,
+    backendDeveloper,
+    fullstackDeveloper,
+    seniorFrontendDeveloper,
+    seniorBackendDeveloper,
+    seniorFullstackDeveloper,
+    dataEngineer,
+    designer,
+    promptWriter,
+    devops,
+    reviewer,
     analyst,
   ];
 }

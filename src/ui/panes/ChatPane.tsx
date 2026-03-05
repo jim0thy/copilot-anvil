@@ -254,27 +254,9 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   );
 });
 
-export function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, hasStarted = false, isStreaming, height, theme }: ChatPaneProps) {
-  const c = theme.colors;
-  const subagentStreamingEntries = Object.entries(subagentStreamingProp);
-  const hasSubagentStreaming = subagentStreamingEntries.length > 0;
-  const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning) || hasSubagentStreaming;
+const TranscriptList = memo(function TranscriptList({ transcript, theme }: { transcript: TranscriptItem[]; theme: Theme }) {
   return (
-    <scrollbox
-      height={height}
-      stickyScroll={shouldStickyScroll}
-      stickyStart="bottom"
-      contentOptions={{
-        flexDirection: "column",
-        paddingLeft: 2,
-        paddingRight: 2,
-        paddingTop: 1,
-      }}
-    >
-      {transcript.length === 0 && !streamingContent && !streamingReasoning && !hasSubagentStreaming && (
-        <text fg={c.subtle}>No messages yet</text>
-      )}
-
+    <>
       {transcript.map((item, index) => {
         const prev = index > 0 ? transcript[index - 1] : null;
 
@@ -295,6 +277,32 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
           />
         );
       })}
+    </>
+  );
+});
+
+export const ChatPane = memo(function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, hasStarted = false, isStreaming, height, theme }: ChatPaneProps) {
+  const c = theme.colors;
+  const subagentStreamingEntries = Object.entries(subagentStreamingProp);
+  const hasSubagentStreaming = subagentStreamingEntries.length > 0;
+  const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning) || hasSubagentStreaming;
+  return (
+    <scrollbox
+      height={height}
+      stickyScroll={shouldStickyScroll}
+      stickyStart="bottom"
+      contentOptions={{
+        flexDirection: "column",
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: 1,
+      }}
+    >
+      {transcript.length === 0 && !streamingContent && !streamingReasoning && !hasSubagentStreaming && (
+        <text fg={c.subtle}>No messages yet</text>
+      )}
+
+      <TranscriptList transcript={transcript} theme={theme} />
 
       {(streamingReasoning || streamingContent) && (
         <box flexDirection="column" marginBottom={1}>
@@ -359,4 +367,4 @@ export function ChatPane({ transcript, streamingContent, streamingReasoning, str
         })}
     </scrollbox>
   );
-}
+});
