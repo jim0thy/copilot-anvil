@@ -41,6 +41,7 @@ function resetRunFields(): Partial<HarnessState> {
     streamingAgentName: null,
     subagentStreaming: {},
     currentIntent: null,
+    activeTools: [],
   };
 }
 
@@ -379,6 +380,16 @@ export function processEvent(
       const newTranscript = [...state.transcript, toolItem];
       ctx.toolCallTranscriptIndex.set(event.toolCallId, newTranscript.length - 1);
       trimTranscript(newTranscript, ctx);
+
+      // Rebuild toolCallTranscriptIndex if it has grown stale/oversized
+      if (ctx.toolCallTranscriptIndex.size > newTranscript.length * 2) {
+        ctx.toolCallTranscriptIndex.clear();
+        for (let i = 0; i < newTranscript.length; i++) {
+          const it = newTranscript[i];
+          if (it.kind === "tool-call") ctx.toolCallTranscriptIndex.set(it.toolCallId, i);
+        }
+      }
+
       const subagentToolCallId = event.parentToolCallId
         ?? (state.subagentStreaming[event.toolCallId] ? event.toolCallId : undefined);
       const existingStream = subagentToolCallId ? state.subagentStreaming[subagentToolCallId] : undefined;
@@ -404,20 +415,25 @@ export function processEvent(
             },
           }
         : state.subagentStreaming;
+      const MAX_ACTIVE_TOOLS = 20;
+      let newActiveTools = [
+        ...state.activeTools,
+        {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          arguments: event.arguments,
+          progress: [],
+          startedAt: new Date(),
+          status: "running" as const,
+        },
+      ];
+      if (newActiveTools.length > MAX_ACTIVE_TOOLS) {
+        newActiveTools = newActiveTools.slice(-MAX_ACTIVE_TOOLS);
+      }
       return {
         ...state,
         transcript: newTranscript,
-        activeTools: [
-          ...state.activeTools,
-          {
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            arguments: event.arguments,
-            progress: [],
-            startedAt: new Date(),
-            status: "running",
-          },
-        ],
+        activeTools: newActiveTools,
         tasks: [...state.tasks.slice(-MAX_TASKS + 1), newTask],
         subagentStreaming: updatedSubagentStreaming,
       };

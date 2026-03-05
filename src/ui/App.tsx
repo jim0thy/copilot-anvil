@@ -1,6 +1,6 @@
 import { useKeyboard, useTerminalDimensions } from '@opentui/react'
 import type { CliRenderer } from '@opentui/core'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { basename } from 'node:path'
 import type { Harness, HarnessState } from '../harness/Harness.js'
 import { ChatPane } from './panes/ChatPane.js'
@@ -313,14 +313,20 @@ export function App({ harness, renderer }: AppProps) {
   const statusText = state.status === "running" ? "Processing" : "Ready";
   const projectName = basename(process.cwd());
 
-  const modelDisplay = state.currentModel
-    ? state.currentModel.split("/").pop() || state.currentModel
-    : "loading...";
+  const modelDisplay = useMemo(() =>
+    state.currentModel
+      ? state.currentModel.split("/").pop() || state.currentModel
+      : "loading...",
+    [state.currentModel]
+  );
 
   // Get current agent name for status bar
-  const currentAgent = state.currentAgentId
-    ? state.availableAgents.find(a => a.id === state.currentAgentId)
-    : null;
+  const currentAgent = useMemo(() =>
+    state.currentAgentId
+      ? state.availableAgents.find(a => a.id === state.currentAgentId)
+      : null,
+    [state.currentAgentId, state.availableAgents]
+  );
   const agentDisplay = currentAgent?.name ?? "Copilot";
   const effectiveReasoningEffort = currentAgent?.reasoningEffort ?? state.reasoningEffort;
 

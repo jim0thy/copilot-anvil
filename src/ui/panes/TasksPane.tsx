@@ -15,7 +15,7 @@ interface TasksPaneProps {
 
 export const TasksPane = memo(function TasksPane({ tasks, height, theme }: TasksPaneProps) {
   const c = theme.colors;
-  const spinner = useSpinner();
+  const spinner = useSpinner(activeTasks.length > 0);
   const { activeTasks, recentTasks } = useMemo(() => {
     const active = tasks.filter(t => t.status === "running");
     const completed = tasks

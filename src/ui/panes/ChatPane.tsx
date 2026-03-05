@@ -1,6 +1,7 @@
+import { memo, useState, useCallback, useMemo } from "react";
+import { MouseButton } from "@opentui/core";
 import { createPatch } from "diff";
 import { getTreeSitterClient, extToFiletype } from "@opentui/core";
-import { memo } from "react";
 import type { ChatMessage, SubagentStreamEntry, ToolCallItem, TranscriptItem } from "../../harness/events.js";
 import type { Theme } from "../theme.js";
 import { getSyntaxStyle } from "../syntaxTheme.js";
@@ -33,6 +34,8 @@ interface ChatPaneProps {
   height: number;
   theme: Theme;
 }
+
+const VISIBLE_WINDOW = 50;
 
 function shouldShowLabel(item: TranscriptItem, prev: TranscriptItem | null): boolean {
   if (item.kind === "tool-call") return false;
@@ -283,9 +286,20 @@ const TranscriptList = memo(function TranscriptList({ transcript, theme }: { tra
 
 export const ChatPane = memo(function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, hasStarted = false, isStreaming, height, theme }: ChatPaneProps) {
   const c = theme.colors;
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_WINDOW);
+
   const subagentStreamingEntries = Object.entries(subagentStreamingProp);
   const hasSubagentStreaming = subagentStreamingEntries.length > 0;
   const shouldStickyScroll = isStreaming || Boolean(streamingContent) || Boolean(streamingReasoning) || hasSubagentStreaming;
+
+  const showLoadMore = transcript.length > visibleCount;
+  const visibleTranscript = useMemo(() => transcript.slice(-visibleCount), [transcript, visibleCount]);
+  const hiddenCount = transcript.length - visibleTranscript.length;
+
+  const handleLoadMore = useCallback(() => {
+    setVisibleCount((prev) => prev + VISIBLE_WINDOW);
+  }, []);
+
   return (
     <scrollbox
       height={height}
@@ -298,11 +312,27 @@ export const ChatPane = memo(function ChatPane({ transcript, streamingContent, s
         paddingTop: 1,
       }}
     >
+      {showLoadMore && (
+        <box
+          height={3}
+          justifyContent="center"
+          alignItems="center"
+          marginBottom={1}
+          onMouseDown={(e) => {
+            if (e.button === MouseButton.LEFT) handleLoadMore();
+          }}
+        >
+          <text fg={c.accent}>
+            <b>↑ Show {hiddenCount} earlier messages</b>
+          </text>
+        </box>
+      )}
+
       {transcript.length === 0 && !streamingContent && !streamingReasoning && !hasSubagentStreaming && (
         <text fg={c.subtle}>No messages yet</text>
       )}
 
-      <TranscriptList transcript={transcript} theme={theme} />
+      <TranscriptList transcript={visibleTranscript} theme={theme} />
 
       {(streamingReasoning || streamingContent) && (
         <box flexDirection="column" marginBottom={1}>

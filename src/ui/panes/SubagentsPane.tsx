@@ -21,7 +21,7 @@ export const SubagentsPane = memo(function SubagentsPane({
   theme 
 }: SubagentsPaneProps) {
   const c = theme.colors;
-  const spinner = useSpinner();
+  const spinner = useSpinner(activeSubagents.length > 0);
   const { activeSubagents, completedSubagents, recentSkills } = useMemo(() => {
     const active = subagents.filter(s => s.status === "running");
     const completed = subagents

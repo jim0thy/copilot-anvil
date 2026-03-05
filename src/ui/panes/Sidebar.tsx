@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
+import { MouseButton } from "@opentui/core";
 import type { Theme } from "../theme.js";
 import type { ContextInfo } from "./ContextPane.js";
 import type { FileChange } from "../../utils/gitDiff.js";
@@ -120,10 +121,9 @@ function CollapsibleSection({
   theme: Theme;
 }) {
   const c = theme.colors;
-  void onToggle;
 
   return (
-    <box flexDirection="column" width={width}>
+    <box flexDirection="column" width={width} onMouseDown={(e) => { if (e.button === MouseButton.LEFT) onToggle(); }}>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <text fg={c.primary}>
           <b>{title}</b>
@@ -307,7 +307,7 @@ function SubagentsSection({
     return { activeSubagents: active, completedSubagents: completed };
   }, [subagents]);
 
-  const spinner = useSpinner();
+  const spinner = useSpinner(isRunning);
 
   const hasAnySubagents = activeSubagents.length > 0 || completedSubagents.length > 0;
 
