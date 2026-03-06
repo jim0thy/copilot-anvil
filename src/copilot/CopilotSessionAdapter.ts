@@ -88,6 +88,9 @@ export class CopilotSessionAdapter {
   private _reasoningEffort: "low" | "medium" | "high" | "xhigh" = "medium";
   /** True while the onUserInputRequest callback is awaiting a user response */
   private hasPendingUserInput = false;
+  /** Accumulates assistant.delta text per stream key; flushed every ~16 ms. */
+  private deltaBuffer: Map<string, { text: string; runId: string; parentToolCallId?: string; agentName?: string; agentDisplayName?: string }> = new Map();
+  private deltaFlushTimer: ReturnType<typeof setTimeout> | null = null;
   /** Guards against concurrent renewSessionWithAgents calls */
   private _renewalPromise: Promise<void> | null = null;
   /** True if a renewal was requested before the session existed and needs to run after init */
@@ -380,6 +383,26 @@ export class CopilotSessionAdapter {
   private resetTurnStreamingBuffers(): void {
     this.streamingBuffers.clear();
     this.reasoningBuffer = "";
+  }
+
+  /** Flush all buffered delta text as assistant.delta events, then clear the buffer. */
+  private flushDeltaBuffer(): void {
+    if (this.deltaFlushTimer !== null) {
+      clearTimeout(this.deltaFlushTimer);
+      this.deltaFlushTimer = null;
+    }
+    if (this.deltaBuffer.size === 0) return;
+    for (const [, entry] of this.deltaBuffer) {
+      this.emit({
+        type: "assistant.delta",
+        runId: entry.runId,
+        text: entry.text,
+        parentToolCallId: entry.parentToolCallId,
+        agentName: entry.agentName,
+        agentDisplayName: entry.agentDisplayName,
+      });
+    }
+    this.deltaBuffer.clear();
   }
 
   /** Reset all per-run transient tracking state. */
@@ -1266,14 +1289,21 @@ ${agentEntries}
               this.emit(createLogEvent("debug", `${nf.send} Assistant delta starting - agent: ${agentInfo.agentDisplayName} (subagent: ${Boolean(subagent)}, parentToolCallId: ${parentToolCallId || "none"})`));
             }
 
-            this.emit({
-              type: "assistant.delta",
+            const deltaKey = parentToolCallId ?? "__main__";
+            const existing = this.deltaBuffer.get(deltaKey);
+            this.deltaBuffer.set(deltaKey, {
+              text: (existing?.text ?? "") + deltaContent,
               runId: this.currentRunId,
-              text: deltaContent,
               parentToolCallId,
-              agentName: agentInfo?.agentName,
-              agentDisplayName: agentInfo?.agentDisplayName,
+              agentName: agentInfo?.agentName ?? existing?.agentName,
+              agentDisplayName: agentInfo?.agentDisplayName ?? existing?.agentDisplayName,
             });
+            if (this.deltaFlushTimer === null) {
+              this.deltaFlushTimer = setTimeout(() => {
+                this.deltaFlushTimer = null;
+                this.flushDeltaBuffer();
+              }, 16);
+            }
           } else {
             debugLog(`[ADAPTER] delta DROPPED - no currentRunId`);
           }
@@ -1374,6 +1404,8 @@ ${agentEntries}
               });
             }
 
+            this.flushDeltaBuffer();
+
             this.emit({
               type: "assistant.message",
               runId: effectiveRunId,
@@ -1388,6 +1420,7 @@ ${agentEntries}
           if (this.isEventStale(gen)) return;
 
           if (this.currentRunId) {
+            this.flushDeltaBuffer();
             this.flushStreamingBuffers(this.currentRunId);
           }
 
@@ -1699,6 +1732,7 @@ ${agentEntries}
           if (this.currentRunId) {
             const runId = this.currentRunId;
 
+            this.flushDeltaBuffer();
             this.flushStreamingBuffers(runId);
 
             this.emit({ type: "run.finished", runId, createdAt: new Date() });
@@ -1954,6 +1988,7 @@ ${agentEntries}
       try { await this.session.abort(); } catch { /* best-effort */ }
     }
 
+    this.flushDeltaBuffer();
     this.resetRunTrackingState();
     this.currentRunId = null;
 
