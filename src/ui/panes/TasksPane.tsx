@@ -15,7 +15,6 @@ interface TasksPaneProps {
 
 export const TasksPane = memo(function TasksPane({ tasks, height, theme }: TasksPaneProps) {
   const c = theme.colors;
-  const spinner = useSpinner(activeTasks.length > 0);
   const { activeTasks, recentTasks } = useMemo(() => {
     const active = tasks.filter(t => t.status === "running");
     const completed = tasks
@@ -31,6 +30,7 @@ export const TasksPane = memo(function TasksPane({ tasks, height, theme }: Tasks
       recentTasks: completed.slice(0, Math.max(1, height - active.length - 6)),
     };
   }, [tasks, height]);
+  const spinner = useSpinner(activeTasks.length > 0);
 
   return (
     <box
