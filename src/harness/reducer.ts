@@ -36,8 +36,8 @@ export interface ReducerContext {
 /** Fields cleared at the end of every run or session switch. */
 function resetRunFields(): Partial<HarnessState> {
   return {
-    streamingContent: "",
-    streamingReasoning: "",
+    streamingContentChunks: [],
+    streamingReasoningChunks: [],
     streamingAgentName: null,
     subagentStreaming: {},
     currentIntent: null,
@@ -154,7 +154,7 @@ export function processEvent(
             [event.parentToolCallId]: {
               ...existing,
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
-              content: resetFromTranscript ? event.text : (existing?.content ?? "") + event.text,
+              contentChunks: resetFromTranscript ? [event.text] : [...(existing?.contentChunks ?? []), event.text],
               reasoning: resetFromTranscript ? undefined : existing?.reasoning,
               contentInTranscript: false,
             },
@@ -164,7 +164,7 @@ export function processEvent(
       debugLog(`[REDUCER] delta routed to: streamingContent text="${getPreviewText(event.text)}"`);
       return {
         ...state,
-        streamingContent: state.streamingContent + event.text,
+        streamingContentChunks: [...state.streamingContentChunks, event.text],
         streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
@@ -180,7 +180,7 @@ export function processEvent(
             [event.parentToolCallId]: {
               ...existing,
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
-              content: resetFromTranscript ? "" : (existing?.content ?? ""),
+              contentChunks: resetFromTranscript ? [] : (existing?.contentChunks ?? []),
               reasoning: resetFromTranscript ? event.text : (existing?.reasoning ?? "") + event.text,
               contentInTranscript: false,
             },
@@ -190,7 +190,7 @@ export function processEvent(
       debugLog(`[REDUCER] reasoning routed to: streamingReasoning text="${getPreviewText(event.text)}"`);
       return {
         ...state,
-        streamingReasoning: state.streamingReasoning + event.text,
+        streamingReasoningChunks: [...state.streamingReasoningChunks, event.text],
         streamingAgentName: event.agentDisplayName ?? state.streamingAgentName,
       };
 
@@ -218,7 +218,7 @@ export function processEvent(
             [event.parentToolCallId]: {
               ...existing,
               agentDisplayName: event.agentDisplayName ?? existing?.agentDisplayName ?? event.agentName ?? "Subagent",
-              content: existing?.content ?? "",
+              contentChunks: existing?.contentChunks ?? [],
               reasoning: event.content,
               contentInTranscript: false,
             },
@@ -227,7 +227,7 @@ export function processEvent(
       }
       // Main agent: if no content is actively streaming, the assistant.message
       // was likely already committed. Retroactively attach reasoning.
-      if (!state.streamingContent) {
+      if (state.streamingContentChunks.length === 0) {
         const idx = findLastAssistantMessageIndex(state.transcript);
         if (idx >= 0) {
           const msg = state.transcript[idx] as ChatMessage;
@@ -238,12 +238,12 @@ export function processEvent(
           }
         }
       }
-      return { ...state, streamingReasoning: event.content };
+      return { ...state, streamingReasoningChunks: [event.content] };
 
     case "assistant.message": {
       const parentToolCallId = event.message.parentToolCallId;
       const isSubagentMessage = Boolean(parentToolCallId);
-      const consumedStreamingReasoning = state.streamingReasoning;
+      const consumedStreamingReasoning = state.streamingReasoningChunks.join("");
       const existingSubagentStream = parentToolCallId ? state.subagentStreaming[parentToolCallId] : undefined;
       const messageWithReasoning: ChatMessage = {
         ...event.message,
@@ -265,7 +265,7 @@ export function processEvent(
           [subagentToolCallId]: {
             ...existingSubagentStream,
             agentDisplayName: event.message.agentDisplayName ?? existingSubagentStream?.agentDisplayName ?? event.message.agentName ?? "Subagent",
-            content: event.message.content || existingSubagentStream?.content || "",
+            contentChunks: event.message.content ? [event.message.content] : (existingSubagentStream?.contentChunks ?? []),
             reasoning: event.message.reasoning || existingSubagentStream?.reasoning || undefined,
             contentInTranscript: true,
           },
@@ -283,8 +283,8 @@ export function processEvent(
       return {
         ...state,
         transcript: newTranscript,
-        streamingContent: "",
-        streamingReasoning: "",
+        streamingContentChunks: [],
+        streamingReasoningChunks: [],
         streamingAgentName: null,
       };
     }
@@ -313,10 +313,12 @@ export function processEvent(
 
     case "run.finished": {
       let newTranscript = [...state.transcript];
-      if (state.streamingContent) {
+      const streamingContent = state.streamingContentChunks.join("");
+      const streamingReasoning = state.streamingReasoningChunks.join("");
+      if (streamingContent) {
         const finalMessage: ChatMessage = {
-          ...createAssistantMessage(state.streamingContent),
-          reasoning: state.streamingReasoning || undefined,
+          ...createAssistantMessage(streamingContent),
+          reasoning: streamingReasoning || undefined,
           agentDisplayName: state.streamingAgentName || undefined,
         };
         newTranscript.push(finalMessage);
@@ -324,10 +326,11 @@ export function processEvent(
 
       for (const [toolCallId, stream] of Object.entries(state.subagentStreaming)) {
         if (stream.contentInTranscript) continue;
-        if (!stream.content && !stream.reasoning) continue;
+        const subagentContent = (stream.contentChunks ?? []).join("");
+        if (!subagentContent && !stream.reasoning) continue;
         const subagent = state.subagents.find((agent) => agent.toolCallId === toolCallId);
         const finalSubagentMessage: ChatMessage = {
-          ...createAssistantMessage(stream.content || ""),
+          ...createAssistantMessage(subagentContent),
           parentToolCallId: toolCallId,
           agentName: subagent?.agentName,
           agentDisplayName:
@@ -406,7 +409,7 @@ export function processEvent(
                 ?? existingSubagent?.agentDisplayName
                 ?? existingSubagent?.agentName
                 ?? "Subagent",
-              content: existingStream?.content ?? "",
+              contentChunks: existingStream?.contentChunks ?? [],
               reasoning: existingStream?.reasoning,
               contentInTranscript: existingStream?.contentInTranscript ?? false,
               taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,
@@ -463,7 +466,7 @@ export function processEvent(
                 ?? existingSubagent?.agentDisplayName
                 ?? existingSubagent?.agentName
                 ?? "Subagent",
-              content: existingStream?.content ?? "",
+              contentChunks: existingStream?.contentChunks ?? [],
               reasoning: existingStream?.reasoning,
               contentInTranscript: existingStream?.contentInTranscript ?? false,
               taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,
@@ -551,7 +554,7 @@ export function processEvent(
                 ?? existingSubagent?.agentDisplayName
                 ?? existingSubagent?.agentName
                 ?? "Subagent",
-              content: existingStream?.content ?? "",
+              contentChunks: existingStream?.contentChunks ?? [],
               reasoning: existingStream?.reasoning,
               contentInTranscript: existingStream?.contentInTranscript ?? false,
               taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,
@@ -620,8 +623,8 @@ export function processEvent(
 
       // When a subagent starts, rescue any orphaned top-level streaming deltas/reasoning.
       // These can arrive before the SDK emits tool.execution_start/subagent.started.
-      const rescuedContent = state.streamingContent;
-      const rescuedReasoning = state.streamingReasoning;
+      const rescuedContent = state.streamingContentChunks.join("");
+      const rescuedReasoning = state.streamingReasoningChunks.join("");
       const existingStream = state.subagentStreaming[event.toolCallId];
       const mergedReasoning = `${existingStream?.reasoning ?? ""}${rescuedReasoning}`;
       const newSubagentStreaming = {
@@ -630,7 +633,7 @@ export function processEvent(
           ...existingStream,
           agentDisplayName: event.agentDisplayName || event.agentName || "Subagent",
           taskTitle: event.taskTitle ?? existingStream?.taskTitle,
-          content: `${existingStream?.content ?? ""}${rescuedContent}`,
+          contentChunks: [...(existingStream?.contentChunks ?? []), ...(rescuedContent ? [rescuedContent] : [])],
           reasoning: mergedReasoning || undefined,
           contentInTranscript:
             (rescuedContent || rescuedReasoning)
@@ -670,8 +673,8 @@ export function processEvent(
         ...state,
         subagents: updatedSubagents,
         subagentStreaming: newSubagentStreaming,
-        streamingContent: "",
-        streamingReasoning: "",
+        streamingContentChunks: [],
+        streamingReasoningChunks: [],
       };
     }
 
@@ -751,7 +754,7 @@ export function processEvent(
               ?? existingSubagent?.agentDisplayName
               ?? existingSubagent?.agentName
               ?? "Subagent",
-            content: existingStream?.content ?? "",
+            contentChunks: existingStream?.contentChunks ?? [],
             reasoning: existingStream?.reasoning,
             contentInTranscript: existingStream?.contentInTranscript ?? false,
             taskTitle: existingStream?.taskTitle ?? existingSubagent?.taskTitle,

@@ -89,8 +89,8 @@ export const EphemeralModal = memo(function EphemeralModal({
       <box height={chatPaneHeight}>
         <ChatPane
           transcript={ephemeralRun.transcript}
-          streamingContent={ephemeralRun.streamingContent}
-          streamingReasoning=""
+          streamingContentChunks={[ephemeralRun.streamingContent]}
+          streamingReasoningChunks={[]}
           streamingAgentName={null}
           isStreaming={ephemeralRun.status === "running"}
           height={chatPaneHeight}

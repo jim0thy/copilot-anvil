@@ -25,8 +25,8 @@ function getFiletypeFromPath(path?: string): string | undefined {
 
 interface ChatPaneProps {
   transcript: TranscriptItem[];
-  streamingContent: string;
-  streamingReasoning: string;
+  streamingContentChunks: string[];
+  streamingReasoningChunks: string[];
   streamingAgentName: string | null;
   subagentStreaming?: Record<string, SubagentStreamEntry>;
   hasStarted?: boolean;
@@ -184,6 +184,15 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
   const editArgs = isEdit ? getEditToolArgs(tool.arguments) : null;
   const showDiff = isEdit && editArgs && !isRunning;
 
+  const diffPatch = useMemo(() => {
+    if (!showDiff || !editArgs) return null;
+    return createPatch(
+      editArgs.path ?? "file",
+      editArgs.oldStr!,
+      editArgs.newStr!,
+    );
+  }, [tool.toolCallId, tool.status]);
+
   return (
     <box
       flexDirection="column"
@@ -212,16 +221,12 @@ const ToolCallInline = memo(function ToolCallInline({ tool, theme }: { tool: Too
           ))}
         </box>
       )}
-      {showDiff && (
+      {diffPatch && (
         <box marginTop={1} backgroundColor={c.surface0}>
           <diff
-            diff={createPatch(
-              editArgs.path ?? "file",
-              editArgs.oldStr!,
-              editArgs.newStr!,
-            )}
+            diff={diffPatch}
             view="split"
-            filetype={getFiletypeFromPath(editArgs.path)}
+            filetype={getFiletypeFromPath(editArgs!.path)}
             syntaxStyle={getSyntaxStyle(theme.mode)}
             treeSitterClient={treeSitterClient}
             showLineNumbers={true}
@@ -284,9 +289,11 @@ const TranscriptList = memo(function TranscriptList({ transcript, theme }: { tra
   );
 });
 
-export const ChatPane = memo(function ChatPane({ transcript, streamingContent, streamingReasoning, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, hasStarted = false, isStreaming, height, theme }: ChatPaneProps) {
+export const ChatPane = memo(function ChatPane({ transcript, streamingContentChunks, streamingReasoningChunks, streamingAgentName, subagentStreaming: subagentStreamingProp = {}, hasStarted = false, isStreaming, height, theme }: ChatPaneProps) {
   const c = theme.colors;
   const [visibleCount, setVisibleCount] = useState(VISIBLE_WINDOW);
+  const streamingContent = useMemo(() => streamingContentChunks.join(""), [streamingContentChunks]);
+  const streamingReasoning = useMemo(() => streamingReasoningChunks.join(""), [streamingReasoningChunks]);
 
   const subagentStreamingEntries = Object.entries(subagentStreamingProp);
   const hasSubagentStreaming = subagentStreamingEntries.length > 0;
@@ -356,7 +363,8 @@ export const ChatPane = memo(function ChatPane({ transcript, streamingContent, s
       )}
 
       {subagentStreamingEntries.map(([toolCallId, stream]) => {
-          if (stream.contentInTranscript && !stream.content && !stream.currentIntent && !stream.lastProgress) {
+          const streamContent = (stream.contentChunks ?? []).join("");
+          if (stream.contentInTranscript && !streamContent && !stream.currentIntent && !stream.lastProgress) {
             return null;
           }
           return (
@@ -382,8 +390,8 @@ export const ChatPane = memo(function ChatPane({ transcript, streamingContent, s
               </box>
             )}
             <box paddingLeft={1}>
-              {stream.content ? (
-                <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={stream.content} streaming={!stream.contentInTranscript} />
+              {streamContent ? (
+                <markdown syntaxStyle={getSyntaxStyle(theme.mode)} content={streamContent} streaming={!stream.contentInTranscript} />
               ) : !stream.contentInTranscript ? (
                 stream.lastProgress ? (
                   <text fg={c.subtle}>{stream.lastProgress}</text>

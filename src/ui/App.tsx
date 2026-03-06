@@ -2,7 +2,8 @@ import { useKeyboard, useTerminalDimensions } from '@opentui/react'
 import type { CliRenderer } from '@opentui/core'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { basename } from 'node:path'
-import type { Harness, HarnessState } from '../harness/Harness.js'
+import type { Harness, HarnessState, HarnessStatus } from '../harness/Harness.js'
+import type { HarnessEvent, SubagentStreamEntry } from '../harness/events.js'
 import { ChatPane } from './panes/ChatPane.js'
 import { InputBar } from './panes/InputBar.js'
 import { StartScreen } from './panes/StartScreen.js'
@@ -30,6 +31,43 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 const STATUS_BAR_HEIGHT = 2;
 const MIN_INPUT_BAR_HEIGHT = 3;
 
+interface StreamingSlice {
+  streamingContentChunks: string[];
+  streamingReasoningChunks: string[];
+  streamingAgentName: string | null;
+  subagentStreaming: Record<string, SubagentStreamEntry>;
+}
+
+interface TranscriptSlice {
+  transcript: HarnessState["transcript"];
+}
+
+interface SidebarSlice {
+  contextInfo: HarnessState["contextInfo"];
+  orchestrationMode: HarnessState["orchestrationMode"];
+  subagents: HarnessState["subagents"];
+  skills: HarnessState["skills"];
+  currentIntent: string | null;
+  currentTodo: string | null;
+  currentPlan: string | null;
+  currentSessionName: string | null;
+}
+
+interface UISlice {
+  status: HarnessStatus;
+  currentModel: string | null;
+  availableModels: HarnessState["availableModels"];
+  currentAgentId: string | null;
+  availableAgents: HarnessState["availableAgents"];
+  currentRunId: string | null;
+  messageQueue: string[];
+  pendingQuestion: HarnessState["pendingQuestion"];
+  availableSessions: HarnessState["availableSessions"];
+  currentSessionId: string | null;
+  ephemeralRun: HarnessState["ephemeralRun"];
+  reasoningEffort: HarnessState["reasoningEffort"];
+}
+
 function useSpinner(active: boolean): string {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
@@ -44,7 +82,40 @@ function useSpinner(active: boolean): string {
 
 export function App({ harness, renderer }: AppProps) {
   const { width, height } = useTerminalDimensions();
-  const [state, setState] = useState<HarnessState>(harness.getState());
+  const initialState = harness.getState();
+  const [streamingState, setStreamingState] = useState<StreamingSlice>({
+    streamingContentChunks: initialState.streamingContentChunks,
+    streamingReasoningChunks: initialState.streamingReasoningChunks,
+    streamingAgentName: initialState.streamingAgentName,
+    subagentStreaming: initialState.subagentStreaming,
+  });
+  const [transcriptState, setTranscriptState] = useState<TranscriptSlice>({
+    transcript: initialState.transcript,
+  });
+  const [sidebarState, setSidebarState] = useState<SidebarSlice>({
+    contextInfo: initialState.contextInfo,
+    orchestrationMode: initialState.orchestrationMode,
+    subagents: initialState.subagents,
+    skills: initialState.skills,
+    currentIntent: initialState.currentIntent,
+    currentTodo: initialState.currentTodo,
+    currentPlan: initialState.currentPlan,
+    currentSessionName: initialState.currentSessionName,
+  });
+  const [uiState, setUiState] = useState<UISlice>({
+    status: initialState.status,
+    currentModel: initialState.currentModel,
+    availableModels: initialState.availableModels,
+    currentAgentId: initialState.currentAgentId,
+    availableAgents: initialState.availableAgents,
+    currentRunId: initialState.currentRunId,
+    messageQueue: initialState.messageQueue,
+    pendingQuestion: initialState.pendingQuestion,
+    availableSessions: initialState.availableSessions,
+    currentSessionId: initialState.currentSessionId,
+    ephemeralRun: initialState.ephemeralRun,
+    reasoningEffort: initialState.reasoningEffort,
+  });
   const [hasStarted, setHasStarted] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo>(getGitInfo());
   const [modifiedFiles, setModifiedFiles] = useState<FileChange[]>(getModifiedFiles());
@@ -56,28 +127,66 @@ export function App({ harness, renderer }: AppProps) {
   const [showAgentsModal, setShowAgentsModal] = useState(false);
   const [inputBarHeight, setInputBarHeight] = useState(MIN_INPUT_BAR_HEIGHT);
   const streamingUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const spinner = useSpinner(state.status === "running");
+  const spinner = useSpinner(uiState.status === "running");
 
   // Subscribe to harness events.
   // Primary: useRef-based subscription fires synchronously during first render,
   // ensuring we never miss events (useEffect may not fire in all React reconcilers).
   // Fallback: useEffect subscription as backup in case useRef doesn't work.
   const unsubRef = useRef<(() => void) | null>(null);
-  const subscriberFn = useCallback((event: import('../harness/events.js').HarnessEvent) => {
+  const STREAMING_THROTTLE_MS = 100;
+  const subscriberFn = useCallback((event: HarnessEvent) => {
     const isStreamingEvent = event.type === "assistant.delta" || event.type === "reasoning.delta";
     if (isStreamingEvent) {
       if (streamingUpdateTimerRef.current === null) {
         streamingUpdateTimerRef.current = setTimeout(() => {
           streamingUpdateTimerRef.current = null;
-          setState(harness.getState());
-        }, 32);
+          const latest = harness.getState();
+          setStreamingState({
+            streamingContentChunks: latest.streamingContentChunks,
+            streamingReasoningChunks: latest.streamingReasoningChunks,
+            streamingAgentName: latest.streamingAgentName,
+            subagentStreaming: latest.subagentStreaming,
+          });
+        }, STREAMING_THROTTLE_MS);
       }
     } else {
       if (streamingUpdateTimerRef.current !== null) {
         clearTimeout(streamingUpdateTimerRef.current);
         streamingUpdateTimerRef.current = null;
       }
-      setState(harness.getState());
+      const s = harness.getState();
+      setStreamingState({
+        streamingContentChunks: s.streamingContentChunks,
+        streamingReasoningChunks: s.streamingReasoningChunks,
+        streamingAgentName: s.streamingAgentName,
+        subagentStreaming: s.subagentStreaming,
+      });
+      setTranscriptState({ transcript: s.transcript });
+      setSidebarState({
+        contextInfo: s.contextInfo,
+        orchestrationMode: s.orchestrationMode,
+        subagents: s.subagents,
+        skills: s.skills,
+        currentIntent: s.currentIntent,
+        currentTodo: s.currentTodo,
+        currentPlan: s.currentPlan,
+        currentSessionName: s.currentSessionName,
+      });
+      setUiState({
+        status: s.status,
+        currentModel: s.currentModel,
+        availableModels: s.availableModels,
+        currentAgentId: s.currentAgentId,
+        availableAgents: s.availableAgents,
+        currentRunId: s.currentRunId,
+        messageQueue: s.messageQueue,
+        pendingQuestion: s.pendingQuestion,
+        availableSessions: s.availableSessions,
+        currentSessionId: s.currentSessionId,
+        ephemeralRun: s.ephemeralRun,
+        reasoningEffort: s.reasoningEffort,
+      });
     }
 
     if (event.type === "show.agents.modal") {
@@ -147,13 +256,13 @@ export function App({ harness, renderer }: AppProps) {
   );
 
   const handleCancel = useCallback(() => {
-    if (state.status === "running") {
+    if (uiState.status === "running") {
       harness.dispatch({ type: "cancel" });
     } else {
       renderer.destroy();
       process.exit(0);
     }
-  }, [harness, state.status, renderer]);
+  }, [harness, uiState.status, renderer]);
 
   const handleSelectModel = useCallback((modelId: string) => {
     harness.dispatch({ type: "change.model", modelId });
@@ -208,16 +317,16 @@ export function App({ harness, renderer }: AppProps) {
 
   const handleAnswerQuestion = useCallback(
     (answer: string, wasFreeform: boolean) => {
-      if (state.pendingQuestion) {
+      if (uiState.pendingQuestion) {
         harness.dispatch({
           type: "answer.question",
-          requestId: state.pendingQuestion.requestId,
+          requestId: uiState.pendingQuestion.requestId,
           answer,
           wasFreeform,
         });
       }
     },
-    [harness, state.pendingQuestion]
+    [harness, uiState.pendingQuestion]
   );
 
   const handleSmartCommitConfirm = useCallback(() => {
@@ -241,8 +350,8 @@ export function App({ harness, renderer }: AppProps) {
   }, [harness]);
 
   const effectiveSessionFocused = sessionFocused && showSessionHistory &&
-    !state.pendingQuestion && !showModelSelector && !showSkillsPane &&
-    !showCommitConfirm && !showAgentsModal && !state.ephemeralRun;
+    !uiState.pendingQuestion && !showModelSelector && !showSkillsPane &&
+    !showCommitConfirm && !showAgentsModal && !uiState.ephemeralRun;
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === "s") {
@@ -259,7 +368,7 @@ export function App({ harness, renderer }: AppProps) {
     }
 
     if (effectiveSessionFocused && !(key.ctrl && key.name === "c")) return;
-    if (state.pendingQuestion || showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || state.ephemeralRun) return;
+    if (uiState.pendingQuestion || showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || uiState.ephemeralRun) return;
 
     if (key.name === "escape") {
       renderer.destroy();
@@ -270,34 +379,34 @@ export function App({ harness, renderer }: AppProps) {
     }
     // Tab cycles through agents
     if (key.name === "tab" && !key.shift && !key.ctrl) {
-      if (state.status !== "running") {
+      if (uiState.status !== "running") {
         harness.dispatch({ type: "agent.cycle", direction: "next" });
       }
     }
     // Shift+Tab opens model selector
     if (key.shift && key.name === "tab") {
-      if (state.status !== "running" && state.availableModels.length > 0) {
+      if (uiState.status !== "running" && uiState.availableModels.length > 0) {
         setShowModelSelector(true);
       }
     }
     if (key.ctrl && key.name === "n") {
-      if (state.status !== "running") {
+      if (uiState.status !== "running") {
         handleNewSession();
       }
     }
 
     if (key.ctrl && key.name === "g") {
-      if (state.status !== "running" && gitInfo.hasChanges) {
+      if (uiState.status !== "running" && gitInfo.hasChanges) {
         setShowCommitConfirm(true);
       }
     }
     // Ctrl+T cycles through reasoning effort
     if (key.ctrl && key.name === "t") {
-      if (state.status !== "running") {
-        const currentModelInfo = state.availableModels.find(m => m.id === state.currentModel);
+      if (uiState.status !== "running") {
+        const currentModelInfo = uiState.availableModels.find(m => m.id === uiState.currentModel);
         if (currentModelInfo?.supportsReasoningEffort) {
           const newEffort = cycleReasoningEffort(
-            state.reasoningEffort,
+            uiState.reasoningEffort,
             currentModelInfo.supportedReasoningEfforts
           );
           harness.dispatch({ type: "change.reasoning.effort", effort: newEffort });
@@ -309,26 +418,26 @@ export function App({ harness, renderer }: AppProps) {
   const theme = getTheme();
   const c = theme.colors; // Shorthand for cleaner code
 
-  const statusColor = state.status === "running" ? c.warning : c.success;
-  const statusText = state.status === "running" ? "Processing" : "Ready";
+  const statusColor = uiState.status === "running" ? c.warning : c.success;
+  const statusText = uiState.status === "running" ? "Processing" : "Ready";
   const projectName = basename(process.cwd());
 
   const modelDisplay = useMemo(() =>
-    state.currentModel
-      ? state.currentModel.split("/").pop() || state.currentModel
+    uiState.currentModel
+      ? uiState.currentModel.split("/").pop() || uiState.currentModel
       : "loading...",
-    [state.currentModel]
+    [uiState.currentModel]
   );
 
   // Get current agent name for status bar
   const currentAgent = useMemo(() =>
-    state.currentAgentId
-      ? state.availableAgents.find(a => a.id === state.currentAgentId)
+    uiState.currentAgentId
+      ? uiState.availableAgents.find(a => a.id === uiState.currentAgentId)
       : null,
-    [state.currentAgentId, state.availableAgents]
+    [uiState.currentAgentId, uiState.availableAgents]
   );
   const agentDisplay = currentAgent?.name ?? "Copilot";
-  const effectiveReasoningEffort = currentAgent?.reasoningEffort ?? state.reasoningEffort;
+  const effectiveReasoningEffort = currentAgent?.reasoningEffort ?? uiState.reasoningEffort;
 
   const contentHeight = Math.max(1, height - STATUS_BAR_HEIGHT - 1);
   const sessionHistoryWidth = Math.floor(width * 0.25);
@@ -342,8 +451,8 @@ export function App({ harness, renderer }: AppProps) {
           {showSessionHistory && (
             <box width="25%">
               <SessionHistoryPane
-                sessions={state.availableSessions || []}
-                currentSessionId={state.currentSessionId || null}
+                sessions={uiState.availableSessions || []}
+                currentSessionId={uiState.currentSessionId || null}
                 onSelect={handleSelectSession}
                 onNewSession={handleNewSession}
                 onClose={handleSessionClose}
@@ -356,41 +465,41 @@ export function App({ harness, renderer }: AppProps) {
           )}
           <box flexDirection="column" width={mainWidth}>
             <ChatPane
-              transcript={state.transcript}
-              streamingContent={state.streamingContent}
-              streamingReasoning={state.streamingReasoning}
-              streamingAgentName={state.streamingAgentName}
-              subagentStreaming={state.subagentStreaming}
+              transcript={transcriptState.transcript}
+              streamingContentChunks={streamingState.streamingContentChunks}
+              streamingReasoningChunks={streamingState.streamingReasoningChunks}
+              streamingAgentName={streamingState.streamingAgentName}
+              subagentStreaming={streamingState.subagentStreaming}
               hasStarted={hasStarted}
-              isStreaming={state.status === "running"}
+              isStreaming={uiState.status === "running"}
               height={contentHeight - inputBarHeight}
               theme={theme}
             />
             <InputBar
               onSubmit={handleSubmit}
-              disabled={state.status === "running" || !!state.pendingQuestion}
-              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || !!state.pendingQuestion || effectiveSessionFocused}
-              queuedCount={state.messageQueue.length}
+              disabled={uiState.status === "running" || !!uiState.pendingQuestion}
+              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!uiState.ephemeralRun || !!uiState.pendingQuestion || effectiveSessionFocused}
+              queuedCount={uiState.messageQueue.length}
               theme={theme}
               onHeightChange={handleInputHeightChange}
               agentName={agentDisplay}
               modelName={modelDisplay}
-              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? effectiveReasoningEffort : undefined}
+              reasoningEffort={uiState.availableModels.find(m => m.id === uiState.currentModel)?.supportsReasoningEffort ? effectiveReasoningEffort : undefined}
               containerWidth={mainWidth}
             />
           </box>
           <box flexDirection="column" width={sidebarWidth} paddingLeft={2}>
             <Sidebar
-              contextInfo={state.contextInfo}
-              orchestrationMode={state.orchestrationMode}
-              isRunning={state.status === "running"}
+              contextInfo={sidebarState.contextInfo}
+              orchestrationMode={sidebarState.orchestrationMode}
+              isRunning={uiState.status === "running"}
               files={modifiedFiles}
-              currentSessionName={state.currentSessionName}
-              currentIntent={state.currentIntent}
-              currentTodo={state.currentTodo}
-              currentPlan={state.currentPlan}
-              subagents={state.subagents}
-              skills={state.skills}
+              currentSessionName={sidebarState.currentSessionName}
+              currentIntent={sidebarState.currentIntent}
+              currentTodo={sidebarState.currentTodo}
+              currentPlan={sidebarState.currentPlan}
+              subagents={sidebarState.subagents}
+              skills={sidebarState.skills}
               agentName={agentDisplay}
               modelName={modelDisplay}
               height={contentHeight}
@@ -404,8 +513,8 @@ export function App({ harness, renderer }: AppProps) {
           {showSessionHistory && (
             <box width="25%">
               <SessionHistoryPane
-                sessions={state.availableSessions || []}
-                currentSessionId={state.currentSessionId || null}
+                sessions={uiState.availableSessions || []}
+                currentSessionId={uiState.currentSessionId || null}
                 onSelect={handleSelectSession}
                 onNewSession={handleNewSession}
                 onClose={handleSessionClose}
@@ -419,14 +528,14 @@ export function App({ harness, renderer }: AppProps) {
           <box flexDirection="column" width={width - (showSessionHistory ? sessionHistoryWidth : 0)}>
             <StartScreen
               onSubmit={handleSubmit}
-              disabled={state.status === "running"}
-              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!state.ephemeralRun || effectiveSessionFocused}
+              disabled={uiState.status === "running"}
+              suppressKeys={showModelSelector || showSkillsPane || showCommitConfirm || showAgentsModal || !!uiState.ephemeralRun || effectiveSessionFocused}
               theme={theme}
               width={width - (showSessionHistory ? sessionHistoryWidth : 0)}
               height={contentHeight}
               agentName={agentDisplay}
               modelName={modelDisplay}
-              reasoningEffort={state.availableModels.find(m => m.id === state.currentModel)?.supportsReasoningEffort ? effectiveReasoningEffort : undefined}
+              reasoningEffort={uiState.availableModels.find(m => m.id === uiState.currentModel)?.supportsReasoningEffort ? effectiveReasoningEffort : undefined}
             />
           </box>
         </box>
@@ -442,7 +551,7 @@ export function App({ harness, renderer }: AppProps) {
         justifyContent="space-between"
       >
         <text>
-          {state.status === "running" && (
+          {uiState.status === "running" && (
             <span>{spinner}  </span>
           )}
           <span fg={statusColor}>{statusText}</span>
@@ -479,8 +588,8 @@ export function App({ harness, renderer }: AppProps) {
       {/* Model Selector Modal */}
       {showModelSelector && (
         <ModelSelector
-          models={state.availableModels}
-          currentModelId={state.currentModel}
+          models={uiState.availableModels}
+          currentModelId={uiState.currentModel}
           onSelect={handleSelectModel}
           onClose={handleCloseModelSelector}
           theme={theme}
@@ -492,7 +601,7 @@ export function App({ harness, renderer }: AppProps) {
       {/* Skills Pane Modal */}
       {showSkillsPane && (
         <SkillsPane
-          skills={state.skills}
+          skills={sidebarState.skills}
           onSelect={handleSelectSkill}
           onClose={handleCloseSkillsPane}
           theme={theme}
@@ -504,8 +613,8 @@ export function App({ harness, renderer }: AppProps) {
       {/* Agents Modal */}
       {showAgentsModal && (
         <AgentsModal
-          agents={state.availableAgents}
-          currentAgentId={state.currentAgentId}
+          agents={uiState.availableAgents}
+          currentAgentId={uiState.currentAgentId}
           onSelect={handleSelectAgent}
           onClose={handleCloseAgentsModal}
           theme={theme}
@@ -530,9 +639,9 @@ export function App({ harness, renderer }: AppProps) {
       )}
 
       {/* Ephemeral Modal (Smart Commit & Push) */}
-      {state.ephemeralRun && (
+      {uiState.ephemeralRun && (
         <EphemeralModal
-          ephemeralRun={state.ephemeralRun}
+          ephemeralRun={uiState.ephemeralRun}
           onClose={handleCloseCommandModal}
           theme={theme}
           width={width}
@@ -541,9 +650,9 @@ export function App({ harness, renderer }: AppProps) {
       )}
 
       {/* Question Modal */}
-      {state.pendingQuestion && (
+      {uiState.pendingQuestion && (
         <QuestionModal
-          question={state.pendingQuestion}
+          question={uiState.pendingQuestion}
           onAnswer={handleAnswerQuestion}
           theme={theme}
           width={width}

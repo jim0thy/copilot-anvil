@@ -82,8 +82,8 @@ export interface HarnessState {
   transcript: TranscriptItem[];
   logs: LogEvent[];
   currentRunId: string | null;
-  streamingContent: string;
-  streamingReasoning: string;
+  streamingContentChunks: string[];
+  streamingReasoningChunks: string[];
   /** Agent display name for the currently streaming content */
   streamingAgentName: string | null;
   subagentStreaming: Record<string, SubagentStreamEntry>;
@@ -133,8 +133,8 @@ export const INITIAL_STATE: HarnessState = {
   transcript: [],
   logs: [],
   currentRunId: null,
-  streamingContent: "",
-  streamingReasoning: "",
+  streamingContentChunks: [],
+  streamingReasoningChunks: [],
   streamingAgentName: null,
   subagentStreaming: {},
   activeTools: [],

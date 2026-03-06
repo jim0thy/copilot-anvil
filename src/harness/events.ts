@@ -39,7 +39,7 @@ export interface ToolCallItem {
 
 export interface SubagentStreamEntry {
   agentDisplayName: string;
-  content: string;
+  contentChunks?: string[];
   reasoning?: string;
   contentInTranscript?: boolean;
   taskTitle?: string;
