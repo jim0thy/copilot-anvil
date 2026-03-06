@@ -113,8 +113,15 @@ export class Harness {
       // Side effect: schedule queue processing after a run finishes
       if (event.type === "run.finished" && prevRunId) {
         setTimeout(() => {
-          this.processNextQueuedMessage().catch((err) => {
+          this.processNextQueuedMessage().then(() => {
+            // Defensive: if still idle after queue processing, the queue should be empty
+            if (this.state.status === "idle") {
+              this.state = { ...this.state, messageQueue: [] };
+            }
+          }).catch((err) => {
             this.emit(createLogEvent("error", `Queue processing failed: ${err instanceof Error ? err.message : String(err)}`));
+            // Defensive: clear any orphaned queue entries on failure
+            this.state = { ...this.state, messageQueue: [] };
           });
         }, 0);
       }
@@ -591,8 +598,22 @@ export class Harness {
       allowFreeform: request.allowFreeform ?? true,
     });
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.questionResolvers.set(requestId, resolve);
+
+      const timeout = setTimeout(() => {
+        if (this.questionResolvers.has(requestId)) {
+          this.questionResolvers.delete(requestId);
+          reject(new Error(`Question timed out after 60s: ${request.question}`));
+        }
+      }, 60_000);
+
+      // Ensure the timeout doesn't keep the process alive if the answer arrives normally
+      const originalResolve = resolve;
+      this.questionResolvers.set(requestId, (answer) => {
+        clearTimeout(timeout);
+        originalResolve(answer);
+      });
     });
   }
 
