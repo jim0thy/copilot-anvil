@@ -67,11 +67,18 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
   const rowWidth = Math.max(8, width - 2);
 
   const { sortedSessions, rows } = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const sorted = [...sessions]
       .sort((a, b) => {
         const dateA = (a.lastUsedAt || a.createdAt)?.getTime() || 0;
         const dateB = (b.lastUsedAt || b.createdAt)?.getTime() || 0;
         return dateB - dateA;
+      })
+      .filter((s) => {
+        if (currentSessionId && s.id === currentSessionId) return true;
+        const date = s.lastUsedAt || s.createdAt;
+        if (!date) return true;
+        return date.getTime() >= cutoff;
       });
 
     const projectSessions = sorted.filter((s) => s.isCurrentProject);
@@ -92,7 +99,7 @@ export const SessionHistoryPane = memo(function SessionHistoryPane({
       sortedSessions: sorted,
       rows: nextRows,
     };
-  }, [sessions]);
+  }, [sessions, currentSessionId]);
 
   const selectableIndices = useMemo(
     () => rows.map((row, index) => (row.kind === "session" ? index : -1)).filter((index) => index >= 0),

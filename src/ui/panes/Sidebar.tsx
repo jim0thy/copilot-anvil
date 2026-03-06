@@ -28,17 +28,17 @@ interface SidebarProps {
 }
 
 // --- Context Section (always visible) ---
-function ContextSection({ 
-  contextInfo, 
-  theme, 
-  innerWidth 
-}: { 
-  contextInfo: ContextInfo; 
-  theme: Theme; 
-  innerWidth: number 
+function ContextSection({
+  contextInfo,
+  theme,
+  innerWidth
+}: {
+  contextInfo: ContextInfo;
+  theme: Theme;
+  innerWidth: number
 }) {
   const c = theme.colors;
-  const { currentTokens, tokenLimit, consumedRequests, remainingPremiumRequests } = contextInfo;
+  const { currentTokens, tokenLimit } = contextInfo;
 
   const contextPercent = tokenLimit > 0
     ? Math.round((currentTokens / tokenLimit) * 100)
@@ -56,36 +56,18 @@ function ContextSection({
   const progressBar = "\u2588".repeat(filledWidth) + "\u2591".repeat(barWidth - filledWidth);
 
   return (
-    <box flexDirection="column">
-      <box flexDirection="row" justifyContent="flex-end" alignItems="center">
-        <box flexDirection="row" gap={2}>
-          <text>
-            <span fg={c.subtext0}>Req: </span>
-            <span fg={c.info}><b>{consumedRequests}</b></span>
-          </text>
-          <text fg={c.subtle}>{"\u2502"}</text>
-          <text>
-            <span fg={c.subtext0}>Rem: </span>
-            <span fg={c.accent}>
-              <b>{remainingPremiumRequests !== null ? remainingPremiumRequests : '\u221E'}</b>
-            </span>
-          </text>
-        </box>
+    <box flexDirection="column" marginTop={1}>
+      <box flexDirection="row" justifyContent="space-between" alignItems="center">
+        <text>
+          <span fg={c.info}><b>{currentTokens.toLocaleString()}</b></span>
+          <span fg={c.subtle}> / </span>
+          <span fg={c.subtext0}>{tokenLimit.toLocaleString()}</span>
+          <span fg={c.subtext0}> tokens</span>
+        </text>
+        <text fg={percentColor}><b>{contextPercent}%</b></text>
       </box>
-
-      <box flexDirection="column" marginTop={1}>
-        <box flexDirection="row" justifyContent="space-between" alignItems="center">
-          <text>
-            <span fg={c.info}><b>{currentTokens.toLocaleString()}</b></span>
-            <span fg={c.subtle}> / </span>
-            <span fg={c.subtext0}>{tokenLimit.toLocaleString()}</span>
-            <span fg={c.subtext0}> tokens</span>
-          </text>
-          <text fg={percentColor}><b>{contextPercent}%</b></text>
-        </box>
-        <box>
-          <text fg={percentColor}>{progressBar}</text>
-        </box>
+      <box>
+        <text fg={percentColor}>{progressBar}</text>
       </box>
     </box>
   );
@@ -108,7 +90,6 @@ function CollapsibleSection({
   isCollapsed,
   onToggle,
   maxHeight,
-  width,
   children,
   theme,
 }: {
@@ -116,14 +97,19 @@ function CollapsibleSection({
   isCollapsed: boolean;
   onToggle: () => void;
   maxHeight: number;
-  width: number;
   children: ReactNode;
   theme: Theme;
 }) {
   const c = theme.colors;
 
   return (
-    <box flexDirection="column" width={width} onMouseDown={(e) => { if (e.button === MouseButton.LEFT) onToggle(); }}>
+    <box
+      flexDirection="column"
+      width="100%"
+      flexShrink={1}
+      flexGrow={0}
+      onMouseDown={(e) => { if (e.button === MouseButton.LEFT) onToggle(); }}
+    >
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <text fg={c.primary}>
           <b>{title}</b>
@@ -131,11 +117,23 @@ function CollapsibleSection({
         <text fg={c.subtle}>{isCollapsed ? "▸" : "▾"}</text>
       </box>
       {!isCollapsed && (
-        <box marginTop={1} height={maxHeight} overflow="hidden">
+        <box
+          marginTop={1}
+          maxHeight={maxHeight}
+          overflow="hidden"
+          flexGrow={0}
+          flexShrink={1}
+          minHeight={0}
+        >
           <scrollbox
-            height={maxHeight}
+            maxHeight={maxHeight}
+            flexGrow={0}
+            flexShrink={1}
+            minHeight={0}
+            viewportOptions={{ minHeight: 0 }}
             contentOptions={{
               flexDirection: "column",
+              minHeight: 0,
             }}
           >
             {children}
@@ -450,7 +448,6 @@ export const Sidebar = memo(function Sidebar({
   theme,
 }: SidebarProps) {
   const c = theme.colors;
-  const [contextCollapsed, setContextCollapsed] = useState(false);
   const [subagentsCollapsed, setSubagentsCollapsed] = useState(false);
   const [filesCollapsed, setFilesCollapsed] = useState(false);
   const [planCollapsed, setPlanCollapsed] = useState(false);
@@ -484,16 +481,16 @@ export const Sidebar = memo(function Sidebar({
       )}
 
       {/* Context Section - Always visible */}
-      <CollapsibleSection
-        title="Context"
-        isCollapsed={contextCollapsed}
-        onToggle={() => setContextCollapsed(!contextCollapsed)}
-        maxHeight={6}
-        width={innerWidth}
-        theme={theme}
-      >
+      <box flexDirection="column" width="100%">
+        <box flexDirection="row" justifyContent="space-between" width="100%">
+          <text fg={c.primary}><b>Context</b></text>
+          <text>
+            <span fg={c.subtext0}>Remaining: </span>
+            <span fg={c.accent}><b>{contextInfo.remainingPremiumRequests !== null ? contextInfo.remainingPremiumRequests : '∞'}</b></span>
+          </text>
+        </box>
         <ContextSection contextInfo={contextInfo} theme={theme} innerWidth={innerWidth} />
-      </CollapsibleSection>
+      </box>
 
       {/* Subagents Section - Always show main agent, subagents if any */}
       <SectionDivider theme={theme} innerWidth={innerWidth} />
@@ -502,7 +499,6 @@ export const Sidebar = memo(function Sidebar({
         isCollapsed={subagentsCollapsed}
         onToggle={() => setSubagentsCollapsed(!subagentsCollapsed)}
         maxHeight={12}
-        width={innerWidth}
         theme={theme}
       >
         <SubagentsSection
@@ -525,7 +521,6 @@ export const Sidebar = memo(function Sidebar({
             isCollapsed={filesCollapsed}
             onToggle={() => setFilesCollapsed(!filesCollapsed)}
             maxHeight={10}
-            width={innerWidth}
             theme={theme}
           >
             <FilesSection files={files} theme={theme} />
@@ -540,7 +535,6 @@ export const Sidebar = memo(function Sidebar({
         isCollapsed={planCollapsed}
         onToggle={() => setPlanCollapsed(!planCollapsed)}
         maxHeight={10}
-        width={innerWidth}
         theme={theme}
       >
         <PlanSection
@@ -558,7 +552,6 @@ export const Sidebar = memo(function Sidebar({
             isCollapsed={skillsCollapsed}
             onToggle={() => setSkillsCollapsed(!skillsCollapsed)}
             maxHeight={6}
-            width={innerWidth}
             theme={theme}
           >
             <SkillsSection skills={skills} theme={theme} />
